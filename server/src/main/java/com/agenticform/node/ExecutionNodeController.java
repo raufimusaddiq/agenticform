@@ -20,11 +20,16 @@ import java.util.UUID;
 @RequestMapping("/api/nodes")
 public class ExecutionNodeController {
     private final ExecutionNodeService service;
+    private final NodeCommandCompletionHandler completions;
     private final NodeSignatureVerifier signatures;
     private final ObjectMapper mapper;
 
-    public ExecutionNodeController(ExecutionNodeService service, NodeSignatureVerifier signatures, ObjectMapper mapper) {
+    public ExecutionNodeController(ExecutionNodeService service,
+                                   NodeCommandCompletionHandler completions,
+                                   NodeSignatureVerifier signatures,
+                                   ObjectMapper mapper) {
         this.service = service;
+        this.completions = completions;
         this.signatures = signatures;
         this.mapper = mapper;
     }
@@ -75,7 +80,10 @@ public class ExecutionNodeController {
         String path = "/api/nodes/" + nodeId + "/commands/" + commandId + "/complete";
         signatures.verify(nodeId, timestamp, signature, "POST", path, body);
         CompleteCommandRequest request = mapper.readValue(body, CompleteCommandRequest.class);
-        return service.complete(nodeId, commandId, request.success(), request.resultJson(), request.error());
+        NodeCommandEntity command = service.complete(nodeId, commandId,
+                request.success(), request.resultJson(), request.error());
+        completions.handle(command, request.success(), request.resultJson(), request.error());
+        return command;
     }
 
     @PostMapping("/{nodeId}/status")
