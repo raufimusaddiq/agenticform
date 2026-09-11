@@ -169,3 +169,109 @@ export type HumanApproval = {
   createdAt: string;
   resolvedAt: string | null;
 };
+
+export type OperationalEnvironmentKind = 'DEVELOPMENT' | 'STAGING' | 'PRODUCTION' | 'OTHER';
+
+export type OperationalEnvironment = {
+  id: string;
+  projectId: string;
+  key: string;
+  displayName: string;
+  kind: OperationalEnvironmentKind;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OperationalService = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  displayName: string;
+  healthUrl: string | null;
+  readinessUrl: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RunbookStepType = 'ASSERT_GIT_CLEAN' | 'ASSERT_GIT_SHA' | 'COMMAND' | 'HTTP_CHECK' | 'SERVICE_CHECK';
+
+export type RunbookStep = {
+  key: string;
+  name: string;
+  type: RunbookStepType;
+  config: Record<string, unknown>;
+  timeoutSeconds: number;
+};
+
+export type OperationalRunbook = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  environmentKey: string;
+  key: string;
+  name: string;
+  action: string;
+  description: string;
+  enabled: boolean;
+  version: number;
+  steps: RunbookStep[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OperationRunStatus =
+  | 'WAITING_APPROVAL'
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'DENIED'
+  | 'DECLINED'
+  | 'INTERRUPTED';
+
+export type OperationRun = {
+  id: string;
+  projectId: string;
+  runbookId: string;
+  environmentId: string;
+  requestedAgentId: string | null;
+  requestedTaskId: string | null;
+  requestedBy: string;
+  action: string;
+  environmentKey: string;
+  status: OperationRunStatus;
+  policyEffect: PolicyEffect;
+  policyRuleId: string | null;
+  runbookSnapshot: string;
+  parametersJson: string;
+  approvedBy: string | null;
+  lastError: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
+export type OperationStepRun = {
+  id: string;
+  operationRunId: string;
+  stepKey: string;
+  stepName: string;
+  stepType: RunbookStepType;
+  position: number;
+  status: 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+  summary: string | null;
+  evidence: string | null;
+  exitCode: number | null;
+  durationMs: number | null;
+  startedAt: string;
+  completedAt: string | null;
+};
+
+export type OperationRunDetail = {
+  run: OperationRun;
+  steps: OperationStepRun[];
+};
