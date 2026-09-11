@@ -41,18 +41,24 @@ public class PolicyActionClassifier {
             case FILE_CHANGE -> new ClassifiedAction("FILE_CHANGE", environment(params), summary(params, "reason", "grantRoot", "File change"));
             case PERMISSIONS -> new ClassifiedAction("PERMISSIONS", environment(params), summary(params, "reason", null, "Additional permission request"));
             case USER_INPUT -> new ClassifiedAction("USER_INPUT", "*", userInputSummary(params));
-            case PROTECTED_ACTION -> new ClassifiedAction(
-                    normalizeAction(text(params, "kind")),
-                    normalizeEnvironment(text(params, "environment")),
+            case PROTECTED_ACTION -> semanticAction(text(params, "kind"), text(params, "environment"),
                     summary(params, "summary", "kind", "Protected action"));
         };
     }
 
     public ClassifiedAction declaredAction(JsonNode arguments) {
-        return new ClassifiedAction(
-                normalizeAction(text(arguments, "action")),
-                normalizeEnvironment(text(arguments, "environment")),
+        return semanticAction(text(arguments, "action"), text(arguments, "environment"),
                 summary(arguments, "summary", "action", "Policy-governed action"));
+    }
+
+    private ClassifiedAction semanticAction(String rawAction, String rawEnvironment, String summary) {
+        String action = normalizeAction(rawAction);
+        String environment = normalizeEnvironment(rawEnvironment);
+        if ("*".equals(environment)
+                && ("PRODUCTION_DEPLOY".equals(action) || "PRODUCTION_DML".equals(action))) {
+            environment = "production";
+        }
+        return new ClassifiedAction(action, environment, summary);
     }
 
     private ClassifiedAction classifyCommand(JsonNode params) {
