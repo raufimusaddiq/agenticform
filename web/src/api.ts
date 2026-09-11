@@ -105,6 +105,12 @@ export const api = {
     humanControlMode: HumanControlMode;
   }) => request<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(input) }),
 
+  ensureOperationalAgent: (projectId: string) =>
+    request<Agent>('/api/agents/operational/ensure', {
+      method: 'POST',
+      body: JSON.stringify({ projectId })
+    }),
+
   updateHumanControlMode: (agentId: string, mode: HumanControlMode) =>
     request<Agent>(`/api/agents/${agentId}/human-control-mode`, {
       method: 'POST',
