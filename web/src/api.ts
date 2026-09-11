@@ -58,6 +58,12 @@ export const api = {
       body: JSON.stringify({ mode })
     }),
 
+  updateQueueMode: (agentId: string, mode: AgentQueueMode) =>
+    request<Agent>(`/api/agents/${agentId}/queue-mode`, {
+      method: 'POST',
+      body: JSON.stringify({ mode })
+    }),
+
   intervene: (agentId: string) =>
     request<Agent>(`/api/agents/${agentId}/intervene`, { method: 'POST' }),
 
