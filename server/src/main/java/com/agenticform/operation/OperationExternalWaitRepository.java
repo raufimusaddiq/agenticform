@@ -8,5 +8,6 @@ import java.util.UUID;
 
 public interface OperationExternalWaitRepository extends JpaRepository<OperationExternalWaitEntity, UUID> {
     List<OperationExternalWaitEntity> findAllByStatusOrderByCreatedAtAsc(OperationExternalWaitEntity.Status status);
+    List<OperationExternalWaitEntity> findAllByOperationRunIdOrderByCreatedAtAsc(UUID operationRunId);
     Optional<OperationExternalWaitEntity> findByStepRunId(UUID stepRunId);
 }
