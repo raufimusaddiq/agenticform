@@ -45,9 +45,14 @@ public class ExternalWorkflowService {
     public synchronized void begin(OperationRunEntity run, OperationStepRunEntity step, BeginRequest request) throws Exception {
         String mode = request.mode().toUpperCase(Locale.ROOT);
         if (!mode.equals("WAIT") && !mode.equals("DISPATCH")) throw new IllegalArgumentException("Unsupported GitHub workflow mode: " + mode);
-        if (request.expectedHeadSha() == null || request.expectedHeadSha().isBlank()) {
-            throw new IllegalArgumentException("Durable GitHub workflow waits require expectedHeadSha");
+        String expectedHeadSha = request.expectedHeadSha();
+        if ((expectedHeadSha == null || expectedHeadSha.isBlank()) && mode.equals("DISPATCH") && request.inputs() != null) {
+            expectedHeadSha = request.inputs().get("sha");
         }
+        if (expectedHeadSha == null || expectedHeadSha.isBlank()) {
+            throw new IllegalArgumentException("Durable GitHub workflow waits require expectedHeadSha (or DISPATCH input sha)");
+        }
+        expectedHeadSha = expectedHeadSha.trim();
 
         Instant correlationNotBefore = null;
         if (mode.equals("DISPATCH")) {
@@ -57,7 +62,7 @@ public class ExternalWorkflowService {
 
         OperationExternalWaitEntity wait = waitRepository.save(new OperationExternalWaitEntity(
                 run.getId(), step.getId(), mode, request.repository(), request.workflow(), request.ref(),
-                request.expectedHeadSha(), correlationNotBefore,
+                expectedHeadSha, correlationNotBefore,
                 Instant.now().plusSeconds(Math.max(1, request.timeoutSeconds()))));
         step.waitExternal("Waiting for GitHub Actions workflow " + request.workflow());
         stepRepository.save(step);
