@@ -41,10 +41,13 @@ public class DeterministicPolicyEngine {
     }
 
     private Comparator<PolicyRuleEntity> ruleOrder(PolicyContext context) {
-        return Comparator
-                .comparingInt((PolicyRuleEntity rule) -> scopeRank(rule.getScopeType())).reversed()
-                .thenComparingInt(rule -> actionSpecificity(rule, context)).reversed()
-                .thenComparingInt(rule -> environmentSpecificity(rule, context)).reversed()
+        Comparator<PolicyRuleEntity> scope = Comparator
+                .comparingInt((PolicyRuleEntity rule) -> scopeRank(rule.getScopeType())).reversed();
+        Comparator<PolicyRuleEntity> action = Comparator
+                .comparingInt((PolicyRuleEntity rule) -> actionSpecificity(rule, context)).reversed();
+        Comparator<PolicyRuleEntity> environment = Comparator
+                .comparingInt((PolicyRuleEntity rule) -> environmentSpecificity(rule, context)).reversed();
+        return scope.thenComparing(action).thenComparing(environment)
                 .thenComparing(rule -> rule.getId().toString());
     }
 
