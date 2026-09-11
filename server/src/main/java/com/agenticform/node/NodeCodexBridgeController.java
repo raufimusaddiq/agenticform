@@ -42,7 +42,7 @@ public class NodeCodexBridgeController {
         String path = "/api/nodes/" + nodeId + "/codex/notification";
         signatures.verify(nodeId, timestamp, signature, "POST", path, body);
         BridgeMessage message = mapper.readValue(body, BridgeMessage.class);
-        events.handle(new CodexJsonRpcClient.Notification(message.method(), message.params()));
+        events.handleRemote(nodeId, new CodexJsonRpcClient.Notification(message.method(), message.params()));
     }
 
     @PostMapping("/server-request")
