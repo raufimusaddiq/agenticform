@@ -68,6 +68,13 @@ public class AgentService {
     }
 
     @Transactional
+    public AgentEntity updateQueueMode(UUID agentId, AgentQueueMode mode) {
+        AgentEntity agent = get(agentId);
+        agent.setQueueMode(mode);
+        return repository.save(agent);
+    }
+
+    @Transactional
     public AgentEntity intervene(UUID agentId) {
         AgentEntity agent = get(agentId);
         agent.setQueueMode(AgentQueueMode.PAUSED);
