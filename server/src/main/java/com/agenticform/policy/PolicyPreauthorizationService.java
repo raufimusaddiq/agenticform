@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -14,16 +15,21 @@ public class PolicyPreauthorizationService {
     private final Map<UUID, Grant> grants = new ConcurrentHashMap<>();
 
     public UUID issue(UUID agentId, UUID taskId, String action, String environment) {
+        if (agentId == null || action == null || action.isBlank()) {
+            throw new IllegalArgumentException("agentId and action are required for preauthorization");
+        }
         cleanup();
         UUID id = UUID.randomUUID();
-        grants.put(id, new Grant(id, agentId, taskId, action, environment, Instant.now().plus(GRANT_TTL)));
+        String normalizedEnvironment = environment == null || environment.isBlank() ? "*" : environment;
+        grants.put(id, new Grant(id, agentId, taskId, action, normalizedEnvironment, Instant.now().plus(GRANT_TTL)));
         return id;
     }
 
     public UUID consume(UUID agentId, UUID taskId, String action, String environment) {
         cleanup();
+        String normalizedEnvironment = environment == null || environment.isBlank() ? "*" : environment;
         for (Grant grant : grants.values()) {
-            if (!grant.matches(agentId, taskId, action, environment)) continue;
+            if (!grant.matches(agentId, taskId, action, normalizedEnvironment)) continue;
             if (grants.remove(grant.id(), grant)) return grant.id();
         }
         return null;
@@ -36,10 +42,10 @@ public class PolicyPreauthorizationService {
 
     private record Grant(UUID id, UUID agentId, UUID taskId, String action, String environment, Instant expiresAt) {
         private boolean matches(UUID candidateAgentId, UUID candidateTaskId, String candidateAction, String candidateEnvironment) {
-            return java.util.Objects.equals(agentId, candidateAgentId)
-                    && java.util.Objects.equals(taskId, candidateTaskId)
+            return Objects.equals(agentId, candidateAgentId)
+                    && Objects.equals(taskId, candidateTaskId)
                     && action.equals(candidateAction)
-                    && environment.equals(candidateEnvironment);
+                    && (environment.equals(candidateEnvironment) || "*".equals(environment));
         }
     }
 }
