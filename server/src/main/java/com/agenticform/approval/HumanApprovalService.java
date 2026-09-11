@@ -164,7 +164,9 @@ public class HumanApprovalService {
             throw new IllegalStateException("User input requests must be answered, not approved");
         }
 
-        HumanApprovalDecision effectiveDecision = approval.getType() == HumanApprovalType.PROTECTED_ACTION
+        // Every REQUIRE_HUMAN policy decision is intentionally one-shot. A broad session grant
+        // would let later governed actions bypass Agenticform's deterministic evaluation.
+        HumanApprovalDecision effectiveDecision = approval.getPolicyEffect() == PolicyEffect.REQUIRE_HUMAN
                 && decision == HumanApprovalDecision.APPROVE_SESSION
                 ? HumanApprovalDecision.APPROVE_ONCE : decision;
 
