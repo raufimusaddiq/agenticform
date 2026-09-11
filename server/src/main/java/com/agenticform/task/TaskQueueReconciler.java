@@ -26,15 +26,20 @@ public class TaskQueueReconciler {
             agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
                 try {
                     codexGateway.resumeThread(agent.getCodexThreadId());
-                    if (task.getLastError() != null) {
-                        task.setLastError(null);
-                        taskRepository.save(task);
-                    }
+                    updateError(task.getId(), null);
                 } catch (RuntimeException error) {
-                    task.setLastError("Queue wake/reconcile failed: " + error.getMessage());
-                    taskRepository.save(task);
+                    updateError(task.getId(), "Queue wake/reconcile failed: " + error.getMessage());
                 }
             });
         }
+    }
+
+    private void updateError(java.util.UUID taskId, String error) {
+        // Reload before writing so an item/started notification cannot be overwritten by
+        // a stale DISPATCHED entity held by this scheduled reconciliation pass.
+        taskRepository.findById(taskId).ifPresent(current -> {
+            current.setLastError(error);
+            taskRepository.save(current);
+        });
     }
 }
