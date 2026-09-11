@@ -14,7 +14,12 @@ public class CodexAppServerGateway implements CodexGateway {
             You operate under Agenticform deterministic governance.
             Policy decisions are made by Agenticform, not by you. Never claim that an action is allowed, denied, or approved based on your own judgment.
             Use agenticform.list_policy_rules to inspect the rules applicable to your project/agent/task when governance is relevant.
-            Before an action matching a governed semantic action, call agenticform.request_action with the exact action name, environment, summary, and details and obey its result.
+
+            Agenticform may expose deterministic operational runbooks through agenticform.list_runbooks. For a registered operation, prefer agenticform.request_operation rather than manually reproducing its commands. request_operation evaluates policy itself, so do not call request_action separately for the same registered operation. Use agenticform.get_operation_status to inspect asynchronous progress and evidence.
+            For coding tasks, prefer remote CI/CD runbooks backed by GitHub Actions for expensive full test/build/container/release/deploy work when such runbooks are available. You may still use local targeted tests and normal development commands when they are useful. Do not build production container images locally when an approved remote image-build workflow exists.
+            General/non-coding work is not required to use GitHub Actions; choose the available tool or runbook that best matches the task.
+
+            Before a governed semantic action that is not represented by a registered runbook, call agenticform.request_action with the exact action name, environment, summary, and details and obey its result.
             The default policy requires a fresh human decision for PRODUCTION_DEPLOY in production, PRODUCTION_DML in production, DELETE_DATA in any environment, and genuine USER_INPUT.
             For backward compatibility, agenticform.request_protected_action is also available for PRODUCTION_DEPLOY, PRODUCTION_DML, and DELETE_DATA.
             Continue ordinary development autonomously when the deterministic policy result is ALLOW.
@@ -119,7 +124,7 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode namespace = mapper.createObjectNode();
         namespace.put("type", "namespace");
         namespace.put("name", "agenticform");
-        namespace.put("description", "Coordinate with agents and evaluate actions against Agenticform deterministic policy.");
+        namespace.put("description", "Coordinate agents, inspect deterministic policy, and request governed operational runbooks.");
         ArrayNode namespaceTools = namespace.putArray("tools");
 
         ObjectNode listAgents = mapper.createObjectNode();
@@ -167,10 +172,50 @@ public class CodexAppServerGateway implements CodexGateway {
         listPolicySchema.put("additionalProperties", false);
         namespaceTools.add(listPolicyRules);
 
+        ObjectNode listRunbooks = mapper.createObjectNode();
+        listRunbooks.put("type", "function");
+        listRunbooks.put("name", "list_runbooks");
+        listRunbooks.put("description", "List enabled deterministic operational runbooks for this project. Use this to discover remote CI/CD, deploy, verification, backup, and other registered operations instead of recreating them manually.");
+        ObjectNode listRunbooksSchema = listRunbooks.putObject("inputSchema");
+        listRunbooksSchema.put("type", "object");
+        listRunbooksSchema.putObject("properties");
+        listRunbooksSchema.put("additionalProperties", false);
+        namespaceTools.add(listRunbooks);
+
+        ObjectNode requestOperation = mapper.createObjectNode();
+        requestOperation.put("type", "function");
+        requestOperation.put("name", "request_operation");
+        requestOperation.put("description", "Request execution of a registered deterministic runbook. Agenticform evaluates its policy action automatically. ALLOW queues it, REQUIRE_HUMAN waits for a human, and DENY refuses it.");
+        ObjectNode requestOperationSchema = requestOperation.putObject("inputSchema");
+        requestOperationSchema.put("type", "object");
+        ObjectNode operationProperties = requestOperationSchema.putObject("properties");
+        property(operationProperties, "runbookKey", "string", "Runbook key returned by list_runbooks.");
+        ObjectNode operationParameters = operationProperties.putObject("parameters");
+        operationParameters.put("type", "object");
+        ObjectNode parameterValueSchema = mapper.createObjectNode();
+        parameterValueSchema.put("type", "string");
+        operationParameters.set("additionalProperties", parameterValueSchema);
+        ArrayNode operationRequired = requestOperationSchema.putArray("required");
+        operationRequired.add("runbookKey");
+        requestOperationSchema.put("additionalProperties", false);
+        namespaceTools.add(requestOperation);
+
+        ObjectNode operationStatus = mapper.createObjectNode();
+        operationStatus.put("type", "function");
+        operationStatus.put("name", "get_operation_status");
+        operationStatus.put("description", "Read the current state and step summaries for a previously requested operation run.");
+        ObjectNode operationStatusSchema = operationStatus.putObject("inputSchema");
+        operationStatusSchema.put("type", "object");
+        ObjectNode statusProperties = operationStatusSchema.putObject("properties");
+        property(statusProperties, "runId", "string", "Operation run UUID returned by request_operation.");
+        operationStatusSchema.putArray("required").add("runId");
+        operationStatusSchema.put("additionalProperties", false);
+        namespaceTools.add(operationStatus);
+
         ObjectNode requestAction = mapper.createObjectNode();
         requestAction.put("type", "function");
         requestAction.put("name", "request_action");
-        requestAction.put("description", "Evaluate a semantic action through Agenticform's deterministic policy engine. The call returns immediately for ALLOW/DENY and blocks for REQUIRE_HUMAN.");
+        requestAction.put("description", "Evaluate a semantic action through Agenticform's deterministic policy engine. Use for governed actions that do not already have a registered runbook. The call returns immediately for ALLOW/DENY and blocks for REQUIRE_HUMAN.");
         ObjectNode requestActionSchema = requestAction.putObject("inputSchema");
         requestActionSchema.put("type", "object");
         ObjectNode actionProperties = requestActionSchema.putObject("properties");
@@ -188,7 +233,7 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode protectedAction = mapper.createObjectNode();
         protectedAction.put("type", "function");
         protectedAction.put("name", "request_protected_action");
-        protectedAction.put("description", "Compatibility helper for the default protected actions. Prefer request_action for configurable policy actions.");
+        protectedAction.put("description", "Compatibility helper for the default protected actions. Prefer request_operation for registered runbooks and request_action for other configurable policy actions.");
         ObjectNode protectedSchema = protectedAction.putObject("inputSchema");
         protectedSchema.put("type", "object");
         ObjectNode protectedProperties = protectedSchema.putObject("properties");
