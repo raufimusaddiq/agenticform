@@ -38,11 +38,14 @@ public class AgenticformProperties {
     public static class Workspace {
         private String root = "/srv/agenticform/worktrees";
         private Duration gitTimeout = Duration.ofSeconds(30);
+        private Duration cleanupRetention = Duration.ofHours(24);
 
         public String getRoot() { return root; }
         public void setRoot(String root) { this.root = root; }
         public Duration getGitTimeout() { return gitTimeout; }
         public void setGitTimeout(Duration gitTimeout) { this.gitTimeout = gitTimeout; }
+        public Duration getCleanupRetention() { return cleanupRetention; }
+        public void setCleanupRetention(Duration cleanupRetention) { this.cleanupRetention = cleanupRetention; }
     }
 
     public static class Ui {
