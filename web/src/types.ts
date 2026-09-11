@@ -107,6 +107,7 @@ export type HumanApprovalRisk = 'LOW' | 'ELEVATED' | 'HIGH';
 export type HumanApprovalStatus =
   | 'PENDING'
   | 'AUTO_APPROVED'
+  | 'PREAUTHORIZED'
   | 'POLICY_DENIED'
   | 'APPROVED'
   | 'APPROVED_FOR_SESSION'
@@ -161,6 +162,7 @@ export type HumanApproval = {
   policyEnvironment: string | null;
   policyEffect: PolicyEffect | null;
   policyRuleId: string | null;
+  preauthorizationGrantId: string | null;
   requestPayload: string;
   responsePayload: string | null;
   lastError: string | null;
