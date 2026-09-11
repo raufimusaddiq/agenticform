@@ -17,11 +17,9 @@ class HumanApprovalPolicyTest {
     private final HumanApprovalPolicy policy = new HumanApprovalPolicy();
 
     @Test
-    void hitlNeverAutoApprovesEvenSafeCommand() {
+    void strictHitlStillBlocksNormalWorkWhenExplicitlySelected() {
         AgentEntity agent = agent(HumanControlMode.IN_THE_LOOP);
-        ObjectNode params = mapper.createObjectNode();
-        params.put("cwd", "/srv/worktrees/richmod/backend");
-        params.put("command", "mvn test");
+        ObjectNode params = command("mvn test");
 
         HumanApprovalPolicy.Evaluation result = policy.evaluate(
                 agent, HumanApprovalType.COMMAND_EXECUTION, params);
@@ -31,73 +29,103 @@ class HumanApprovalPolicyTest {
     }
 
     @Test
-    void hotlAutoApprovesSafeCommandInsideWorkspace() {
+    void hotlAutoApprovesNormalAndUnknownDevelopmentCommands() {
         AgentEntity agent = agent(HumanControlMode.ON_THE_LOOP);
-        ObjectNode params = mapper.createObjectNode();
-        params.put("cwd", "/srv/worktrees/richmod/backend");
-        params.put("command", "mvn test");
 
         HumanApprovalPolicy.Evaluation result = policy.evaluate(
-                agent, HumanApprovalType.COMMAND_EXECUTION, params);
+                agent, HumanApprovalType.COMMAND_EXECUTION,
+                command("docker compose up -d postgres"));
 
         assertThat(result.risk()).isEqualTo(HumanApprovalRisk.LOW);
         assertThat(result.autoApprove()).isTrue();
     }
 
     @Test
-    void hotlEscalatesUnknownOrChainedCommand() {
+    void hotlAutoApprovesOrdinaryPermissionExpansionUntilAgentIsActuallyBlocked() {
         AgentEntity agent = agent(HumanControlMode.ON_THE_LOOP);
         ObjectNode params = mapper.createObjectNode();
         params.put("cwd", "/srv/worktrees/richmod/backend");
-        params.put("command", "mvn test && rm -rf target");
+        params.put("reason", "Install a dependency from Maven Central");
+        params.putObject("permissions").putObject("network").put("enabled", true);
 
         HumanApprovalPolicy.Evaluation result = policy.evaluate(
-                agent, HumanApprovalType.COMMAND_EXECUTION, params);
+                agent, HumanApprovalType.PERMISSIONS, params);
 
-        assertThat(result.risk()).isEqualTo(HumanApprovalRisk.ELEVATED);
-        assertThat(result.autoApprove()).isFalse();
+        assertThat(result.risk()).isEqualTo(HumanApprovalRisk.LOW);
+        assertThat(result.autoApprove()).isTrue();
     }
 
     @Test
-    void hotlEscalatesNetworkOrPolicyChanges() {
+    void productionDeployIsAlwaysHumanGated() {
         AgentEntity agent = agent(HumanControlMode.ON_THE_LOOP);
-        ObjectNode params = mapper.createObjectNode();
-        params.put("cwd", "/srv/worktrees/richmod/backend");
-        params.put("command", "mvn test");
-        params.putObject("networkApprovalContext").put("host", "example.com");
+        ObjectNode params = command("kubectl apply -f k8s/ --namespace production");
 
         HumanApprovalPolicy.Evaluation result = policy.evaluate(
                 agent, HumanApprovalType.COMMAND_EXECUTION, params);
 
+        assertThat(policy.protectedCommand(params)).isEqualTo(ProtectedActionKind.PRODUCTION_DEPLOY);
         assertThat(result.risk()).isEqualTo(HumanApprovalRisk.HIGH);
         assertThat(result.autoApprove()).isFalse();
     }
 
     @Test
-    void hotlEscalatesWriteRootOutsideWorkspace() {
+    void productionDmlIsAlwaysHumanGated() {
+        AgentEntity agent = agent(HumanControlMode.ON_THE_LOOP);
+        ObjectNode params = command("psql $PRODUCTION_DATABASE_URL -c \"update users set active=true where id=42\"");
+
+        HumanApprovalPolicy.Evaluation result = policy.evaluate(
+                agent, HumanApprovalType.COMMAND_EXECUTION, params);
+
+        assertThat(policy.protectedCommand(params)).isEqualTo(ProtectedActionKind.PRODUCTION_DML);
+        assertThat(result.risk()).isEqualTo(HumanApprovalRisk.HIGH);
+        assertThat(result.autoApprove()).isFalse();
+    }
+
+    @Test
+    void deletingPersistentDataIsAlwaysHumanGatedEvenOutsideProduction() {
+        AgentEntity agent = agent(HumanControlMode.ON_THE_LOOP);
+        ObjectNode params = command("psql devdb -c \"delete from transactions where id=7\"");
+
+        HumanApprovalPolicy.Evaluation result = policy.evaluate(
+                agent, HumanApprovalType.COMMAND_EXECUTION, params);
+
+        assertThat(policy.protectedCommand(params)).isEqualTo(ProtectedActionKind.DELETE_DATA);
+        assertThat(result.risk()).isEqualTo(HumanApprovalRisk.HIGH);
+        assertThat(result.autoApprove()).isFalse();
+    }
+
+    @Test
+    void hotlAutoApprovesOrdinaryFileChanges() {
         AgentEntity agent = agent(HumanControlMode.ON_THE_LOOP);
         ObjectNode params = mapper.createObjectNode();
-        params.put("grantRoot", "/etc");
+        params.put("grantRoot", "/tmp/generated-client");
 
         HumanApprovalPolicy.Evaluation result = policy.evaluate(
                 agent, HumanApprovalType.FILE_CHANGE, params);
 
-        assertThat(result.risk()).isEqualTo(HumanApprovalRisk.HIGH);
-        assertThat(result.autoApprove()).isFalse();
+        assertThat(result.risk()).isEqualTo(HumanApprovalRisk.LOW);
+        assertThat(result.autoApprove()).isTrue();
     }
 
     @Test
-    void hotlNeverAutoAnswersUserInput() {
+    void hotlNeverAutoAnswersWhenAgentNeedsHumanInput() {
         AgentEntity agent = agent(HumanControlMode.ON_THE_LOOP);
         ObjectNode params = mapper.createObjectNode();
         params.putArray("questions").addObject()
                 .put("id", "q1")
-                .put("question", "Which migration strategy should I use?");
+                .put("question", "Which production tenant should this target?");
 
         HumanApprovalPolicy.Evaluation result = policy.evaluate(
                 agent, HumanApprovalType.USER_INPUT, params);
 
         assertThat(result.autoApprove()).isFalse();
+    }
+
+    private ObjectNode command(String command) {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("cwd", "/srv/worktrees/richmod/backend");
+        params.put("command", command);
+        return params;
     }
 
     private AgentEntity agent(HumanControlMode mode) {
