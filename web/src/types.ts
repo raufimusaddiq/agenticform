@@ -229,6 +229,7 @@ export type OperationRunStatus =
   | 'WAITING_APPROVAL'
   | 'QUEUED'
   | 'RUNNING'
+  | 'WAITING_EXTERNAL'
   | 'SUCCEEDED'
   | 'FAILED'
   | 'DENIED'
@@ -265,7 +266,7 @@ export type OperationStepRun = {
   stepName: string;
   stepType: RunbookStepType;
   position: number;
-  status: 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+  status: 'RUNNING' | 'WAITING_EXTERNAL' | 'SUCCEEDED' | 'FAILED';
   summary: string | null;
   evidence: string | null;
   exitCode: number | null;
@@ -277,4 +278,23 @@ export type OperationStepRun = {
 export type OperationRunDetail = {
   run: OperationRun;
   steps: OperationStepRun[];
+};
+
+export type WorkspaceCleanupInspection = {
+  agentId: string;
+  eligible: boolean;
+  reason: string;
+  estimatedBytes: number;
+};
+
+export type WorkspaceCleanupRecord = {
+  id: string;
+  projectId: string;
+  agentId: string | null;
+  workingDirectory: string;
+  branch: string | null;
+  outcome: string;
+  reason: string;
+  freedBytes: number | null;
+  createdAt: string;
 };
