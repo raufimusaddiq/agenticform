@@ -62,6 +62,13 @@ public class AgentMessageDeliveryEntity {
     @PreUpdate
     void onUpdate() { updatedAt = Instant.now(); }
 
+    public void markQueuedOnNode(String nodeCommandId) {
+        status = AgentMessageStatus.CREATED;
+        codexQueuedSubmissionId = "node-command:" + nodeCommandId;
+        codexTurnId = null;
+        lastError = null;
+    }
+
     public void markDispatched(String queuedSubmissionId, String turnId) {
         attemptCount++;
         status = AgentMessageStatus.DISPATCHED;
