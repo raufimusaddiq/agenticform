@@ -58,6 +58,13 @@ public class AgentEntity {
     @Column(name = "human_control_mode", nullable = false)
     private HumanControlMode humanControlMode;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "agent_role", nullable = false, length = 32)
+    private AgentRole role = AgentRole.GENERAL;
+
+    @Column(name = "system_managed", nullable = false)
+    private boolean systemManaged;
+
     @Column(name = "active_task_id")
     private UUID activeTaskId;
 
@@ -75,6 +82,14 @@ public class AgentEntity {
     public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode) {
+        this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
+                branch, queueMode, humanControlMode, AgentRole.GENERAL, false);
+    }
+
+    public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
+                       WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
+                       String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
+                       AgentRole role, boolean systemManaged) {
         this.projectId = projectId;
         this.name = name;
         this.responsibility = responsibility;
@@ -85,6 +100,8 @@ public class AgentEntity {
         this.branch = branch;
         this.queueMode = queueMode;
         this.humanControlMode = humanControlMode;
+        this.role = role == null ? AgentRole.GENERAL : role;
+        this.systemManaged = systemManaged;
         this.status = AgentStatus.IDLE;
     }
 
@@ -106,6 +123,8 @@ public class AgentEntity {
     public AgentStatus getStatus() { return status; }
     public AgentQueueMode getQueueMode() { return queueMode; }
     public HumanControlMode getHumanControlMode() { return humanControlMode; }
+    public AgentRole getRole() { return role; }
+    public boolean isSystemManaged() { return systemManaged; }
     public UUID getActiveTaskId() { return activeTaskId; }
     public String getActiveTurnId() { return activeTurnId; }
     public Instant getCreatedAt() { return createdAt; }

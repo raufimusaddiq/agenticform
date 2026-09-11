@@ -13,12 +13,14 @@ public class AgenticformProperties {
     private final Codex codex = new Codex();
     private final Workspace workspace = new Workspace();
     private final Ui ui = new Ui();
+    private final GitHub github = new GitHub();
 
     public List<String> getProjectRoots() { return projectRoots; }
     public void setProjectRoots(List<String> projectRoots) { this.projectRoots = projectRoots; }
     public Codex getCodex() { return codex; }
     public Workspace getWorkspace() { return workspace; }
     public Ui getUi() { return ui; }
+    public GitHub getGithub() { return github; }
 
     public static class Codex {
         private URI endpoint = URI.create("ws://127.0.0.1:4500");
@@ -48,5 +50,18 @@ public class AgenticformProperties {
 
         public String getOrigin() { return origin; }
         public void setOrigin(String origin) { this.origin = origin; }
+    }
+
+    public static class GitHub {
+        private URI apiUrl = URI.create("https://api.github.com");
+        private String token = "";
+        private Duration pollInterval = Duration.ofSeconds(3);
+
+        public URI getApiUrl() { return apiUrl; }
+        public void setApiUrl(URI apiUrl) { this.apiUrl = apiUrl; }
+        public String getToken() { return token; }
+        public void setToken(String token) { this.token = token == null ? "" : token; }
+        public Duration getPollInterval() { return pollInterval; }
+        public void setPollInterval(Duration pollInterval) { this.pollInterval = pollInterval; }
     }
 }

@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
+import { OperationsView } from './OperationsView';
 import { PolicyView } from './PolicyView';
 import type {
   Agent,
@@ -17,7 +18,7 @@ import type {
 import './approvals.css';
 import './human-control.css';
 
-type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages' | 'approvals' | 'policy';
+type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages' | 'operations' | 'approvals' | 'policy';
 type Dialog = 'project' | 'agent' | 'task' | null;
 
 const nav: Array<{ id: View; label: string }> = [
@@ -26,6 +27,7 @@ const nav: Array<{ id: View; label: string }> = [
   { id: 'agents', label: 'Agents' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'messages', label: 'Messages' },
+  { id: 'operations', label: 'Operations' },
   { id: 'approvals', label: 'Approvals' },
   { id: 'policy', label: 'Policy' }
 ];
@@ -94,6 +96,7 @@ export default function App() {
   const visibleTasks = useMemo(() => projectFilter === 'all' ? tasks : tasks.filter((task) => task.projectId === projectFilter), [tasks, projectFilter]);
   const visibleMessages = useMemo(() => projectFilter === 'all' ? messages : messages.filter((message) => message.projectId === projectFilter), [messages, projectFilter]);
   const visibleApprovals = useMemo(() => projectFilter === 'all' ? approvals : approvals.filter((approval) => approval.projectId === projectFilter), [approvals, projectFilter]);
+  const taskAgents = useMemo(() => (visibleAgents.length ? visibleAgents : agents).filter((agent) => !agent.systemManaged), [visibleAgents, agents]);
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
 
@@ -133,7 +136,7 @@ export default function App() {
               <option value="all">All projects</option>
               {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select>
-            <button className="button secondary" onClick={() => setDialog('task')} disabled={!agents.length}>New task</button>
+            <button className="button secondary" onClick={() => setDialog('task')} disabled={!taskAgents.length}>New task</button>
             <button className="button primary" onClick={() => setDialog('agent')} disabled={!projects.length}>Spawn agent</button>
           </div>
         </header>
@@ -146,6 +149,7 @@ export default function App() {
             {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
             {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} />}
+            {view === 'operations' && <OperationsView projects={projects} agents={agents} projectFilter={projectFilter} />}
             {view === 'approvals' && <ApprovalsView approvals={visibleApprovals} agents={agents} projects={projects} onDecision={async (id, decision) => { await mutate(() => api.decideApproval(id, decision)); }} onAnswer={async (id, answers) => { await mutate(() => api.answerApproval(id, answers)); }} />}
             {view === 'policy' && <PolicyView rules={policyRules} projects={projects} agents={agents} tasks={tasks} onCreate={async (input) => { await mutate(() => api.createPolicyRule(input)); }} onUpdate={async (id, input) => { await mutate(() => api.updatePolicyRule(id, input)); }} onDelete={async (id) => { await mutate(() => api.deletePolicyRule(id)); }} onEvaluate={(input) => api.evaluatePolicy(input)} />}
           </>
@@ -154,7 +158,7 @@ export default function App() {
 
       {dialog === 'project' && <ProjectForm onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.registerProject(input))} />}
       {dialog === 'agent' && <AgentForm projects={projects} initialProjectId={projectFilter === 'all' ? projects[0]?.id : projectFilter} onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.spawnAgent(input))} />}
-      {dialog === 'task' && <TaskForm agents={visibleAgents.length ? visibleAgents : agents} onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.createTask(input))} />}
+      {dialog === 'task' && <TaskForm agents={taskAgents} onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.createTask(input))} />}
     </div>
   );
 }
@@ -176,7 +180,7 @@ function Overview({ projects, agents, tasks, attention, active, queued, projectB
       <div className="section-header"><div><p className="eyebrow">Operational state</p><h2>Agents</h2></div>{projects.length ? <button className="button secondary" onClick={onSpawn}>Spawn agent</button> : <button className="button primary" onClick={onRegister}>Register project</button>}</div>
       {!agents.length ? <Empty title="No agents available" body="Register a project and spawn an agent with a bounded responsibility." /> : <div className="data-list">
         {agents.map((agent) => <div className="data-row agent-row" key={agent.id}>
-          <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name ?? 'Unknown project'}</small></div>
+          <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name ?? 'Unknown project'} · {label(agent.role)}{agent.systemManaged ? ' · system managed' : ''}</small></div>
           <Status value={agent.status} />
           <p>{agent.responsibility}</p>
           <div className="machine"><code>{agent.branch ?? agent.workingDirectory}</code><small>{agent.humanControlMode === 'IN_THE_LOOP' ? 'Human in loop' : 'Human on loop'}</small></div>
@@ -203,11 +207,12 @@ function Projects({ projects, agents, tasks, onRegister }: { projects: Project[]
     {!projects.length ? <Empty title="No projects registered" body="Register a repository under an allowed server root." /> : <div className="data-list">
       {projects.map((project) => {
         const projectAgents = agents.filter((agent) => agent.projectId === project.id);
+        const ops = projectAgents.find((agent) => agent.role === 'OPERATIONAL');
         const openTasks = tasks.filter((task) => task.projectId === project.id && !['COMPLETED', 'CANCELLED'].includes(task.status));
         const unhealthy = projectAgents.some((agent) => ['FAILED', 'DISCONNECTED', 'BLOCKED'].includes(agent.status));
         return <div className="data-row project-row" key={project.id}>
           <div><strong>{project.name}</strong><code>{project.rootDirectory}</code></div>
-          <span>{project.defaultBranch}</span><span>{projectAgents.length} agents</span><span>{openTasks.length} active tasks</span><Status value={unhealthy ? 'FAILED' : 'IDLE'} />
+          <span>{project.defaultBranch}</span><span>{projectAgents.length} agents</span><span>{openTasks.length} active tasks</span><span>{ops ? 'Ops ready' : 'Ops pending'}</span><Status value={unhealthy ? 'FAILED' : 'IDLE'} />
         </div>;
       })}
     </div>}
@@ -224,7 +229,7 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
   return <section className="panel"><div className="section-header"><div><p className="eyebrow">Codex threads</p><h2>Agent roster</h2></div></div>
     {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="data-list">
       {agents.map((agent) => <div className="data-row agent-detail-row human-agent-row" key={agent.id}>
-        <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name}</small></div>
+        <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name} · {label(agent.role)}{agent.systemManaged ? ' · system managed' : ''}</small></div>
         <Status value={agent.status} />
         <p>{agent.responsibility}</p>
         <div className="control-stack"><small>Human control</small><select className="compact-select" value={agent.humanControlMode} onChange={(event) => onControlMode(agent.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">On the loop</option><option value="IN_THE_LOOP">In the loop</option></select></div>
@@ -278,7 +283,7 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
     <label>Responsibility<textarea required rows={5} value={responsibility} onChange={(e) => setResponsibility(e.target.value)} placeholder="Own authentication, token lifecycle, backend API and tests." /></label>
     <div className="form-grid"><label>Workspace<select value={workspaceMode} onChange={(e) => setWorkspaceMode(e.target.value as WorkspaceMode)}><option value="ISOLATED_WORKTREE">Isolated worktree</option><option value="SHARED_PROJECT">Shared project</option></select></label><label>Queue policy<select value={queueMode} onChange={(e) => setQueueMode(e.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></label></div>
     <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop — autonomous by default</option><option value="IN_THE_LOOP">Human in the loop — all approvals block</option></select></label>
-    <p className="form-note">On-the-loop is the default. Deterministic policy rules decide which actions continue, require you, or are denied; full HITL only tightens allowed actions.</p>
+    <p className="form-note">On-the-loop is the default. Deterministic policy rules decide which actions continue, require you, or are denied; full HITL only tightens allowed actions. A system-managed Operational Agent is provisioned automatically for operational handoffs.</p>
     <label>Agent branch <span className="optional">optional</span><input className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="agent/backend-auth" /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Spawn agent</button></footer>
   </form></Modal>;

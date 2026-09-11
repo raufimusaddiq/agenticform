@@ -3,6 +3,7 @@ package com.agenticform.task;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentQueueMode;
 import com.agenticform.agent.AgentRepository;
+import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.codex.CodexGateway;
 import org.springframework.stereotype.Service;
@@ -32,13 +33,17 @@ public class TaskDispatchService {
     public TaskEntity create(UUID agentId, String title, String prompt, int priority) {
         AgentEntity agent = agentRepository.findById(agentId)
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
+        if (agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()) {
+            throw new IllegalArgumentException("System-managed Operational Agent does not accept normal tasks; use agent-to-agent operational handoff");
+        }
         return taskRepository.save(new TaskEntity(agent.getProjectId(), agentId, title, prompt, priority));
     }
 
     public synchronized void dispatchReadyTasks() {
         for (TaskEntity task : taskRepository.findTop20ByStatusOrderByPriorityDescCreatedAtAsc(TaskStatus.READY)) {
             AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-            if (agent == null || agent.getQueueMode() != AgentQueueMode.AUTO || agent.getStatus() != AgentStatus.IDLE) {
+            if (agent == null || agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()
+                    || agent.getQueueMode() != AgentQueueMode.AUTO || agent.getStatus() != AgentStatus.IDLE) {
                 continue;
             }
             dispatch(task, agent);
@@ -51,6 +56,9 @@ public class TaskDispatchService {
                 .orElseThrow(() -> new NoSuchElementException("Task not found: " + taskId));
         AgentEntity agent = agentRepository.findById(task.getAssignedAgentId())
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + task.getAssignedAgentId()));
+        if (agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()) {
+            throw new IllegalStateException("System-managed Operational Agent does not accept normal task dispatch");
+        }
         if (agent.getStatus() != AgentStatus.IDLE) {
             throw new IllegalStateException("Agent is not idle");
         }
@@ -71,8 +79,6 @@ public class TaskDispatchService {
             CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
                     agent.getCodexThreadId(), clientMessageId, task.getPrompt());
 
-            // Codex can start a queued message immediately and emit item/started before this
-            // method returns. Reload before writing so that event-driven RUNNING state wins.
             TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
             currentTask.setCodexQueuedSubmissionId(receipt.queuedSubmissionId());
             if (receipt.turnId() != null) {
