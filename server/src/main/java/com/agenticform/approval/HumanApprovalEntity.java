@@ -1,6 +1,7 @@
 package com.agenticform.approval;
 
 import com.agenticform.agent.HumanControlMode;
+import com.agenticform.policy.PolicyEffect;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -61,6 +62,19 @@ public class HumanApprovalEntity {
     @Column(nullable = false, columnDefinition = "text")
     private String summary;
 
+    @Column(name = "policy_action", length = 128)
+    private String policyAction;
+
+    @Column(name = "policy_environment", length = 64)
+    private String policyEnvironment;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "policy_effect", length = 32)
+    private PolicyEffect policyEffect;
+
+    @Column(name = "policy_rule_id")
+    private UUID policyRuleId;
+
     @Column(name = "request_payload", nullable = false, columnDefinition = "text")
     private String requestPayload;
 
@@ -115,11 +129,22 @@ public class HumanApprovalEntity {
     public String getTurnId() { return turnId; }
     public String getItemId() { return itemId; }
     public String getSummary() { return summary; }
+    public String getPolicyAction() { return policyAction; }
+    public String getPolicyEnvironment() { return policyEnvironment; }
+    public PolicyEffect getPolicyEffect() { return policyEffect; }
+    public UUID getPolicyRuleId() { return policyRuleId; }
     public String getRequestPayload() { return requestPayload; }
     public String getResponsePayload() { return responsePayload; }
     public String getLastError() { return lastError; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getResolvedAt() { return resolvedAt; }
+
+    public void attachPolicy(String action, String environment, PolicyEffect effect, UUID ruleId) {
+        this.policyAction = action;
+        this.policyEnvironment = environment;
+        this.policyEffect = effect;
+        this.policyRuleId = ruleId;
+    }
 
     public void resolve(HumanApprovalStatus status, String responsePayload) {
         this.status = status;
