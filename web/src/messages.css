@@ -1,0 +1,23 @@
+.messages-layout { grid-template-columns: minmax(0, 1.65fr) minmax(320px, .75fr); align-items: start; }
+.compose-panel { position: sticky; top: 24px; }
+.compose-panel form { display: grid; gap: 15px; padding: 17px; }
+.compose-panel label { display: grid; gap: 7px; color: #bcc3cd; font-size: 12px; font-weight: 650; }
+.message-row { padding: 16px 17px; border-bottom: 1px solid #20252c; }
+.message-row:last-child { border-bottom: 0; }
+.message-row:hover { background: #14181d; }
+.message-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; }
+.message-meta > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.message-meta small { color: var(--muted); }
+.message-type { border: 1px solid var(--border-strong); border-radius: 999px; padding: 4px 7px; color: #adb5c0; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.message-type-blocker, .message-type-review_request { color: #e6aa6a; border-color: rgba(230,170,78,.35); }
+.message-type-question, .message-type-request { color: #83b8ff; border-color: rgba(91,156,255,.35); }
+.message-type-answer, .message-type-result, .message-type-review_result { color: #8acda7; border-color: rgba(93,201,139,.35); }
+.message-route { margin: 12px 0 8px; display: flex; flex-wrap: wrap; gap: 7px; align-items: center; color: var(--muted); font-size: 12px; }
+.message-route strong { color: #c7cdd6; font-weight: 650; }
+.message-body { margin: 0; color: #c2c8d1; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+.message-machine { margin-top: 13px; display: flex; flex-wrap: wrap; gap: 10px 14px; }
+.message-machine code { color: #7e8794; }
+.status-created, .status-dispatched { color: var(--muted); }
+.status-dispatched .status-dot { background: #677181; border-color: #677181; }
+@media (max-width: 1120px) { .messages-layout { grid-template-columns: 1fr; }.compose-panel { position: static; } }
+@media (max-width: 680px) { .message-meta { grid-template-columns: 1fr; align-items: start; }.message-meta > .status, .message-meta > .message-type { justify-self: start; } }
