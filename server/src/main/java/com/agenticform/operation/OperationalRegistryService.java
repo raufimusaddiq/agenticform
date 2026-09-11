@@ -22,12 +22,15 @@ public class OperationalRegistryService {
         ASSERT_GIT_SHA,
         COMMAND,
         HTTP_CHECK,
-        SERVICE_CHECK
+        SERVICE_CHECK,
+        GITHUB_WORKFLOW
     }
 
     public record StepSpec(String key, String name, StepType type, JsonNode config, int timeoutSeconds) {}
 
     private static final Pattern KEY = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
+    private static final Pattern GITHUB_REPOSITORY = Pattern.compile("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+");
+    private static final Pattern GITHUB_WORKFLOW = Pattern.compile("[A-Za-z0-9_.-]+(?:\\.ya?ml)?");
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
     private static final int MAX_TIMEOUT_SECONDS = 3600;
 
@@ -141,6 +144,11 @@ public class OperationalRegistryService {
         return runbookRepository.findById(id).orElseThrow(() -> new NoSuchElementException("Runbook not found: " + id));
     }
 
+    public OperationalRunbookEntity runbook(UUID projectId, String key) {
+        return runbookRepository.findByProjectIdAndKey(projectId, normalizeKey(key))
+                .orElseThrow(() -> new NoSuchElementException("Runbook not found in project: " + key));
+    }
+
     public OperationalEnvironmentEntity environment(UUID id) {
         return environmentRepository.findById(id).orElseThrow(() -> new NoSuchElementException("Environment not found: " + id));
     }
@@ -228,6 +236,35 @@ public class OperationalRegistryService {
                 String url = probe.equals("health") ? service.getHealthUrl() : service.getReadinessUrl();
                 if (url == null || url.isBlank()) throw new IllegalArgumentException("Service " + serviceKey + " has no " + probe + " URL");
             }
+            case GITHUB_WORKFLOW -> validateGitHubWorkflowStep(config, step.key());
+        }
+    }
+
+    private void validateGitHubWorkflowStep(JsonNode config, String stepKey) {
+        String repository = requireText(config, "repository", stepKey);
+        if (!GITHUB_REPOSITORY.matcher(repository).matches()) {
+            throw new IllegalArgumentException("GITHUB_WORKFLOW repository must be owner/name: " + stepKey);
+        }
+        String workflow = requireText(config, "workflow", stepKey);
+        if (!GITHUB_WORKFLOW.matcher(workflow).matches()) {
+            throw new IllegalArgumentException("GITHUB_WORKFLOW workflow must be a workflow file name or id: " + stepKey);
+        }
+        requireText(config, "ref", stepKey);
+        String mode = config.path("mode").asText("WAIT").toUpperCase(Locale.ROOT);
+        if (!mode.equals("WAIT") && !mode.equals("DISPATCH")) {
+            throw new IllegalArgumentException("GITHUB_WORKFLOW mode must be WAIT or DISPATCH: " + stepKey);
+        }
+        if (mode.equals("WAIT")) requireText(config, "headSha", stepKey);
+        JsonNode inputs = config.path("inputs");
+        if (!inputs.isMissingNode() && !inputs.isObject()) {
+            throw new IllegalArgumentException("GITHUB_WORKFLOW config.inputs must be an object: " + stepKey);
+        }
+        if (inputs.isObject()) {
+            inputs.properties().forEach(entry -> {
+                if (!entry.getValue().isTextual()) {
+                    throw new IllegalArgumentException("GITHUB_WORKFLOW input values must be strings: " + stepKey);
+                }
+            });
         }
     }
 
