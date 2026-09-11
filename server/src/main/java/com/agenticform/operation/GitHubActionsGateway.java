@@ -14,21 +14,16 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.regex.Pattern;
 
 @Service
 public class GitHubActionsGateway {
-    public record WorkflowResult(long runId, String status, String conclusion, String htmlUrl,
-                                 String headSha, String headBranch, String displayTitle) {}
-
-    private record WorkflowRun(long id, String status, String conclusion, String htmlUrl,
-                               String headSha, String headBranch, String displayTitle,
-                               String event, Instant createdAt) {}
+    public record WorkflowRun(long runId, String status, String conclusion, String htmlUrl,
+                              String headSha, String headBranch, String displayTitle,
+                              String event, String workflowPath, Instant createdAt) {}
 
     private static final Pattern REPOSITORY = Pattern.compile("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+");
     private static final Pattern WORKFLOW = Pattern.compile("[A-Za-z0-9_.-]+(?:\\.ya?ml)?");
@@ -51,30 +46,16 @@ public class GitHubActionsGateway {
         return properties.getToken() != null && !properties.getToken().isBlank();
     }
 
-    public WorkflowResult waitForWorkflow(String repository, String workflow, String ref,
-                                          String headSha, int timeoutSeconds) throws Exception {
+    public Instant dispatchWorkflow(String repository, String workflow, String ref,
+                                    Map<String, String> inputs) throws Exception {
         requireConfigured();
         validate(repository, workflow, ref);
-        if (headSha == null || headSha.isBlank()) {
-            throw new IllegalArgumentException("GitHub WAIT mode requires headSha");
-        }
-        return waitForRun(repository, workflow, ref, headSha.trim(), null,
-                Instant.now().plusSeconds(timeoutSeconds));
-    }
-
-    public WorkflowResult dispatchAndWait(String repository, String workflow, String ref,
-                                          Map<String, String> inputs, String expectedHeadSha,
-                                          int timeoutSeconds) throws Exception {
-        requireConfigured();
-        validate(repository, workflow, ref);
-        Instant notBefore = Instant.now().minusSeconds(2);
+        Instant correlationNotBefore = Instant.now().minusSeconds(2);
 
         ObjectNode payload = mapper.createObjectNode();
         payload.put("ref", ref);
         ObjectNode inputNode = payload.putObject("inputs");
-        if (inputs != null) {
-            inputs.forEach((key, value) -> inputNode.put(key, value));
-        }
+        if (inputs != null) inputs.forEach(inputNode::put);
 
         HttpRequest request = baseRequest(workflowUri(repository, workflow, "/dispatches"))
                 .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload)))
@@ -83,46 +64,12 @@ public class GitHubActionsGateway {
         if (response.statusCode() != 204) {
             throw new IllegalStateException("GitHub workflow dispatch returned HTTP " + response.statusCode());
         }
-
-        return waitForRun(repository, workflow, ref,
-                expectedHeadSha == null || expectedHeadSha.isBlank() ? null : expectedHeadSha.trim(),
-                notBefore, Instant.now().plusSeconds(timeoutSeconds));
+        return correlationNotBefore;
     }
 
-    private WorkflowResult waitForRun(String repository, String workflow, String ref, String expectedHeadSha,
-                                      Instant notBefore, Instant deadline) throws Exception {
-        WorkflowRun selected = null;
-        while (Instant.now().isBefore(deadline)) {
-            var candidates = listRuns(repository, workflow).stream()
-                    .filter(run -> expectedHeadSha == null || expectedHeadSha.equals(run.headSha()))
-                    .filter(run -> ref == null || ref.isBlank() || ref.equals(run.headBranch()))
-                    .filter(run -> notBefore == null || !run.createdAt().isBefore(notBefore))
-                    .sorted(Comparator.comparing(WorkflowRun::createdAt).reversed())
-                    .toList();
-
-            if (notBefore != null && candidates.size() > 1) {
-                throw new IllegalStateException("Ambiguous GitHub workflow dispatch: multiple matching runs appeared; retry after concurrent dispatches finish");
-            }
-            if (!candidates.isEmpty()) selected = candidates.get(0);
-
-            if (selected != null && "completed".equalsIgnoreCase(selected.status())) {
-                if (!"success".equalsIgnoreCase(selected.conclusion())) {
-                    throw new IllegalStateException("GitHub workflow run " + selected.id()
-                            + " completed with conclusion " + selected.conclusion());
-                }
-                return result(selected);
-            }
-
-            Thread.sleep(Math.max(250L, properties.getPollInterval().toMillis()));
-        }
-
-        if (selected == null) {
-            throw new IllegalStateException("Timed out waiting for GitHub workflow run to appear");
-        }
-        throw new IllegalStateException("Timed out waiting for GitHub workflow run " + selected.id() + " to complete");
-    }
-
-    private java.util.List<WorkflowRun> listRuns(String repository, String workflow) throws Exception {
+    public List<WorkflowRun> listWorkflowRuns(String repository, String workflow) throws Exception {
+        requireConfigured();
+        validate(repository, workflow, "main");
         URI uri = workflowUri(repository, workflow, "/runs?per_page=30");
         HttpRequest request = baseRequest(uri).GET().build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -131,27 +78,50 @@ public class GitHubActionsGateway {
         }
 
         JsonNode root = mapper.readTree(response.body());
-        java.util.ArrayList<WorkflowRun> runs = new java.util.ArrayList<>();
+        ArrayList<WorkflowRun> runs = new ArrayList<>();
         for (JsonNode node : root.path("workflow_runs")) {
-            Instant createdAt;
-            try {
-                createdAt = Instant.parse(node.path("created_at").asText());
-            } catch (Exception error) {
-                continue;
-            }
-            runs.add(new WorkflowRun(
-                    node.path("id").asLong(),
-                    node.path("status").asText(),
-                    nullableText(node, "conclusion"),
-                    nullableText(node, "html_url"),
-                    nullableText(node, "head_sha"),
-                    nullableText(node, "head_branch"),
-                    nullableText(node, "display_title"),
-                    nullableText(node, "event"),
-                    createdAt
-            ));
+            WorkflowRun run = parseRun(node);
+            if (run != null) runs.add(run);
         }
-        return java.util.List.copyOf(runs);
+        return List.copyOf(runs);
+    }
+
+    public WorkflowRun getWorkflowRun(String repository, long runId) throws Exception {
+        requireConfigured();
+        if (repository == null || !REPOSITORY.matcher(repository.trim()).matches()) {
+            throw new IllegalArgumentException("Invalid GitHub repository; expected owner/name");
+        }
+        String base = properties.getApiUrl().toString();
+        if (!base.endsWith("/")) base += "/";
+        URI uri = URI.create(base + "repos/" + repository + "/actions/runs/" + runId);
+        HttpResponse<String> response = client.send(baseRequest(uri).GET().build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException("GitHub workflow run request returned HTTP " + response.statusCode());
+        }
+        WorkflowRun run = parseRun(mapper.readTree(response.body()));
+        if (run == null) throw new IllegalStateException("GitHub workflow run response was missing created_at");
+        return run;
+    }
+
+    private WorkflowRun parseRun(JsonNode node) {
+        Instant createdAt;
+        try {
+            createdAt = Instant.parse(node.path("created_at").asText());
+        } catch (Exception error) {
+            return null;
+        }
+        return new WorkflowRun(
+                node.path("id").asLong(),
+                node.path("status").asText(),
+                nullableText(node, "conclusion"),
+                nullableText(node, "html_url"),
+                nullableText(node, "head_sha"),
+                nullableText(node, "head_branch"),
+                nullableText(node, "display_title"),
+                nullableText(node, "event"),
+                nullableText(node, "path"),
+                createdAt
+        );
     }
 
     private HttpRequest.Builder baseRequest(URI uri) {
@@ -169,11 +139,6 @@ public class GitHubActionsGateway {
         String path = "repos/" + repository + "/actions/workflows/"
                 + URLEncoder.encode(workflow, StandardCharsets.UTF_8) + suffix;
         return URI.create(base + path);
-    }
-
-    private WorkflowResult result(WorkflowRun run) {
-        return new WorkflowResult(run.id(), run.status(), run.conclusion(), run.htmlUrl(),
-                run.headSha(), run.headBranch(), run.displayTitle());
     }
 
     private void requireConfigured() {

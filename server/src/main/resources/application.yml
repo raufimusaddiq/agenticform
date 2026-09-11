@@ -25,6 +25,8 @@ agenticform:
   workspace:
     root: ${AGENTICFORM_WORKTREE_ROOT:/srv/agenticform/worktrees}
     git-timeout: ${AGENTICFORM_GIT_TIMEOUT:30s}
+    cleanup-retention: ${AGENTICFORM_WORKTREE_RETENTION:24h}
+    cleanup-delay-ms: ${AGENTICFORM_WORKTREE_CLEANUP_DELAY_MS:3600000}
   codex:
     endpoint: ${CODEX_APP_SERVER_URL:ws://127.0.0.1:4500}
     request-timeout: ${CODEX_REQUEST_TIMEOUT:30s}
@@ -32,9 +34,13 @@ agenticform:
   github:
     api-url: ${AGENTICFORM_GITHUB_API_URL:https://api.github.com}
     token: ${AGENTICFORM_GITHUB_TOKEN:}
+    webhook-secret: ${AGENTICFORM_GITHUB_WEBHOOK_SECRET:}
     poll-interval: ${AGENTICFORM_GITHUB_POLL_INTERVAL:3s}
+    reconcile-delay-ms: ${AGENTICFORM_GITHUB_RECONCILE_DELAY_MS:30000}
   ui:
     origin: ${AGENTICFORM_UI_ORIGIN:http://localhost:5173}
   scheduler:
     dispatch-delay-ms: ${AGENTICFORM_DISPATCH_DELAY_MS:2000}
     reconcile-delay-ms: ${AGENTICFORM_RECONCILE_DELAY_MS:10000}
+    operation-run-delay-ms: ${AGENTICFORM_OPERATION_RUN_DELAY_MS:1000}
+    operation-event-delay-ms: ${AGENTICFORM_OPERATION_EVENT_DELAY_MS:2000}

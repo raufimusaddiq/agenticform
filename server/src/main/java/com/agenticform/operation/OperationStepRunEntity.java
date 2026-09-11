@@ -16,7 +16,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "operation_step_runs")
 public class OperationStepRunEntity {
-    public enum Status { RUNNING, SUCCEEDED, FAILED }
+    public enum Status { RUNNING, WAITING_EXTERNAL, SUCCEEDED, FAILED }
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -73,6 +73,12 @@ public class OperationStepRunEntity {
 
     @PrePersist
     void onCreate() { startedAt = Instant.now(); }
+
+    public void waitExternal(String summary) {
+        this.status = Status.WAITING_EXTERNAL;
+        this.summary = summary;
+        this.completedAt = null;
+    }
 
     public void succeed(String summary, String evidence, Integer exitCode, long durationMs) {
         this.status = Status.SUCCEEDED;

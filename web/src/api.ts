@@ -19,6 +19,8 @@ import type {
   Project,
   RunbookStep,
   Task,
+  WorkspaceCleanupInspection,
+  WorkspaceCleanupRecord,
   WorkspaceMode
 } from './types';
 
@@ -78,6 +80,27 @@ export type RunbookInput = {
   steps: RunbookStep[];
 };
 
+export type OperationExternalWait = {
+  id: string;
+  operationRunId: string;
+  stepRunId: string;
+  provider: string;
+  mode: 'WAIT' | 'DISPATCH';
+  repository: string;
+  workflow: string;
+  ref: string;
+  expectedHeadSha: string;
+  externalRunId: number | null;
+  externalUrl: string | null;
+  correlationNotBefore: string | null;
+  deadline: string;
+  status: 'WAITING' | 'SUCCEEDED' | 'FAILED' | 'TIMED_OUT';
+  lastObservedStatus: string | null;
+  lastObservedConclusion: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export const api = {
   projects: () => request<Project[]>('/api/projects'),
   agents: () => request<Agent[]>('/api/agents'),
@@ -90,6 +113,11 @@ export const api = {
   operationalRunbooks: () => request<OperationalRunbook[]>('/api/operations/runbooks'),
   operationRuns: () => request<OperationRun[]>('/api/operations/runs'),
   operationRun: (runId: string) => request<OperationRunDetail>(`/api/operations/runs/${runId}`),
+  operationExternalWaits: (runId: string) => request<OperationExternalWait[]>(`/api/operations/runs/${runId}/external-waits`),
+  workspaceCleanupHistory: (projectId?: string) => request<WorkspaceCleanupRecord[]>(
+    `/api/workspaces/cleanup-history${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
+  workspaceCleanupInspection: (agentId: string) =>
+    request<WorkspaceCleanupInspection>(`/api/workspaces/agents/${agentId}/cleanup-inspection`),
 
   registerProject: (input: { name: string; path: string; defaultBranch: string }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
@@ -125,6 +153,12 @@ export const api = {
 
   intervene: (agentId: string) =>
     request<Agent>(`/api/agents/${agentId}/intervene`, { method: 'POST' }),
+
+  cleanupWorkspace: (agentId: string, reason = 'Operator requested cleanup') =>
+    request<WorkspaceCleanupRecord>(`/api/workspaces/agents/${agentId}/cleanup`, {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    }),
 
   createTask: (input: { agentId: string; title: string; prompt: string; priority: number }) =>
     request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),

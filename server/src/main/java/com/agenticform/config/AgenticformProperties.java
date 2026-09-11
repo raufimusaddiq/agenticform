@@ -38,11 +38,14 @@ public class AgenticformProperties {
     public static class Workspace {
         private String root = "/srv/agenticform/worktrees";
         private Duration gitTimeout = Duration.ofSeconds(30);
+        private Duration cleanupRetention = Duration.ofHours(24);
 
         public String getRoot() { return root; }
         public void setRoot(String root) { this.root = root; }
         public Duration getGitTimeout() { return gitTimeout; }
         public void setGitTimeout(Duration gitTimeout) { this.gitTimeout = gitTimeout; }
+        public Duration getCleanupRetention() { return cleanupRetention; }
+        public void setCleanupRetention(Duration cleanupRetention) { this.cleanupRetention = cleanupRetention; }
     }
 
     public static class Ui {
@@ -55,12 +58,15 @@ public class AgenticformProperties {
     public static class GitHub {
         private URI apiUrl = URI.create("https://api.github.com");
         private String token = "";
+        private String webhookSecret = "";
         private Duration pollInterval = Duration.ofSeconds(3);
 
         public URI getApiUrl() { return apiUrl; }
         public void setApiUrl(URI apiUrl) { this.apiUrl = apiUrl; }
         public String getToken() { return token; }
         public void setToken(String token) { this.token = token == null ? "" : token; }
+        public String getWebhookSecret() { return webhookSecret; }
+        public void setWebhookSecret(String webhookSecret) { this.webhookSecret = webhookSecret == null ? "" : webhookSecret; }
         public Duration getPollInterval() { return pollInterval; }
         public void setPollInterval(Duration pollInterval) { this.pollInterval = pollInterval; }
     }

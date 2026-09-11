@@ -21,6 +21,7 @@ public class OperationRunEntity {
         WAITING_APPROVAL,
         QUEUED,
         RUNNING,
+        WAITING_EXTERNAL,
         SUCCEEDED,
         FAILED,
         DENIED,
@@ -124,18 +125,23 @@ public class OperationRunEntity {
     public void approve(String approvedBy) {
         this.approvedBy = approvedBy;
         this.approvedAt = Instant.now();
-        this.status = Status.QUEUED;
-        this.lastError = null;
+        queue();
     }
 
     public void queue() {
         this.status = Status.QUEUED;
         this.lastError = null;
+        this.completedAt = null;
     }
 
     public void start() {
         this.status = Status.RUNNING;
-        this.startedAt = Instant.now();
+        if (this.startedAt == null) this.startedAt = Instant.now();
+        this.lastError = null;
+    }
+
+    public void waitExternal() {
+        this.status = Status.WAITING_EXTERNAL;
         this.lastError = null;
     }
 
