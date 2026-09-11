@@ -1,0 +1,40 @@
+.control-mode-note { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); background: var(--panel); border-radius: 9px; overflow: hidden; }
+.control-mode-note > div { padding: 14px 16px; display: grid; gap: 5px; }
+.control-mode-note > div + div { border-left: 1px solid var(--border); }
+.control-mode-note strong { font-size: 13px; }
+.control-mode-note span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.approval-count { min-width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 999px; font-size: 12px; }
+.approval-list { display: grid; }
+.approval-card { padding: 18px; border-bottom: 1px solid var(--border); display: grid; gap: 16px; }
+.approval-card:last-child { border-bottom: 0; }
+.approval-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.approval-card-header > div:first-child { display: grid; gap: 5px; min-width: 0; }
+.approval-card-header small { color: var(--muted); }
+.approval-title-line { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.approval-badges { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.mode-pill, .risk { display: inline-flex; align-items: center; min-height: 23px; padding: 3px 7px; border: 1px solid var(--border-strong); border-radius: 999px; font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; }
+.mode-pill { color: #9ebce7; }
+.risk-low { color: var(--success); border-color: rgba(93,201,139,.28); }
+.risk-elevated { color: var(--warning); border-color: rgba(230,170,78,.32); }
+.risk-high { color: var(--danger); border-color: rgba(255,107,117,.34); }
+.approval-details { display: grid; gap: 10px; }
+.approval-details > div:not(.approval-machine) { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: start; }
+.approval-details > div > span { color: var(--muted); font-size: 11px; padding-top: 2px; }
+.approval-details p { margin: 0; color: #c7cdd5; font-size: 13px; line-height: 1.5; }
+.approval-command { display: block; padding: 9px 10px; border: 1px solid var(--border); background: #0b0e12; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-details pre { margin: 0; max-height: 180px; overflow: auto; padding: 10px; background: #0b0e12; border: 1px solid var(--border); border-radius: 6px; color: #bac4d2; font-size: 11px; }
+.approval-machine { display: flex; gap: 12px; flex-wrap: wrap; padding-top: 4px; }
+.approval-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.button.danger { color: #ff9098; background: rgba(255,107,117,.06); border-color: rgba(255,107,117,.28); }
+.button.danger:hover:not(:disabled) { background: rgba(255,107,117,.11); border-color: rgba(255,107,117,.45); }
+.user-input-form { display: grid; gap: 14px; padding-top: 2px; }
+.user-input-form label { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(240px, 1.3fr); gap: 14px; align-items: center; }
+.user-input-form label > span { display: grid; gap: 3px; }
+.user-input-form label small { color: var(--muted); line-height: 1.4; }
+.approval-history { display: grid; }
+.approval-history-row { display: grid; grid-template-columns: minmax(220px, 2fr) 95px 80px 160px 170px; gap: 14px; align-items: center; padding: 11px 17px; border-bottom: 1px solid #20252c; font-size: 12px; }
+.approval-history-row:last-child { border-bottom: 0; }
+.approval-history-row > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.approval-history-row small, .approval-history-row time { color: var(--muted); }
+@media (max-width: 900px) { .approval-history-row { grid-template-columns: 1fr 100px 90px; }.approval-history-row > *:nth-child(n+4) { grid-column: auto; }.approval-details > div:not(.approval-machine), .user-input-form label { grid-template-columns: 1fr; gap: 6px; } }
+@media (max-width: 680px) { .control-mode-note { grid-template-columns: 1fr; }.control-mode-note > div + div { border-left: 0; border-top: 1px solid var(--border); }.approval-card-header { flex-direction: column; }.approval-history-row { grid-template-columns: 1fr; }.approval-actions { justify-content: stretch; flex-wrap: wrap; }.approval-actions .button { flex: 1; } }
