@@ -36,6 +36,11 @@ public class AgentController {
                 request.baseBranch(), request.branch(), request.queueMode(), request.humanControlMode()));
     }
 
+    @PostMapping("/operational/ensure")
+    public AgentEntity ensureOperational(@Valid @RequestBody EnsureOperationalAgentRequest request) {
+        return service.ensureOperationalAgent(request.projectId());
+    }
+
     @PostMapping("/{agentId}/human-control-mode")
     public AgentEntity updateHumanControlMode(@PathVariable UUID agentId,
                                               @Valid @RequestBody HumanControlModeRequest request) {
@@ -64,6 +69,7 @@ public class AgentController {
             HumanControlMode humanControlMode
     ) {}
 
+    public record EnsureOperationalAgentRequest(@NotNull UUID projectId) {}
     public record HumanControlModeRequest(@NotNull HumanControlMode mode) {}
     public record QueueModeRequest(@NotNull AgentQueueMode mode) {}
 }
