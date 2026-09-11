@@ -23,6 +23,7 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode params = mapper.createObjectNode();
         params.put("cwd", cwd);
         params.put("baseInstructions", responsibility);
+        params.set("dynamicTools", agenticformTools());
         JsonNode result = client.request("thread/start", params);
         return new ThreadHandle(result.path("thread").path("id").asText());
     }
@@ -90,5 +91,58 @@ public class CodexAppServerGateway implements CodexGateway {
         text.put("text", prompt);
         input.add(text);
         return input;
+    }
+
+    private ArrayNode agenticformTools() {
+        ArrayNode tools = mapper.createArrayNode();
+        ObjectNode namespace = mapper.createObjectNode();
+        namespace.put("type", "namespace");
+        namespace.put("name", "agenticform");
+        namespace.put("description", "Coordinate with other Agenticform agents assigned to the same project.");
+        ArrayNode namespaceTools = namespace.putArray("tools");
+
+        ObjectNode listAgents = mapper.createObjectNode();
+        listAgents.put("type", "function");
+        listAgents.put("name", "list_agents");
+        listAgents.put("description", "List Agenticform agents in this project, including responsibilities and current status. Use this before sending a message when the target agent id is unknown.");
+        ObjectNode listSchema = listAgents.putObject("inputSchema");
+        listSchema.put("type", "object");
+        listSchema.putObject("properties");
+        listSchema.put("additionalProperties", false);
+        namespaceTools.add(listAgents);
+
+        ObjectNode sendMessage = mapper.createObjectNode();
+        sendMessage.put("type", "function");
+        sendMessage.put("name", "send_message");
+        sendMessage.put("description", "Send a durable asynchronous message to another Agenticform agent. Use for questions, requests, handoffs, reviews, blockers, and relevant information. Do not send acknowledgement-only messages.");
+        ObjectNode sendSchema = sendMessage.putObject("inputSchema");
+        sendSchema.put("type", "object");
+        ObjectNode properties = sendSchema.putObject("properties");
+        property(properties, "targetAgentId", "string", "Agenticform agent UUID returned by list_agents.");
+        ObjectNode type = properties.putObject("type");
+        type.put("type", "string");
+        ArrayNode messageTypes = type.putArray("enum");
+        for (String value : new String[]{"QUESTION", "ANSWER", "REQUEST", "RESULT", "HANDOFF", "REVIEW_REQUEST", "REVIEW_RESULT", "INFORMATION", "BLOCKER"}) {
+            messageTypes.add(value);
+        }
+        property(properties, "subject", "string", "Short message subject.");
+        property(properties, "content", "string", "Message body with the minimum context the receiving agent needs.");
+        property(properties, "replyToMessageId", "string", "Optional message UUID when replying to an incoming Agenticform message.");
+        ArrayNode required = sendSchema.putArray("required");
+        required.add("targetAgentId");
+        required.add("type");
+        required.add("subject");
+        required.add("content");
+        sendSchema.put("additionalProperties", false);
+        namespaceTools.add(sendMessage);
+
+        tools.add(namespace);
+        return tools;
+    }
+
+    private void property(ObjectNode properties, String name, String type, String description) {
+        ObjectNode property = properties.putObject(name);
+        property.put("type", type);
+        property.put("description", description);
     }
 }

@@ -28,6 +28,7 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
     private final AtomicLong requestSequence = new AtomicLong();
     private final Map<Long, CompletableFuture<JsonNode>> pending = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Consumer<Notification>> listeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<ServerRequestHandler> serverRequestHandlers = new CopyOnWriteArrayList<>();
     private final StringBuilder incoming = new StringBuilder();
     private final Object connectionLock = new Object();
 
@@ -46,6 +47,10 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
 
     public void addNotificationListener(Consumer<Notification> listener) {
         listeners.add(listener);
+    }
+
+    public void addServerRequestHandler(ServerRequestHandler handler) {
+        serverRequestHandlers.add(handler);
     }
 
     private void ensureConnected() {
@@ -105,6 +110,22 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
         }
     }
 
+    private void sendServerResult(JsonNode id, JsonNode result) {
+        ObjectNode response = mapper.createObjectNode();
+        response.set("id", id);
+        response.set("result", result);
+        sendText(response);
+    }
+
+    private void sendServerError(JsonNode id, int code, String message) {
+        ObjectNode response = mapper.createObjectNode();
+        response.set("id", id);
+        ObjectNode error = response.putObject("error");
+        error.put("code", code);
+        error.put("message", message);
+        sendText(response);
+    }
+
     @Override
     public void onOpen(WebSocket webSocket) {
         webSocket.request(1);
@@ -130,6 +151,17 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
     private void handleMessage(String raw) {
         try {
             JsonNode message = mapper.readTree(raw);
+
+            // App Server can initiate JSON-RPC requests (dynamic tools, approvals, user input).
+            // These have both an id and a method and must not be confused with responses to
+            // Agenticform's own outbound requests.
+            if (message.has("id") && message.has("method")) {
+                ServerRequest request = new ServerRequest(
+                        message.get("id"), message.get("method").asText(), message.get("params"));
+                CompletableFuture.runAsync(() -> handleServerRequest(request));
+                return;
+            }
+
             if (message.has("id")) {
                 long id = message.get("id").asLong();
                 CompletableFuture<JsonNode> future = pending.remove(id);
@@ -142,6 +174,7 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
                 }
                 return;
             }
+
             if (message.has("method")) {
                 Notification notification = new Notification(
                         message.get("method").asText(), message.get("params"));
@@ -150,6 +183,21 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
         } catch (Exception ignored) {
             // Malformed transport messages are isolated from the reader loop; diagnostics will be added in observability work.
         }
+    }
+
+    private void handleServerRequest(ServerRequest request) {
+        for (ServerRequestHandler handler : serverRequestHandlers) {
+            if (!handler.supports(request.method())) {
+                continue;
+            }
+            try {
+                sendServerResult(request.id(), handler.handle(request));
+            } catch (Exception error) {
+                sendServerError(request.id(), -32000, error.getMessage() == null ? "Agenticform tool failed" : error.getMessage());
+            }
+            return;
+        }
+        sendServerError(request.id(), -32601, "Unsupported server request: " + request.method());
     }
 
     @Override
@@ -187,4 +235,10 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
     }
 
     public record Notification(String method, JsonNode params) {}
+    public record ServerRequest(JsonNode id, String method, JsonNode params) {}
+
+    public interface ServerRequestHandler {
+        boolean supports(String method);
+        JsonNode handle(ServerRequest request);
+    }
 }
