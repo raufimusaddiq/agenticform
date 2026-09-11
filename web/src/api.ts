@@ -6,11 +6,18 @@ import type {
   HumanApproval,
   HumanApprovalDecision,
   HumanControlMode,
+  OperationRun,
+  OperationRunDetail,
+  OperationalEnvironment,
+  OperationalEnvironmentKind,
+  OperationalRunbook,
+  OperationalService,
   PolicyDecision,
   PolicyEffect,
   PolicyRule,
   PolicyScopeType,
   Project,
+  RunbookStep,
   Task,
   WorkspaceMode
 } from './types';
@@ -45,6 +52,32 @@ export type PolicyRuleInput = {
   enabled: boolean;
 };
 
+export type EnvironmentInput = {
+  projectId: string;
+  key: string;
+  displayName: string;
+  kind: OperationalEnvironmentKind;
+};
+
+export type ServiceInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  displayName: string;
+  healthUrl?: string;
+  readinessUrl?: string;
+};
+
+export type RunbookInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  action: string;
+  description: string;
+  steps: RunbookStep[];
+};
+
 export const api = {
   projects: () => request<Project[]>('/api/projects'),
   agents: () => request<Agent[]>('/api/agents'),
@@ -52,6 +85,11 @@ export const api = {
   messages: () => request<AgentMessage[]>('/api/messages'),
   approvals: () => request<HumanApproval[]>('/api/approvals'),
   policyRules: () => request<PolicyRule[]>('/api/policies/rules'),
+  operationalEnvironments: () => request<OperationalEnvironment[]>('/api/operations/environments'),
+  operationalServices: () => request<OperationalService[]>('/api/operations/services'),
+  operationalRunbooks: () => request<OperationalRunbook[]>('/api/operations/runbooks'),
+  operationRuns: () => request<OperationRun[]>('/api/operations/runs'),
+  operationRun: (runId: string) => request<OperationRunDetail>(`/api/operations/runs/${runId}`),
 
   registerProject: (input: { name: string; path: string; defaultBranch: string }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
@@ -124,5 +162,36 @@ export const api = {
     taskId?: string | null;
     action: string;
     environment?: string;
-  }) => request<PolicyDecision>('/api/policies/evaluate', { method: 'POST', body: JSON.stringify(input) })
+  }) => request<PolicyDecision>('/api/policies/evaluate', { method: 'POST', body: JSON.stringify(input) }),
+
+  createOperationalEnvironment: (input: EnvironmentInput) =>
+    request<OperationalEnvironment>('/api/operations/environments', { method: 'POST', body: JSON.stringify(input) }),
+
+  createOperationalService: (input: ServiceInput) =>
+    request<OperationalService>('/api/operations/services', { method: 'POST', body: JSON.stringify(input) }),
+
+  createOperationalRunbook: (input: RunbookInput) =>
+    request<OperationalRunbook>('/api/operations/runbooks', { method: 'POST', body: JSON.stringify(input) }),
+
+  startOperation: (runbookId: string, input: {
+    agentId?: string | null;
+    taskId?: string | null;
+    requestedBy?: string;
+    parameters?: Record<string, string>;
+  }) => request<OperationRun>(`/api/operations/runbooks/${runbookId}/runs`, {
+    method: 'POST',
+    body: JSON.stringify(input)
+  }),
+
+  approveOperation: (runId: string, actor = 'operator') =>
+    request<OperationRun>(`/api/operations/runs/${runId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ actor })
+    }),
+
+  declineOperation: (runId: string, actor = 'operator', reason = 'Operator declined operation') =>
+    request<OperationRun>(`/api/operations/runs/${runId}/decline`, {
+      method: 'POST',
+      body: JSON.stringify({ actor, reason })
+    })
 };
