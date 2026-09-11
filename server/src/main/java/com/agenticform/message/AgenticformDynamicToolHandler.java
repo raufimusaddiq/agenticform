@@ -4,6 +4,11 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.approval.HumanApprovalService;
 import com.agenticform.codex.CodexJsonRpcClient;
+import com.agenticform.operation.OperationRunEntity;
+import com.agenticform.operation.OperationRunService;
+import com.agenticform.operation.OperationalEnvironmentEntity;
+import com.agenticform.operation.OperationalRegistryService;
+import com.agenticform.operation.OperationalRunbookEntity;
 import com.agenticform.policy.PolicyRuleEntity;
 import com.agenticform.policy.PolicyRuleService;
 import jakarta.annotation.PostConstruct;
@@ -13,7 +18,9 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -29,16 +36,23 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private final AgentMessageService messageService;
     private final HumanApprovalService approvalService;
     private final PolicyRuleService policyRuleService;
+    private final OperationalRegistryService operationalRegistry;
+    private final OperationRunService operationRunService;
     private final ObjectMapper mapper;
 
     public AgenticformDynamicToolHandler(CodexJsonRpcClient client, AgentRepository agentRepository,
                                          AgentMessageService messageService, HumanApprovalService approvalService,
-                                         PolicyRuleService policyRuleService, ObjectMapper mapper) {
+                                         PolicyRuleService policyRuleService,
+                                         OperationalRegistryService operationalRegistry,
+                                         OperationRunService operationRunService,
+                                         ObjectMapper mapper) {
         this.client = client;
         this.agentRepository = agentRepository;
         this.messageService = messageService;
         this.approvalService = approvalService;
         this.policyRuleService = policyRuleService;
+        this.operationalRegistry = operationalRegistry;
+        this.operationRunService = operationRunService;
         this.mapper = mapper;
     }
 
@@ -69,6 +83,9 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             case "list_agents" -> CompletableFuture.completedFuture(listAgents(source));
             case "send_message" -> CompletableFuture.completedFuture(sendMessage(source, arguments));
             case "list_policy_rules" -> CompletableFuture.completedFuture(listPolicyRules(source));
+            case "list_runbooks" -> CompletableFuture.completedFuture(listRunbooks(source));
+            case "request_operation" -> CompletableFuture.completedFuture(requestOperation(source, arguments));
+            case "get_operation_status" -> CompletableFuture.completedFuture(getOperationStatus(source, arguments));
             case "request_action" -> approvalService.receiveDeclaredAction(request, source, arguments);
             case "request_protected_action" -> approvalService.receiveProtectedAction(request, source, arguments);
             default -> throw new IllegalArgumentException("Unknown Agenticform dynamic tool: " + tool);
@@ -115,6 +132,72 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         return success(payload.toString());
     }
 
+    private JsonNode listRunbooks(AgentEntity source) {
+        ArrayNode rows = mapper.createArrayNode();
+        for (OperationalRunbookEntity runbook : operationalRegistry.runbooks(source.getProjectId())) {
+            if (!runbook.isEnabled()) continue;
+            OperationalEnvironmentEntity environment = operationalRegistry.environment(runbook.getEnvironmentId());
+            if (!environment.isEnabled()) continue;
+            ObjectNode row = rows.addObject();
+            row.put("id", runbook.getId().toString());
+            row.put("key", runbook.getKey());
+            row.put("name", runbook.getName());
+            row.put("version", runbook.getVersion());
+            row.put("action", runbook.getAction());
+            row.put("environment", environment.getKey());
+            row.put("environmentKind", environment.getKind().name());
+            row.put("description", runbook.getDescription());
+        }
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("projectId", source.getProjectId().toString());
+        payload.put("note", "Choose the runbook matching the intended operation. Agenticform evaluates policy and executes the immutable runbook snapshot.");
+        payload.set("runbooks", rows);
+        return success(payload.toString());
+    }
+
+    private JsonNode requestOperation(AgentEntity source, JsonNode arguments) {
+        String runbookKey = requiredText(arguments, "runbookKey");
+        OperationalRunbookEntity runbook = operationalRegistry.runbook(source.getProjectId(), runbookKey);
+        Map<String, String> parameters = stringMap(arguments.path("parameters"));
+        OperationRunEntity run = operationRunService.start(runbook.getId(), new OperationRunService.StartRequest(
+                source.getId(), source.getActiveTaskId(), "agent:" + source.getId(), parameters));
+        return success(operationPayload(run).toString());
+    }
+
+    private JsonNode getOperationStatus(AgentEntity source, JsonNode arguments) {
+        UUID runId = UUID.fromString(requiredText(arguments, "runId"));
+        OperationRunService.RunDetail detail = operationRunService.detail(runId);
+        if (!source.getProjectId().equals(detail.run().getProjectId())) {
+            throw new IllegalArgumentException("Operation belongs to another project");
+        }
+        ObjectNode payload = operationPayload(detail.run());
+        ArrayNode steps = payload.putArray("steps");
+        detail.steps().forEach(step -> {
+            ObjectNode row = steps.addObject();
+            row.put("key", step.getStepKey());
+            row.put("name", step.getStepName());
+            row.put("type", step.getStepType());
+            row.put("status", step.getStatus().name());
+            if (step.getSummary() != null) row.put("summary", step.getSummary());
+            if (step.getExitCode() != null) row.put("exitCode", step.getExitCode());
+            if (step.getDurationMs() != null) row.put("durationMs", step.getDurationMs());
+        });
+        return success(payload.toString());
+    }
+
+    private ObjectNode operationPayload(OperationRunEntity run) {
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("runId", run.getId().toString());
+        payload.put("runbookId", run.getRunbookId().toString());
+        payload.put("action", run.getAction());
+        payload.put("environment", run.getEnvironmentKey());
+        payload.put("status", run.getStatus().name());
+        payload.put("policyEffect", run.getPolicyEffect().name());
+        if (run.getPolicyRuleId() != null) payload.put("policyRuleId", run.getPolicyRuleId().toString());
+        if (run.getLastError() != null) payload.put("lastError", run.getLastError());
+        return payload;
+    }
+
     private JsonNode sendMessage(AgentEntity source, JsonNode arguments) {
         UUID targetAgentId = UUID.fromString(requiredText(arguments, "targetAgentId"));
         AgentMessageType type = arguments.hasNonNull("type")
@@ -141,6 +224,17 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             payload.put("turnId", message.getCodexTurnId());
         }
         return success(payload.toString());
+    }
+
+    private Map<String, String> stringMap(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return Map.of();
+        if (!node.isObject()) throw new IllegalArgumentException("parameters must be an object");
+        LinkedHashMap<String, String> result = new LinkedHashMap<>();
+        node.properties().forEach(entry -> {
+            if (!entry.getValue().isTextual()) throw new IllegalArgumentException("operation parameter values must be strings");
+            result.put(entry.getKey(), entry.getValue().asText());
+        });
+        return Map.copyOf(result);
     }
 
     private JsonNode success(String text) {
