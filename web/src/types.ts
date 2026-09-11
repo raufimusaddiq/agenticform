@@ -22,6 +22,7 @@ export type AgentStatus =
 export type AgentQueueMode = 'AUTO' | 'REVIEW_BETWEEN_TASKS' | 'PAUSED';
 export type WorkspaceMode = 'ISOLATED_WORKTREE' | 'SHARED_PROJECT';
 export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
+export type AgentRole = 'GENERAL' | 'OPERATIONAL';
 
 export type Agent = {
   id: string;
@@ -36,6 +37,8 @@ export type Agent = {
   status: AgentStatus;
   queueMode: AgentQueueMode;
   humanControlMode: HumanControlMode;
+  role: AgentRole;
+  systemManaged: boolean;
   activeTaskId: string | null;
   activeTurnId: string | null;
   createdAt: string;
@@ -196,7 +199,7 @@ export type OperationalService = {
   updatedAt: string;
 };
 
-export type RunbookStepType = 'ASSERT_GIT_CLEAN' | 'ASSERT_GIT_SHA' | 'COMMAND' | 'HTTP_CHECK' | 'SERVICE_CHECK';
+export type RunbookStepType = 'ASSERT_GIT_CLEAN' | 'ASSERT_GIT_SHA' | 'COMMAND' | 'HTTP_CHECK' | 'SERVICE_CHECK' | 'GITHUB_WORKFLOW';
 
 export type RunbookStep = {
   key: string;
