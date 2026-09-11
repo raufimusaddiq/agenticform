@@ -42,6 +42,12 @@ public class AgentController {
         return service.updateHumanControlMode(agentId, request.mode());
     }
 
+    @PostMapping("/{agentId}/queue-mode")
+    public AgentEntity updateQueueMode(@PathVariable UUID agentId,
+                                       @Valid @RequestBody QueueModeRequest request) {
+        return service.updateQueueMode(agentId, request.mode());
+    }
+
     @PostMapping("/{agentId}/intervene")
     public AgentEntity intervene(@PathVariable UUID agentId) {
         return service.intervene(agentId);
@@ -59,4 +65,5 @@ public class AgentController {
     ) {}
 
     public record HumanControlModeRequest(@NotNull HumanControlMode mode) {}
+    public record QueueModeRequest(@NotNull AgentQueueMode mode) {}
 }
