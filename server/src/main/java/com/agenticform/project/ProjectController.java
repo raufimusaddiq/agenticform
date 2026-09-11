@@ -1,0 +1,37 @@
+package com.agenticform.project;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/projects")
+public class ProjectController {
+    private final ProjectService service;
+
+    public ProjectController(ProjectService service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    public List<ProjectEntity> list() {
+        return service.list();
+    }
+
+    @PostMapping
+    public ProjectEntity register(@Valid @RequestBody RegisterProjectRequest request) {
+        return service.register(request.name(), request.path(), request.defaultBranch());
+    }
+
+    public record RegisterProjectRequest(
+            @NotBlank String name,
+            @NotBlank String path,
+            @NotBlank String defaultBranch
+    ) {}
+}

@@ -1,0 +1,36 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/agenticform}
+    username: ${DATABASE_USER:agenticform}
+    password: ${DATABASE_PASSWORD:agenticform}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+agenticform:
+  project-roots:
+    - ${AGENTICFORM_PROJECT_ROOT:/srv/apps}
+  workspace:
+    root: ${AGENTICFORM_WORKTREE_ROOT:/srv/agenticform/worktrees}
+    git-timeout: ${AGENTICFORM_GIT_TIMEOUT:30s}
+  codex:
+    endpoint: ${CODEX_APP_SERVER_URL:ws://127.0.0.1:4500}
+    request-timeout: ${CODEX_REQUEST_TIMEOUT:30s}
+    experimental-api: ${CODEX_EXPERIMENTAL_API:true}
+  ui:
+    origin: ${AGENTICFORM_UI_ORIGIN:http://localhost:5173}
+  scheduler:
+    dispatch-delay-ms: ${AGENTICFORM_DISPATCH_DELAY_MS:2000}
+    reconcile-delay-ms: ${AGENTICFORM_RECONCILE_DELAY_MS:10000}
