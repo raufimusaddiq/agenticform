@@ -2,6 +2,7 @@ package com.agenticform.message;
 
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
+import com.agenticform.agent.AgentRole;
 import com.agenticform.approval.HumanApprovalService;
 import com.agenticform.codex.CodexJsonRpcClient;
 import com.agenticform.operation.OperationRunEntity;
@@ -82,6 +83,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         return switch (tool) {
             case "list_agents" -> CompletableFuture.completedFuture(listAgents(source));
             case "send_message" -> CompletableFuture.completedFuture(sendMessage(source, arguments));
+            case "handoff_to_operations" -> CompletableFuture.completedFuture(handoffToOperations(source, arguments));
             case "list_policy_rules" -> CompletableFuture.completedFuture(listPolicyRules(source));
             case "list_runbooks" -> CompletableFuture.completedFuture(listRunbooks(source));
             case "request_operation" -> CompletableFuture.completedFuture(requestOperation(source, arguments));
@@ -99,6 +101,8 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             ObjectNode row = mapper.createObjectNode();
             row.put("id", agent.getId().toString());
             row.put("name", agent.getName());
+            row.put("role", agent.getRole().name());
+            row.put("systemManaged", agent.isSystemManaged());
             row.put("responsibility", agent.getResponsibility());
             row.put("status", agent.getStatus().name());
             row.put("queueMode", agent.getQueueMode().name());
@@ -150,17 +154,21 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         }
         ObjectNode payload = mapper.createObjectNode();
         payload.put("projectId", source.getProjectId().toString());
-        payload.put("note", "Choose the runbook matching the intended operation. Agenticform evaluates policy and executes the immutable runbook snapshot.");
+        payload.put("requestAuthority", source.getRole() == AgentRole.OPERATIONAL ? "OPERATIONAL_AGENT" : "HANDOFF_REQUIRED");
+        payload.put("note", source.getRole() == AgentRole.OPERATIONAL
+                ? "Choose the runbook matching the intended operation. Agenticform evaluates policy and executes the immutable runbook snapshot."
+                : "Operational execution is owned by the project's Operational Agent. Use handoff_to_operations rather than request_operation.");
         payload.set("runbooks", rows);
         return success(payload.toString());
     }
 
     private JsonNode requestOperation(AgentEntity source, JsonNode arguments) {
+        requireOperationalAgent(source);
         String runbookKey = requiredText(arguments, "runbookKey");
         OperationalRunbookEntity runbook = operationalRegistry.runbook(source.getProjectId(), runbookKey);
         Map<String, String> parameters = stringMap(arguments.path("parameters"));
         OperationRunEntity run = operationRunService.start(runbook.getId(), new OperationRunService.StartRequest(
-                source.getId(), source.getActiveTaskId(), "agent:" + source.getId(), parameters));
+                source.getId(), source.getActiveTaskId(), "operational-agent:" + source.getId(), parameters));
         return success(operationPayload(run).toString());
     }
 
@@ -198,6 +206,30 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         return payload;
     }
 
+    private JsonNode handoffToOperations(AgentEntity source, JsonNode arguments) {
+        if (source.getRole() == AgentRole.OPERATIONAL) {
+            throw new IllegalArgumentException("Operational Agent cannot hand off an operation to itself");
+        }
+        AgentEntity target = agentRepository.findByProjectIdAndRole(source.getProjectId(), AgentRole.OPERATIONAL)
+                .orElseThrow(() -> new IllegalStateException("No Operational Agent is provisioned for this project"));
+        String subject = requiredText(arguments, "subject");
+        String content = requiredText(arguments, "content");
+        AgentMessageType type = arguments.hasNonNull("type")
+                ? AgentMessageType.valueOf(arguments.get("type").asText().toUpperCase())
+                : AgentMessageType.HANDOFF;
+        if (type != AgentMessageType.HANDOFF && type != AgentMessageType.REQUEST && type != AgentMessageType.BLOCKER) {
+            throw new IllegalArgumentException("Operational handoff type must be HANDOFF, REQUEST, or BLOCKER");
+        }
+        AgentMessageEntity message = messageService.send(source.getId(), target.getId(), type, subject, content, null);
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("operationalAgentId", target.getId().toString());
+        payload.put("operationalAgentName", target.getName());
+        payload.put("messageId", message.getId().toString());
+        payload.put("conversationId", message.getConversationId().toString());
+        payload.put("status", message.getStatus().name());
+        return success(payload.toString());
+    }
+
     private JsonNode sendMessage(AgentEntity source, JsonNode arguments) {
         UUID targetAgentId = UUID.fromString(requiredText(arguments, "targetAgentId"));
         AgentMessageType type = arguments.hasNonNull("type")
@@ -224,6 +256,12 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             payload.put("turnId", message.getCodexTurnId());
         }
         return success(payload.toString());
+    }
+
+    private void requireOperationalAgent(AgentEntity source) {
+        if (source.getRole() != AgentRole.OPERATIONAL) {
+            throw new IllegalArgumentException("Only the project's Operational Agent may request registered operations; use handoff_to_operations");
+        }
     }
 
     private Map<String, String> stringMap(JsonNode node) {
