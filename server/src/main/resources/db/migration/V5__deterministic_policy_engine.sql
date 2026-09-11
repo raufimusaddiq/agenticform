@@ -31,6 +31,8 @@ ALTER TABLE human_approvals
     ADD COLUMN policy_action VARCHAR(128),
     ADD COLUMN policy_environment VARCHAR(64),
     ADD COLUMN policy_effect VARCHAR(32),
-    ADD COLUMN policy_rule_id UUID REFERENCES policy_rules(id);
+    ADD COLUMN policy_rule_id UUID REFERENCES policy_rules(id),
+    ADD COLUMN preauthorization_grant_id UUID;
 
 CREATE INDEX idx_human_approvals_policy_rule ON human_approvals(policy_rule_id);
+CREATE INDEX idx_human_approvals_preauthorization_grant ON human_approvals(preauthorization_grant_id);
