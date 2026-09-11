@@ -221,7 +221,7 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
         <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name}</small></div>
         <Status value={agent.status} />
         <p>{agent.responsibility}</p>
-        <div className="control-stack"><small>Human control</small><select className="compact-select" value={agent.humanControlMode} onChange={(event) => onControlMode(agent.id, event.target.value as HumanControlMode)}><option value="IN_THE_LOOP">In the loop</option><option value="ON_THE_LOOP">On the loop</option></select></div>
+        <div className="control-stack"><small>Human control</small><select className="compact-select" value={agent.humanControlMode} onChange={(event) => onControlMode(agent.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">On the loop</option><option value="IN_THE_LOOP">In the loop</option></select></div>
         <div className="control-stack"><small>Queue</small><select className="compact-select" value={agent.queueMode} onChange={(event) => onQueueMode(agent.id, event.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></div>
         <div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small><code title={agent.codexThreadId}>{shortId(agent.codexThreadId)}</code></div>
         <button className="button compact secondary" onClick={() => onIntervene(agent.id)} disabled={agent.queueMode === 'PAUSED' && !agent.activeTurnId}>Intervene</button>
@@ -264,15 +264,15 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ISOLATED_WORKTREE');
   const [branch, setBranch] = useState('');
   const [queueMode, setQueueMode] = useState<AgentQueueMode>('AUTO');
-  const [humanControlMode, setHumanControlMode] = useState<HumanControlMode>('IN_THE_LOOP');
+  const [humanControlMode, setHumanControlMode] = useState<HumanControlMode>('ON_THE_LOOP');
   const project = projects.find((item) => item.id === projectId);
   return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode, humanControlMode }); }}>
     <label>Project<select required value={projectId} onChange={(e) => setProjectId(e.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label>Agent name<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Backend Auth" /></label>
     <label>Responsibility<textarea required rows={5} value={responsibility} onChange={(e) => setResponsibility(e.target.value)} placeholder="Own authentication, token lifecycle, backend API and tests." /></label>
     <div className="form-grid"><label>Workspace<select value={workspaceMode} onChange={(e) => setWorkspaceMode(e.target.value as WorkspaceMode)}><option value="ISOLATED_WORKTREE">Isolated worktree</option><option value="SHARED_PROJECT">Shared project</option></select></label><label>Queue policy<select value={queueMode} onChange={(e) => setQueueMode(e.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></label></div>
-    <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="IN_THE_LOOP">Human in the loop — approvals block</option><option value="ON_THE_LOOP">Human on the loop — low-risk actions auto-continue</option></select></label>
-    <p className="form-note">On-the-loop only auto-approves low-risk actions inside the agent workspace. Permission expansion, unknown commands, network changes, and user questions still stop for review.</p>
+    <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop — autonomous by default</option><option value="IN_THE_LOOP">Human in the loop — all approvals block</option></select></label>
+    <p className="form-note">On-the-loop is the default: normal coding, builds, tests, network access and agent collaboration continue automatically. Production deploys, production data mutations, deletion of persistent/business data, and genuine user questions stop for you.</p>
     <label>Agent branch <span className="optional">optional</span><input className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="agent/backend-auth" /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Spawn agent</button></footer>
   </form></Modal>;
