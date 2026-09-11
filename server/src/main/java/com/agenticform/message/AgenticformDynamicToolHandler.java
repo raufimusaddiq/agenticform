@@ -4,6 +4,8 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.approval.HumanApprovalService;
 import com.agenticform.codex.CodexJsonRpcClient;
+import com.agenticform.policy.PolicyRuleEntity;
+import com.agenticform.policy.PolicyRuleService;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -26,15 +28,17 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private final AgentRepository agentRepository;
     private final AgentMessageService messageService;
     private final HumanApprovalService approvalService;
+    private final PolicyRuleService policyRuleService;
     private final ObjectMapper mapper;
 
     public AgenticformDynamicToolHandler(CodexJsonRpcClient client, AgentRepository agentRepository,
                                          AgentMessageService messageService, HumanApprovalService approvalService,
-                                         ObjectMapper mapper) {
+                                         PolicyRuleService policyRuleService, ObjectMapper mapper) {
         this.client = client;
         this.agentRepository = agentRepository;
         this.messageService = messageService;
         this.approvalService = approvalService;
+        this.policyRuleService = policyRuleService;
         this.mapper = mapper;
     }
 
@@ -64,6 +68,8 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         return switch (tool) {
             case "list_agents" -> CompletableFuture.completedFuture(listAgents(source));
             case "send_message" -> CompletableFuture.completedFuture(sendMessage(source, arguments));
+            case "list_policy_rules" -> CompletableFuture.completedFuture(listPolicyRules(source));
+            case "request_action" -> approvalService.receiveDeclaredAction(request, source, arguments);
             case "request_protected_action" -> approvalService.receiveProtectedAction(request, source, arguments);
             default -> throw new IllegalArgumentException("Unknown Agenticform dynamic tool: " + tool);
         };
@@ -87,6 +93,25 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         ObjectNode payload = mapper.createObjectNode();
         payload.put("projectId", source.getProjectId().toString());
         payload.set("agents", rows);
+        return success(payload.toString());
+    }
+
+    private JsonNode listPolicyRules(AgentEntity source) {
+        ArrayNode rows = mapper.createArrayNode();
+        for (PolicyRuleEntity rule : policyRuleService.applicable(
+                source.getProjectId(), source.getId(), source.getActiveTaskId())) {
+            ObjectNode row = rows.addObject();
+            row.put("id", rule.getId().toString());
+            row.put("scopeType", rule.getScopeType().name());
+            if (rule.getScopeId() != null) row.put("scopeId", rule.getScopeId().toString());
+            row.put("action", rule.getAction());
+            row.put("environment", rule.getEnvironment());
+            row.put("effect", rule.getEffect().name());
+            row.put("description", rule.getDescription());
+        }
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("precedence", "TASK > AGENT > PROJECT > GLOBAL; exact action > wildcard; exact environment > wildcard");
+        payload.set("rules", rows);
         return success(payload.toString());
     }
 
