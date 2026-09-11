@@ -4,5 +4,6 @@ public enum HumanApprovalType {
     COMMAND_EXECUTION,
     FILE_CHANGE,
     PERMISSIONS,
-    USER_INPUT
+    USER_INPUT,
+    PROTECTED_ACTION
 }
