@@ -67,3 +67,35 @@ export type Task = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type AgentMessageType =
+  | 'QUESTION'
+  | 'ANSWER'
+  | 'REQUEST'
+  | 'RESULT'
+  | 'HANDOFF'
+  | 'REVIEW_REQUEST'
+  | 'REVIEW_RESULT'
+  | 'INFORMATION'
+  | 'BLOCKER';
+
+export type AgentMessageStatus = 'CREATED' | 'DISPATCHED' | 'FAILED';
+
+export type AgentMessage = {
+  id: string;
+  projectId: string;
+  fromAgentId: string;
+  toAgentId: string;
+  conversationId: string;
+  replyToMessageId: string | null;
+  type: AgentMessageType;
+  subject: string;
+  content: string;
+  hopCount: number;
+  status: AgentMessageStatus;
+  codexQueuedSubmissionId: string | null;
+  codexTurnId: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
