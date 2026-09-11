@@ -23,6 +23,11 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode params = mapper.createObjectNode();
         params.put("cwd", cwd);
         params.put("baseInstructions", responsibility);
+        // Keep the execution boundary deterministic regardless of the host's global Codex config.
+        // Agenticform is the user-facing approval client and applies HITL/HOTL policy itself.
+        params.put("approvalPolicy", "on-request");
+        params.put("approvalsReviewer", "user");
+        params.put("sandbox", "workspace-write");
         params.set("dynamicTools", agenticformTools());
         JsonNode result = client.request("thread/start", params);
         return new ThreadHandle(result.path("thread").path("id").asText());
