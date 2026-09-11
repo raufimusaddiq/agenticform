@@ -69,7 +69,11 @@ public class ExternalWorkflowService {
         run.waitExternal();
         runRepository.save(run);
 
-        reconcileOne(wait);
+        try {
+            reconcileOne(wait);
+        } catch (Exception ignored) {
+            // The durable wait is already authoritative. Webhook/reconciliation can recover later.
+        }
     }
 
     public synchronized void handleWebhook(WorkflowWebhook webhook) {
