@@ -55,12 +55,15 @@ public class AgenticformProperties {
     public static class GitHub {
         private URI apiUrl = URI.create("https://api.github.com");
         private String token = "";
+        private String webhookSecret = "";
         private Duration pollInterval = Duration.ofSeconds(3);
 
         public URI getApiUrl() { return apiUrl; }
         public void setApiUrl(URI apiUrl) { this.apiUrl = apiUrl; }
         public String getToken() { return token; }
         public void setToken(String token) { this.token = token == null ? "" : token; }
+        public String getWebhookSecret() { return webhookSecret; }
+        public void setWebhookSecret(String webhookSecret) { this.webhookSecret = webhookSecret == null ? "" : webhookSecret; }
         public Duration getPollInterval() { return pollInterval; }
         public void setPollInterval(Duration pollInterval) { this.pollInterval = pollInterval; }
     }
