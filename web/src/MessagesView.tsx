@@ -1,5 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react';
 import type { Agent, AgentMessage, AgentMessageType, Project } from './types';
+import './messages.css';
 
 const messageTypes: AgentMessageType[] = [
   'QUESTION', 'ANSWER', 'REQUEST', 'RESULT', 'HANDOFF',
