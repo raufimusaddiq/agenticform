@@ -59,7 +59,7 @@ public class AgentEntity {
     private HumanControlMode humanControlMode;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 32)
+    @Column(name = "agent_role", nullable = false, length = 32)
     private AgentRole role = AgentRole.GENERAL;
 
     @Column(name = "system_managed", nullable = false)
