@@ -5,7 +5,6 @@ import com.agenticform.project.ProjectRepository;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ObjectNode;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -48,7 +47,8 @@ public class RunbookExecutor {
     private final OperationStepRunRepository stepRepository;
     private final ProjectRepository projectRepository;
     private final OperationalRegistryService registry;
-    private final GitHubActionsGateway gitHubActions;
+    private final ExternalWorkflowService externalWorkflows;
+    private final OperationEventService events;
     private final ObjectMapper mapper;
     private final HttpClient httpClient;
 
@@ -56,13 +56,15 @@ public class RunbookExecutor {
                            OperationStepRunRepository stepRepository,
                            ProjectRepository projectRepository,
                            OperationalRegistryService registry,
-                           GitHubActionsGateway gitHubActions,
+                           ExternalWorkflowService externalWorkflows,
+                           OperationEventService events,
                            ObjectMapper mapper) {
         this.runRepository = runRepository;
         this.stepRepository = stepRepository;
         this.projectRepository = projectRepository;
         this.registry = registry;
-        this.gitHubActions = gitHubActions;
+        this.externalWorkflows = externalWorkflows;
+        this.events = events;
         this.mapper = mapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -83,17 +85,38 @@ public class RunbookExecutor {
                     .orElseThrow(() -> new NoSuchElementException("Project not found: " + run.getProjectId()));
             Path projectRoot = Path.of(project.getRootDirectory()).toRealPath();
             JsonNode snapshot = mapper.readTree(run.getRunbookSnapshot());
-            JsonNode stepsNode = snapshot.path("steps");
-            List<OperationalRegistryService.StepSpec> steps = registry.decodeSteps(mapper.writeValueAsString(stepsNode));
+            List<OperationalRegistryService.StepSpec> steps = registry.decodeSteps(
+                    mapper.writeValueAsString(snapshot.path("steps")));
             Map<String, String> parameters = decodeParameters(run.getParametersJson());
 
-            int position = 0;
-            for (OperationalRegistryService.StepSpec step : steps) {
-                OperationStepRunEntity stepRun = new OperationStepRunEntity(
-                        run.getId(), step.key(), step.name(), step.type().name(), position++);
-                stepRun = stepRepository.save(stepRun);
+            for (int position = 0; position < steps.size(); position++) {
+                OperationalRegistryService.StepSpec step = steps.get(position);
+                var existing = stepRepository.findByOperationRunIdAndPosition(run.getId(), position);
+                if (existing.isPresent()) {
+                    OperationStepRunEntity previous = existing.get();
+                    if (previous.getStatus() == OperationStepRunEntity.Status.SUCCEEDED) continue;
+                    if (previous.getStatus() == OperationStepRunEntity.Status.WAITING_EXTERNAL) {
+                        run.waitExternal();
+                        runRepository.save(run);
+                        return;
+                    }
+                    if (previous.getStatus() == OperationStepRunEntity.Status.FAILED) {
+                        run.fail("Step " + step.key() + " is already failed: " + previous.getSummary());
+                        runRepository.save(run);
+                        events.publishTerminal(run);
+                        return;
+                    }
+                    throw new IllegalStateException("Step " + step.key() + " was left RUNNING and cannot be replayed safely");
+                }
+
+                OperationStepRunEntity stepRun = stepRepository.save(new OperationStepRunEntity(
+                        run.getId(), step.key(), step.name(), step.type().name(), position));
                 long started = System.nanoTime();
                 try {
+                    if (step.type() == OperationalRegistryService.StepType.GITHUB_WORKFLOW) {
+                        beginGitHubWorkflow(run, stepRun, step, parameters);
+                        return;
+                    }
                     StepOutcome outcome = executeStep(step, snapshot, parameters, projectRoot);
                     stepRun.succeed(outcome.summary(), outcome.evidence(), outcome.exitCode(), elapsedMillis(started));
                     stepRepository.save(stepRun);
@@ -103,15 +126,18 @@ public class RunbookExecutor {
                     stepRepository.save(stepRun);
                     run.fail("Step " + step.key() + " failed: " + message);
                     runRepository.save(run);
+                    events.publishTerminal(run);
                     return;
                 }
             }
 
             run.succeed();
             runRepository.save(run);
+            events.publishTerminal(run);
         } catch (Exception error) {
             run.fail(safeMessage(error));
             runRepository.save(run);
+            events.publishTerminal(run);
         }
     }
 
@@ -126,8 +152,28 @@ public class RunbookExecutor {
             case COMMAND -> executeConfiguredCommand(projectRoot, config, parameters, step.timeoutSeconds());
             case HTTP_CHECK -> httpCheck(substitute(config.path("url").asText(), parameters), config, step.timeoutSeconds());
             case SERVICE_CHECK -> serviceCheck(snapshot, config, step.timeoutSeconds());
-            case GITHUB_WORKFLOW -> githubWorkflow(config, parameters, step.timeoutSeconds());
+            case GITHUB_WORKFLOW -> throw new IllegalStateException("GITHUB_WORKFLOW must use durable external execution");
         };
+    }
+
+    private void beginGitHubWorkflow(OperationRunEntity run, OperationStepRunEntity stepRun,
+                                     OperationalRegistryService.StepSpec step,
+                                     Map<String, String> parameters) throws Exception {
+        JsonNode config = step.config();
+        String mode = config.path("mode").asText("WAIT").toUpperCase(Locale.ROOT);
+        String repository = config.path("repository").asText();
+        String workflow = config.path("workflow").asText();
+        String ref = substitute(config.path("ref").asText(), parameters);
+        String expectedHeadSha = mode.equals("WAIT")
+                ? substitute(config.path("headSha").asText(), parameters)
+                : substitute(config.path("expectedHeadSha").asText(), parameters);
+        Map<String, String> inputs = new LinkedHashMap<>();
+        JsonNode inputNode = config.path("inputs");
+        if (inputNode.isObject()) {
+            inputNode.properties().forEach(entry -> inputs.put(entry.getKey(), substitute(entry.getValue().asText(), parameters)));
+        }
+        externalWorkflows.begin(run, stepRun, new ExternalWorkflowService.BeginRequest(
+                mode, repository, workflow, ref, expectedHeadSha, Map.copyOf(inputs), step.timeoutSeconds()));
     }
 
     private StepOutcome assertGitClean(Path root, int timeoutSeconds) throws Exception {
@@ -157,43 +203,6 @@ public class RunbookExecutor {
             throw new IllegalStateException("Command exited with " + result.exitCode() + suffix);
         }
         return new StepOutcome("Command completed successfully", capture ? result.output() : null, result.exitCode());
-    }
-
-    private StepOutcome githubWorkflow(JsonNode config, Map<String, String> parameters,
-                                       int timeoutSeconds) throws Exception {
-        String repository = config.path("repository").asText();
-        String workflow = config.path("workflow").asText();
-        String ref = substitute(config.path("ref").asText(), parameters);
-        String mode = config.path("mode").asText("WAIT").toUpperCase(Locale.ROOT);
-
-        GitHubActionsGateway.WorkflowResult result;
-        if (mode.equals("WAIT")) {
-            String headSha = substitute(config.path("headSha").asText(), parameters);
-            result = gitHubActions.waitForWorkflow(repository, workflow, ref, headSha, timeoutSeconds);
-        } else {
-            Map<String, String> inputs = new LinkedHashMap<>();
-            JsonNode inputNode = config.path("inputs");
-            if (inputNode.isObject()) {
-                inputNode.properties().forEach(entry -> inputs.put(entry.getKey(), substitute(entry.getValue().asText(), parameters)));
-            }
-            String expectedHeadSha = config.hasNonNull("expectedHeadSha")
-                    ? substitute(config.get("expectedHeadSha").asText(), parameters)
-                    : null;
-            result = gitHubActions.dispatchAndWait(repository, workflow, ref, inputs, expectedHeadSha, timeoutSeconds);
-        }
-
-        ObjectNode evidence = mapper.createObjectNode();
-        evidence.put("provider", "github-actions");
-        evidence.put("repository", repository);
-        evidence.put("workflow", workflow);
-        evidence.put("runId", result.runId());
-        if (result.htmlUrl() != null) evidence.put("url", result.htmlUrl());
-        if (result.headSha() != null) evidence.put("headSha", result.headSha());
-        if (result.headBranch() != null) evidence.put("headBranch", result.headBranch());
-        if (result.displayTitle() != null) evidence.put("displayTitle", result.displayTitle());
-        evidence.put("conclusion", result.conclusion());
-        return new StepOutcome("GitHub Actions workflow completed successfully",
-                mapper.writeValueAsString(evidence), null);
     }
 
     private StepOutcome httpCheck(String rawUrl, JsonNode config, int timeoutSeconds) throws Exception {
@@ -305,8 +314,10 @@ public class RunbookExecutor {
 
     private void requireHttp(URI uri) {
         String scheme = uri.getScheme();
-        if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
-            throw new IllegalArgumentException("HTTP checks require http or https URL");
+        if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https://"))) {
+            if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+                throw new IllegalArgumentException("HTTP checks require http or https URL");
+            }
         }
         if (uri.getHost() == null) throw new IllegalArgumentException("HTTP check URL requires a host");
     }
