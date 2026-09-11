@@ -1,14 +1,25 @@
-# Agenticom
+# Agenticform
 
-Agenticom is a Java-based control plane for orchestrating multiple Codex agent sessions across applications hosted on a server.
+Agenticform is a Java-based control plane for orchestrating multiple Codex agent sessions across applications hosted on a server.
 
-The project is being designed around these core concepts:
+It is designed around these core concepts:
 
-- **Projects** — applications/repositories available on the server.
-- **Agents** — Codex sessions with an explicit responsibility and workspace.
-- **Tasks** — units of work assigned to agents.
-- **Agent messaging** — structured communication and handoff between agents.
-- **Workspaces** — isolated Git worktrees where appropriate.
-- **Approvals** — explicit gates for sensitive actions such as merge, deploy, or destructive operations.
+- **Projects** — applications/repositories registered from approved server roots.
+- **Agents** — Codex sessions with explicit responsibility, capability, and workspace ownership.
+- **Tasks** — durable units of work assigned to agents.
+- **Agent messaging** — structured communication, questions, handoffs, blockers, and reviews between agents.
+- **Workspaces** — isolated Git worktrees by default for agents that modify code.
+- **Approvals** — explicit gates for sensitive actions such as merge, deploy, destructive operations, and cross-project writes.
 
-Initial architecture is proposed through pull requests before implementation begins.
+The initial design targets a single-server deployment with a **Java / Spring Boot** control plane, **PostgreSQL** persistence, a web UI, and Codex integration behind a dedicated gateway.
+
+## Design documents
+
+- [Initial architecture](docs/architecture.md)
+- [UI/UX specification](docs/ui-ux.md)
+
+The UI specification borrows relevant anti-slop and design-discipline principles from [`Leonxlnx/taste-skill`](https://github.com/Leonxlnx/taste-skill), while adapting them for Agenticform's dense developer-tool/dashboard use case.
+
+## Status
+
+Architecture/design phase. Implementation should follow after the initial design is reviewed and merged.
