@@ -9,19 +9,14 @@ import com.agenticform.policy.PolicyEffect;
 import com.agenticform.task.TaskEntity;
 import com.agenticform.task.TaskRepository;
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
 
 @Service
@@ -39,9 +34,8 @@ public class OperationRunService {
     private final AgentRepository agentRepository;
     private final TaskRepository taskRepository;
     private final DeterministicPolicyEngine policyEngine;
-    private final RunbookExecutor runbookExecutor;
+    private final OperationEventService events;
     private final ObjectMapper mapper;
-    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public OperationRunService(OperationRunRepository runRepository,
                                OperationStepRunRepository stepRepository,
@@ -50,7 +44,7 @@ public class OperationRunService {
                                AgentRepository agentRepository,
                                TaskRepository taskRepository,
                                DeterministicPolicyEngine policyEngine,
-                               RunbookExecutor runbookExecutor,
+                               OperationEventService events,
                                ObjectMapper mapper) {
         this.runRepository = runRepository;
         this.stepRepository = stepRepository;
@@ -59,22 +53,19 @@ public class OperationRunService {
         this.agentRepository = agentRepository;
         this.taskRepository = taskRepository;
         this.policyEngine = policyEngine;
-        this.runbookExecutor = runbookExecutor;
+        this.events = events;
         this.mapper = mapper;
     }
 
     @PostConstruct
     void recoverInterruptedRuns() {
-        Collection<OperationRunEntity.Status> stale = List.of(OperationRunEntity.Status.QUEUED, OperationRunEntity.Status.RUNNING);
-        for (OperationRunEntity run : runRepository.findAllByStatusIn(stale)) {
-            run.interrupt("Agenticform restarted before the operation completed; the run was not resumed automatically");
+        for (OperationRunEntity run : runRepository.findAllByStatusIn(List.of(OperationRunEntity.Status.RUNNING))) {
+            run.interrupt("Agenticform restarted while a host-local step was running; replay was refused because completion is unknown");
             runRepository.save(run);
+            events.publishTerminal(run);
         }
-    }
-
-    @PreDestroy
-    void stopExecutor() {
-        executor.shutdownNow();
+        // QUEUED is picked up by OperationExecutionScheduler. WAITING_EXTERNAL is reconciled
+        // by webhook/reconciliation and intentionally survives restart unchanged.
     }
 
     public List<OperationRunEntity> list(UUID projectId) {
@@ -113,7 +104,7 @@ public class OperationRunService {
                 createSnapshot(runbook, environment), encodeParameters(parameters));
         if (decision.effect() == PolicyEffect.DENY) run.deny(decision.description());
         run = runRepository.save(run);
-        if (decision.effect() == PolicyEffect.ALLOW) schedule(run.getId());
+        if (decision.effect() == PolicyEffect.DENY) events.publishTerminal(run);
         return run;
     }
 
@@ -128,13 +119,13 @@ public class OperationRunService {
         run.updatePolicy(current.effect(), current.matchedRuleId());
         if (current.effect() == PolicyEffect.DENY) {
             run.deny("Policy changed before approval: " + current.description());
-            return runRepository.save(run);
+            run = runRepository.save(run);
+            events.publishTerminal(run);
+            return run;
         }
 
         run.approve(normalizeActor(actor, "operator"));
-        run = runRepository.save(run);
-        schedule(run.getId());
-        return run;
+        return runRepository.save(run);
     }
 
     public synchronized OperationRunEntity decline(UUID runId, String actor, String reason) {
@@ -144,15 +135,13 @@ public class OperationRunService {
         }
         run.decline(reason == null || reason.isBlank() ? "Operator declined operation" : reason.trim(),
                 normalizeActor(actor, "operator"));
-        return runRepository.save(run);
+        run = runRepository.save(run);
+        events.publishTerminal(run);
+        return run;
     }
 
     private OperationRunEntity run(UUID id) {
         return runRepository.findById(id).orElseThrow(() -> new NoSuchElementException("Operation run not found: " + id));
-    }
-
-    private void schedule(UUID runId) {
-        executor.submit(() -> runbookExecutor.execute(runId));
     }
 
     private void validateScope(UUID projectId, UUID agentId, UUID taskId) {
