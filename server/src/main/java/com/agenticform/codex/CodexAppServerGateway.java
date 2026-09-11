@@ -11,14 +11,14 @@ import java.util.Locale;
 @Component
 public class CodexAppServerGateway implements CodexGateway {
     private static final String GOVERNANCE_INSTRUCTIONS = """
-            You operate under Agenticform human-control governance.
-            Continue normal development work autonomously until blocked or until you genuinely need user input.
-            Before executing ANY of these protected actions, you MUST call agenticform.request_protected_action and wait for the human decision:
-            1. deploying or releasing to a production environment;
-            2. mutating production data with DML or equivalent write operations;
-            3. deleting persistent/business data, including DELETE/TRUNCATE/DROP or equivalent destructive API/database operations.
-            Protected-action approval is valid once for exactly the described action and is never reusable for a later protected action.
-            Do not request protected-action approval for normal coding, tests, builds, dependency installation, development/staging work, ordinary network access, or agent-to-agent communication.
+            You operate under Agenticform deterministic governance.
+            Policy decisions are made by Agenticform, not by you. Never claim that an action is allowed, denied, or approved based on your own judgment.
+            Use agenticform.list_policy_rules to inspect the rules applicable to your project/agent/task when governance is relevant.
+            Before an action matching a governed semantic action, call agenticform.request_action with the exact action name, environment, summary, and details and obey its result.
+            The default policy requires a fresh human decision for PRODUCTION_DEPLOY in production, PRODUCTION_DML in production, DELETE_DATA in any environment, and genuine USER_INPUT.
+            For backward compatibility, agenticform.request_protected_action is also available for PRODUCTION_DEPLOY, PRODUCTION_DML, and DELETE_DATA.
+            Continue ordinary development autonomously when the deterministic policy result is ALLOW.
+            A DENY result cannot be overridden. A human approval is valid only for the action/request that produced it unless Agenticform explicitly states otherwise.
             """;
 
     private final CodexJsonRpcClient client;
@@ -35,8 +35,6 @@ public class CodexAppServerGateway implements CodexGateway {
         params.put("cwd", cwd);
         params.put("baseInstructions", responsibility);
         params.put("developerInstructions", GOVERNANCE_INSTRUCTIONS);
-        // Keep the execution boundary deterministic regardless of the host's global Codex config.
-        // Agenticform is the user-facing approval client and applies HITL/HOTL policy itself.
         params.put("approvalPolicy", "on-request");
         params.put("approvalsReviewer", "user");
         params.put("sandbox", "workspace-write");
@@ -121,7 +119,7 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode namespace = mapper.createObjectNode();
         namespace.put("type", "namespace");
         namespace.put("name", "agenticform");
-        namespace.put("description", "Coordinate with Agenticform agents and request the mandatory human gate for protected production/destructive actions.");
+        namespace.put("description", "Coordinate with agents and evaluate actions against Agenticform deterministic policy.");
         ArrayNode namespaceTools = namespace.putArray("tools");
 
         ObjectNode listAgents = mapper.createObjectNode();
@@ -159,10 +157,38 @@ public class CodexAppServerGateway implements CodexGateway {
         sendSchema.put("additionalProperties", false);
         namespaceTools.add(sendMessage);
 
+        ObjectNode listPolicyRules = mapper.createObjectNode();
+        listPolicyRules.put("type", "function");
+        listPolicyRules.put("name", "list_policy_rules");
+        listPolicyRules.put("description", "List enabled deterministic policy rules applicable to this agent's current task, including scope, action, environment, effect, and precedence semantics.");
+        ObjectNode listPolicySchema = listPolicyRules.putObject("inputSchema");
+        listPolicySchema.put("type", "object");
+        listPolicySchema.putObject("properties");
+        listPolicySchema.put("additionalProperties", false);
+        namespaceTools.add(listPolicyRules);
+
+        ObjectNode requestAction = mapper.createObjectNode();
+        requestAction.put("type", "function");
+        requestAction.put("name", "request_action");
+        requestAction.put("description", "Evaluate a semantic action through Agenticform's deterministic policy engine. The call returns immediately for ALLOW/DENY and blocks for REQUIRE_HUMAN.");
+        ObjectNode requestActionSchema = requestAction.putObject("inputSchema");
+        requestActionSchema.put("type", "object");
+        ObjectNode actionProperties = requestActionSchema.putObject("properties");
+        property(actionProperties, "action", "string", "Policy action name, for example PRODUCTION_DEPLOY, PRODUCTION_DML, DELETE_DATA, MERGE_MAIN, or another configured action.");
+        property(actionProperties, "environment", "string", "Target environment such as production, staging, development, or * when environment-independent.");
+        property(actionProperties, "summary", "string", "Concise description of the exact action to evaluate.");
+        property(actionProperties, "details", "string", "Relevant target, command, resource, and scope for audit and human review.");
+        ArrayNode actionRequired = requestActionSchema.putArray("required");
+        actionRequired.add("action");
+        actionRequired.add("summary");
+        actionRequired.add("details");
+        requestActionSchema.put("additionalProperties", false);
+        namespaceTools.add(requestAction);
+
         ObjectNode protectedAction = mapper.createObjectNode();
         protectedAction.put("type", "function");
         protectedAction.put("name", "request_protected_action");
-        protectedAction.put("description", "MANDATORY human gate immediately before a production deployment, production data DML/mutation, or deletion of persistent/business data. The call blocks until the human approves or declines. Approval is one-shot and must not be reused.");
+        protectedAction.put("description", "Compatibility helper for the default protected actions. Prefer request_action for configurable policy actions.");
         ObjectNode protectedSchema = protectedAction.putObject("inputSchema");
         protectedSchema.put("type", "object");
         ObjectNode protectedProperties = protectedSchema.putObject("properties");
@@ -172,8 +198,9 @@ public class CodexAppServerGateway implements CodexGateway {
         kinds.add("PRODUCTION_DEPLOY");
         kinds.add("PRODUCTION_DML");
         kinds.add("DELETE_DATA");
-        property(protectedProperties, "summary", "string", "Concise description of the exact protected action that will run after approval.");
-        property(protectedProperties, "details", "string", "Relevant target/environment/command/data scope so the human can make an informed decision.");
+        property(protectedProperties, "environment", "string", "Target environment. Use production for production deploy/DML.");
+        property(protectedProperties, "summary", "string", "Concise description of the exact governed action.");
+        property(protectedProperties, "details", "string", "Relevant target/environment/command/data scope so the decision is auditable.");
         ArrayNode protectedRequired = protectedSchema.putArray("required");
         protectedRequired.add("kind");
         protectedRequired.add("summary");

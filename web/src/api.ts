@@ -6,6 +6,10 @@ import type {
   HumanApproval,
   HumanApprovalDecision,
   HumanControlMode,
+  PolicyDecision,
+  PolicyEffect,
+  PolicyRule,
+  PolicyScopeType,
   Project,
   Task,
   WorkspaceMode
@@ -31,12 +35,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export type PolicyRuleInput = {
+  scopeType: PolicyScopeType;
+  scopeId?: string | null;
+  action: string;
+  environment?: string;
+  effect: PolicyEffect;
+  description?: string;
+  enabled: boolean;
+};
+
 export const api = {
   projects: () => request<Project[]>('/api/projects'),
   agents: () => request<Agent[]>('/api/agents'),
   tasks: () => request<Task[]>('/api/tasks'),
   messages: () => request<AgentMessage[]>('/api/messages'),
   approvals: () => request<HumanApproval[]>('/api/approvals'),
+  policyRules: () => request<PolicyRule[]>('/api/policies/rules'),
 
   registerProject: (input: { name: string; path: string; defaultBranch: string }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
@@ -92,5 +107,22 @@ export const api = {
     request<HumanApproval>(`/api/approvals/${approvalId}/answer`, {
       method: 'POST',
       body: JSON.stringify({ answers })
-    })
+    }),
+
+  createPolicyRule: (input: PolicyRuleInput) =>
+    request<PolicyRule>('/api/policies/rules', { method: 'POST', body: JSON.stringify(input) }),
+
+  updatePolicyRule: (ruleId: string, input: PolicyRuleInput) =>
+    request<PolicyRule>(`/api/policies/rules/${ruleId}`, { method: 'PUT', body: JSON.stringify(input) }),
+
+  deletePolicyRule: (ruleId: string) =>
+    request<void>(`/api/policies/rules/${ruleId}`, { method: 'DELETE' }),
+
+  evaluatePolicy: (input: {
+    projectId?: string | null;
+    agentId?: string | null;
+    taskId?: string | null;
+    action: string;
+    environment?: string;
+  }) => request<PolicyDecision>('/api/policies/evaluate', { method: 'POST', body: JSON.stringify(input) })
 };

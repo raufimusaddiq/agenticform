@@ -107,6 +107,8 @@ export type HumanApprovalRisk = 'LOW' | 'ELEVATED' | 'HIGH';
 export type HumanApprovalStatus =
   | 'PENDING'
   | 'AUTO_APPROVED'
+  | 'PREAUTHORIZED'
+  | 'POLICY_DENIED'
   | 'APPROVED'
   | 'APPROVED_FOR_SESSION'
   | 'DECLINED'
@@ -115,6 +117,32 @@ export type HumanApprovalStatus =
   | 'FAILED'
   | 'ORPHANED';
 export type HumanApprovalDecision = 'APPROVE_ONCE' | 'APPROVE_SESSION' | 'DECLINE' | 'CANCEL';
+
+export type PolicyScopeType = 'GLOBAL' | 'PROJECT' | 'AGENT' | 'TASK';
+export type PolicyEffect = 'ALLOW' | 'REQUIRE_HUMAN' | 'DENY';
+
+export type PolicyRule = {
+  id: string;
+  scopeType: PolicyScopeType;
+  scopeId: string | null;
+  action: string;
+  environment: string;
+  effect: PolicyEffect;
+  description: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PolicyDecision = {
+  effect: PolicyEffect;
+  matchedRuleId: string;
+  matchedScopeType: PolicyScopeType;
+  matchedScopeId: string | null;
+  action: string;
+  environment: string;
+  description: string;
+};
 
 export type HumanApproval = {
   id: string;
@@ -130,6 +158,11 @@ export type HumanApproval = {
   turnId: string | null;
   itemId: string | null;
   summary: string;
+  policyAction: string | null;
+  policyEnvironment: string | null;
+  policyEffect: PolicyEffect | null;
+  policyRuleId: string | null;
+  preauthorizationGrantId: string | null;
   requestPayload: string;
   responsePayload: string | null;
   lastError: string | null;

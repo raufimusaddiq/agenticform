@@ -4,6 +4,8 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.codex.CodexJsonRpcClient;
+import com.agenticform.policy.PolicyEffect;
+import com.agenticform.policy.PolicyPreauthorizationService;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -12,7 +14,6 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -25,14 +26,17 @@ public class HumanApprovalService {
     private final HumanApprovalRepository repository;
     private final AgentRepository agentRepository;
     private final HumanApprovalPolicy policy;
+    private final PolicyPreauthorizationService preauthorizations;
     private final ObjectMapper mapper;
     private final Map<UUID, CompletableFuture<JsonNode>> pendingResponses = new ConcurrentHashMap<>();
 
     public HumanApprovalService(HumanApprovalRepository repository, AgentRepository agentRepository,
-                                HumanApprovalPolicy policy, ObjectMapper mapper) {
+                                HumanApprovalPolicy policy, PolicyPreauthorizationService preauthorizations,
+                                ObjectMapper mapper) {
         this.repository = repository;
         this.agentRepository = agentRepository;
         this.policy = policy;
+        this.preauthorizations = preauthorizations;
         this.mapper = mapper;
     }
 
@@ -71,57 +75,93 @@ public class HumanApprovalService {
 
         HumanApprovalType type = typeForMethod(request.method());
         HumanApprovalPolicy.Evaluation evaluation = policy.evaluate(agent, type, params);
-        HumanApprovalStatus initialStatus = evaluation.autoApprove()
-                ? HumanApprovalStatus.AUTO_APPROVED : HumanApprovalStatus.PENDING;
+        HumanApprovalEntity approval = createApproval(request, agent, type, request.method(), params, evaluation);
 
-        HumanApprovalEntity approval = new HumanApprovalEntity(
-                agent.getProjectId(),
-                agent.getId(),
-                requestId(request.id()),
-                request.method(),
-                type,
-                agent.getHumanControlMode(),
-                evaluation.risk(),
-                initialStatus,
-                threadId,
-                nullableText(params, "turnId"),
-                nullableText(params, "itemId"),
-                evaluation.summary(),
-                toJson(params)
-        );
-
-        if (evaluation.autoApprove()) {
-            JsonNode response = automaticResponse(type, params);
-            approval.resolve(HumanApprovalStatus.AUTO_APPROVED, toJson(response));
-            repository.save(approval);
-            return CompletableFuture.completedFuture(response);
+        if (evaluation.effect() == PolicyEffect.REQUIRE_HUMAN && type != HumanApprovalType.USER_INPUT) {
+            UUID grantId = preauthorizations.consume(
+                    agent.getId(), agent.getActiveTaskId(), evaluation.action(), evaluation.environment());
+            if (grantId != null) {
+                approval.attachPreauthorizationGrant(grantId);
+                JsonNode response = automaticResponse(type, params);
+                approval.resolve(HumanApprovalStatus.PREAUTHORIZED, toJson(response));
+                repository.save(approval);
+                return CompletableFuture.completedFuture(response);
+            }
         }
 
-        return waitForHuman(approval, agent);
+        return applyDecision(approval, agent, type, params, evaluation);
     }
 
     public CompletionStage<JsonNode> receiveProtectedAction(CodexJsonRpcClient.ServerRequest request,
                                                               AgentEntity agent,
                                                               JsonNode arguments) {
-        ProtectedActionKind kind = ProtectedActionKind.valueOf(requiredText(arguments, "kind").toUpperCase(Locale.ROOT));
-        String summary = requiredText(arguments, "summary");
-        String threadId = requiredText(request.params(), "threadId");
+        HumanApprovalPolicy.Evaluation evaluation = policy.evaluate(agent, HumanApprovalType.PROTECTED_ACTION, arguments);
+        HumanApprovalEntity approval = createApproval(request, agent, HumanApprovalType.PROTECTED_ACTION,
+                "agenticform/request_protected_action", arguments, evaluation);
+        return applyDecision(approval, agent, HumanApprovalType.PROTECTED_ACTION, arguments, evaluation);
+    }
+
+    public CompletionStage<JsonNode> receiveDeclaredAction(CodexJsonRpcClient.ServerRequest request,
+                                                             AgentEntity agent,
+                                                             JsonNode arguments) {
+        HumanApprovalPolicy.Evaluation evaluation = policy.evaluateDeclaredAction(agent, arguments);
+        HumanApprovalEntity approval = createApproval(request, agent, HumanApprovalType.PROTECTED_ACTION,
+                "agenticform/request_action", arguments, evaluation);
+        return applyDecision(approval, agent, HumanApprovalType.PROTECTED_ACTION, arguments, evaluation);
+    }
+
+    private HumanApprovalEntity createApproval(CodexJsonRpcClient.ServerRequest request,
+                                                AgentEntity agent,
+                                                HumanApprovalType type,
+                                                String method,
+                                                JsonNode payload,
+                                                HumanApprovalPolicy.Evaluation evaluation) {
+        HumanApprovalStatus initialStatus = switch (evaluation.effect()) {
+            case ALLOW -> HumanApprovalStatus.AUTO_APPROVED;
+            case REQUIRE_HUMAN -> HumanApprovalStatus.PENDING;
+            case DENY -> HumanApprovalStatus.POLICY_DENIED;
+        };
 
         HumanApprovalEntity approval = new HumanApprovalEntity(
                 agent.getProjectId(),
                 agent.getId(),
                 requestId(request.id()),
-                "agenticform/request_protected_action",
-                HumanApprovalType.PROTECTED_ACTION,
+                method,
+                type,
                 agent.getHumanControlMode(),
-                HumanApprovalRisk.HIGH,
-                HumanApprovalStatus.PENDING,
-                threadId,
+                evaluation.risk(),
+                initialStatus,
+                requiredText(request.params(), "threadId"),
                 nullableText(request.params(), "turnId"),
                 nullableText(request.params(), "itemId"),
-                kind.name().toLowerCase(Locale.ROOT).replace('_', ' ') + ": " + summary,
-                toJson(arguments)
+                evaluation.summary(),
+                toJson(payload)
         );
+        approval.attachPolicy(
+                evaluation.action(),
+                evaluation.environment(),
+                evaluation.effect(),
+                evaluation.configuredDecision().matchedRuleId());
+        return approval;
+    }
+
+    private CompletionStage<JsonNode> applyDecision(HumanApprovalEntity approval,
+                                                     AgentEntity agent,
+                                                     HumanApprovalType type,
+                                                     JsonNode params,
+                                                     HumanApprovalPolicy.Evaluation evaluation) {
+        if (evaluation.effect() == PolicyEffect.ALLOW) {
+            JsonNode response = automaticResponse(type, params);
+            approval.resolve(HumanApprovalStatus.AUTO_APPROVED, toJson(response));
+            repository.save(approval);
+            return CompletableFuture.completedFuture(response);
+        }
+        if (evaluation.effect() == PolicyEffect.DENY) {
+            JsonNode response = policyDeniedResponse(type);
+            approval.resolve(HumanApprovalStatus.POLICY_DENIED, toJson(response));
+            repository.save(approval);
+            return CompletableFuture.completedFuture(response);
+        }
         return waitForHuman(approval, agent);
     }
 
@@ -141,11 +181,22 @@ public class HumanApprovalService {
             throw new IllegalStateException("User input requests must be answered, not approved");
         }
 
-        // Protected actions are intentionally never whitelisted for the rest of a session.
-        // An "approve session" click is narrowed to this one protected action.
-        HumanApprovalDecision effectiveDecision = approval.getType() == HumanApprovalType.PROTECTED_ACTION
+        // Every REQUIRE_HUMAN policy decision is intentionally one-shot. A broad session grant
+        // would let later governed actions bypass Agenticform's deterministic evaluation.
+        HumanApprovalDecision effectiveDecision = approval.getPolicyEffect() == PolicyEffect.REQUIRE_HUMAN
                 && decision == HumanApprovalDecision.APPROVE_SESSION
                 ? HumanApprovalDecision.APPROVE_ONCE : decision;
+
+        if (effectiveDecision == HumanApprovalDecision.APPROVE_ONCE
+                && approval.getType() == HumanApprovalType.PROTECTED_ACTION
+                && approval.getPolicyEffect() == PolicyEffect.REQUIRE_HUMAN) {
+            UUID grantId = preauthorizations.issue(
+                    approval.getAgentId(),
+                    agentRepository.findById(approval.getAgentId()).map(AgentEntity::getActiveTaskId).orElse(null),
+                    approval.getPolicyAction(),
+                    approval.getPolicyEnvironment());
+            approval.attachPreauthorizationGrant(grantId);
+        }
 
         JsonNode response = decisionResponse(approval, effectiveDecision);
         HumanApprovalStatus status = switch (effectiveDecision) {
@@ -224,7 +275,35 @@ public class HumanApprovalService {
             response.put("scope", "turn");
             return response;
         }
+        if (type == HumanApprovalType.PROTECTED_ACTION) {
+            return policyToolResponse(true,
+                    "Policy allows this action. Proceed only with the declared action and environment.");
+        }
         throw new IllegalStateException("No automatic response is defined for " + type);
+    }
+
+    private JsonNode policyDeniedResponse(HumanApprovalType type) {
+        if (type == HumanApprovalType.COMMAND_EXECUTION || type == HumanApprovalType.FILE_CHANGE) {
+            ObjectNode response = mapper.createObjectNode();
+            response.put("decision", "decline");
+            return response;
+        }
+        if (type == HumanApprovalType.PERMISSIONS) {
+            ObjectNode response = mapper.createObjectNode();
+            response.putObject("permissions");
+            response.put("scope", "turn");
+            return response;
+        }
+        if (type == HumanApprovalType.USER_INPUT) {
+            ObjectNode response = mapper.createObjectNode();
+            response.putObject("answers");
+            return response;
+        }
+        if (type == HumanApprovalType.PROTECTED_ACTION) {
+            return policyToolResponse(false,
+                    "Policy denied this action. Do not execute it; choose an allowed alternative or report the blocker.");
+        }
+        throw new IllegalStateException("No policy-denied response is defined for " + type);
     }
 
     private JsonNode decisionResponse(HumanApprovalEntity approval, HumanApprovalDecision decision) {
@@ -256,17 +335,26 @@ public class HumanApprovalService {
         if (approval.getType() == HumanApprovalType.PROTECTED_ACTION) {
             boolean approved = decision == HumanApprovalDecision.APPROVE_ONCE
                     || decision == HumanApprovalDecision.APPROVE_SESSION;
-            response.put("success", true);
-            ArrayNode items = response.putArray("contentItems");
-            ObjectNode item = items.addObject();
-            item.put("type", "inputText");
-            item.put("text", approved
-                    ? "Human approved this protected action once. Proceed with exactly the approved action; request approval again for any later protected action."
-                    : "Human declined this protected action. Do not execute it; find a non-destructive alternative or report the blocker.");
-            return response;
+            return policyToolResponse(approved, approved
+                    ? "Human approved this policy-governed action once. Proceed with exactly the declared action; a matching native Codex approval may consume the one-shot preauthorization without asking again."
+                    : "Human declined this policy-governed action. Do not execute it; find an allowed alternative or report the blocker.");
         }
 
         throw new IllegalStateException("Unsupported approval type: " + approval.getType());
+    }
+
+    private JsonNode policyToolResponse(boolean allowed, String text) {
+        ObjectNode response = mapper.createObjectNode();
+        response.put("success", true);
+        ArrayNode items = response.putArray("contentItems");
+        ObjectNode item = items.addObject();
+        item.put("type", "inputText");
+        item.put("text", "{\"allowed\":" + allowed + ",\"message\":\"" + escapeJson(text) + "\"}");
+        return response;
+    }
+
+    private String escapeJson(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private HumanApprovalType typeForMethod(String method) {

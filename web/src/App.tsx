@@ -2,12 +2,14 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
+import { PolicyView } from './PolicyView';
 import type {
   Agent,
   AgentMessage,
   AgentQueueMode,
   HumanApproval,
   HumanControlMode,
+  PolicyRule,
   Project,
   Task,
   WorkspaceMode
@@ -15,7 +17,7 @@ import type {
 import './approvals.css';
 import './human-control.css';
 
-type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages' | 'approvals';
+type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages' | 'approvals' | 'policy';
 type Dialog = 'project' | 'agent' | 'task' | null;
 
 const nav: Array<{ id: View; label: string }> = [
@@ -24,7 +26,8 @@ const nav: Array<{ id: View; label: string }> = [
   { id: 'agents', label: 'Agents' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'messages', label: 'Messages' },
-  { id: 'approvals', label: 'Approvals' }
+  { id: 'approvals', label: 'Approvals' },
+  { id: 'policy', label: 'Policy' }
 ];
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
@@ -54,6 +57,7 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [approvals, setApprovals] = useState<HumanApproval[]>([]);
+  const [policyRules, setPolicyRules] = useState<PolicyRule[]>([]);
   const [view, setView] = useState<View>('overview');
   const [projectFilter, setProjectFilter] = useState('all');
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -63,14 +67,15 @@ export default function App() {
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const [nextProjects, nextAgents, nextTasks, nextMessages, nextApprovals] = await Promise.all([
-        api.projects(), api.agents(), api.tasks(), api.messages(), api.approvals()
+      const [nextProjects, nextAgents, nextTasks, nextMessages, nextApprovals, nextPolicyRules] = await Promise.all([
+        api.projects(), api.agents(), api.tasks(), api.messages(), api.approvals(), api.policyRules()
       ]);
       setProjects(nextProjects);
       setAgents(nextAgents);
       setTasks(nextTasks);
       setMessages(nextMessages);
       setApprovals(nextApprovals);
+      setPolicyRules(nextPolicyRules);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load Agenticform state');
@@ -142,6 +147,7 @@ export default function App() {
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
             {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} />}
             {view === 'approvals' && <ApprovalsView approvals={visibleApprovals} agents={agents} projects={projects} onDecision={async (id, decision) => { await mutate(() => api.decideApproval(id, decision)); }} onAnswer={async (id, answers) => { await mutate(() => api.answerApproval(id, answers)); }} />}
+            {view === 'policy' && <PolicyView rules={policyRules} projects={projects} agents={agents} tasks={tasks} onCreate={async (input) => { await mutate(() => api.createPolicyRule(input)); }} onUpdate={async (id, input) => { await mutate(() => api.updatePolicyRule(id, input)); }} onDelete={async (id) => { await mutate(() => api.deletePolicyRule(id)); }} onEvaluate={(input) => api.evaluatePolicy(input)} />}
           </>
         )}
       </main>
@@ -272,7 +278,7 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
     <label>Responsibility<textarea required rows={5} value={responsibility} onChange={(e) => setResponsibility(e.target.value)} placeholder="Own authentication, token lifecycle, backend API and tests." /></label>
     <div className="form-grid"><label>Workspace<select value={workspaceMode} onChange={(e) => setWorkspaceMode(e.target.value as WorkspaceMode)}><option value="ISOLATED_WORKTREE">Isolated worktree</option><option value="SHARED_PROJECT">Shared project</option></select></label><label>Queue policy<select value={queueMode} onChange={(e) => setQueueMode(e.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></label></div>
     <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop — autonomous by default</option><option value="IN_THE_LOOP">Human in the loop — all approvals block</option></select></label>
-    <p className="form-note">On-the-loop is the default: normal coding, builds, tests, network access and agent collaboration continue automatically. Production deploys, production data mutations, deletion of persistent/business data, and genuine user questions stop for you.</p>
+    <p className="form-note">On-the-loop is the default. Deterministic policy rules decide which actions continue, require you, or are denied; full HITL only tightens allowed actions.</p>
     <label>Agent branch <span className="optional">optional</span><input className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="agent/backend-auth" /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Spawn agent</button></footer>
   </form></Modal>;
