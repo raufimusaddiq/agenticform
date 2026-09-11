@@ -75,6 +75,9 @@ public class HumanApprovalEntity {
     @Column(name = "policy_rule_id")
     private UUID policyRuleId;
 
+    @Column(name = "preauthorization_grant_id")
+    private UUID preauthorizationGrantId;
+
     @Column(name = "request_payload", nullable = false, columnDefinition = "text")
     private String requestPayload;
 
@@ -133,6 +136,7 @@ public class HumanApprovalEntity {
     public String getPolicyEnvironment() { return policyEnvironment; }
     public PolicyEffect getPolicyEffect() { return policyEffect; }
     public UUID getPolicyRuleId() { return policyRuleId; }
+    public UUID getPreauthorizationGrantId() { return preauthorizationGrantId; }
     public String getRequestPayload() { return requestPayload; }
     public String getResponsePayload() { return responsePayload; }
     public String getLastError() { return lastError; }
@@ -144,6 +148,10 @@ public class HumanApprovalEntity {
         this.policyEnvironment = environment;
         this.policyEffect = effect;
         this.policyRuleId = ruleId;
+    }
+
+    public void attachPreauthorizationGrant(UUID grantId) {
+        this.preauthorizationGrantId = grantId;
     }
 
     public void resolve(HumanApprovalStatus status, String responsePayload) {
