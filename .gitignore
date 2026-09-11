@@ -1,0 +1,16 @@
+# Java
+server/target/
+*.class
+
+# Web
+web/node_modules/
+web/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local configuration
+.env
+.env.local
