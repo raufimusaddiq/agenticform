@@ -152,9 +152,6 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
         try {
             JsonNode message = mapper.readTree(raw);
 
-            // App Server can initiate JSON-RPC requests (dynamic tools, approvals, user input).
-            // These have both an id and a method and must not be confused with responses to
-            // Agenticform's own outbound requests.
             if (message.has("id") && message.has("method")) {
                 ServerRequest request = new ServerRequest(
                         message.get("id"), message.get("method").asText(), message.get("params"));
@@ -191,9 +188,19 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
                 continue;
             }
             try {
-                sendServerResult(request.id(), handler.handle(request));
+                CompletionStage<JsonNode> response = handler.handle(request);
+                response.whenComplete((result, error) -> {
+                    if (error != null) {
+                        Throwable cause = error.getCause() == null ? error : error.getCause();
+                        sendServerError(request.id(), -32000,
+                                cause.getMessage() == null ? "Agenticform server request failed" : cause.getMessage());
+                    } else {
+                        sendServerResult(request.id(), result);
+                    }
+                });
             } catch (Exception error) {
-                sendServerError(request.id(), -32000, error.getMessage() == null ? "Agenticform tool failed" : error.getMessage());
+                sendServerError(request.id(), -32000,
+                        error.getMessage() == null ? "Agenticform server request failed" : error.getMessage());
             }
             return;
         }
@@ -239,6 +246,6 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
 
     public interface ServerRequestHandler {
         boolean supports(String method);
-        JsonNode handle(ServerRequest request);
+        CompletionStage<JsonNode> handle(ServerRequest request);
     }
 }

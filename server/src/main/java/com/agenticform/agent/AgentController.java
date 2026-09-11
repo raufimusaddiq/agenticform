@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,7 +33,24 @@ public class AgentController {
     public AgentEntity spawn(@Valid @RequestBody SpawnAgentRequest request) {
         return service.spawn(new AgentService.SpawnAgent(
                 request.projectId(), request.name(), request.responsibility(), request.workspaceMode(),
-                request.baseBranch(), request.branch(), request.queueMode()));
+                request.baseBranch(), request.branch(), request.queueMode(), request.humanControlMode()));
+    }
+
+    @PostMapping("/{agentId}/human-control-mode")
+    public AgentEntity updateHumanControlMode(@PathVariable UUID agentId,
+                                              @Valid @RequestBody HumanControlModeRequest request) {
+        return service.updateHumanControlMode(agentId, request.mode());
+    }
+
+    @PostMapping("/{agentId}/queue-mode")
+    public AgentEntity updateQueueMode(@PathVariable UUID agentId,
+                                       @Valid @RequestBody QueueModeRequest request) {
+        return service.updateQueueMode(agentId, request.mode());
+    }
+
+    @PostMapping("/{agentId}/intervene")
+    public AgentEntity intervene(@PathVariable UUID agentId) {
+        return service.intervene(agentId);
     }
 
     public record SpawnAgentRequest(
@@ -42,6 +60,10 @@ public class AgentController {
             WorkspaceMode workspaceMode,
             String baseBranch,
             String branch,
-            AgentQueueMode queueMode
+            AgentQueueMode queueMode,
+            HumanControlMode humanControlMode
     ) {}
+
+    public record HumanControlModeRequest(@NotNull HumanControlMode mode) {}
+    public record QueueModeRequest(@NotNull AgentQueueMode mode) {}
 }

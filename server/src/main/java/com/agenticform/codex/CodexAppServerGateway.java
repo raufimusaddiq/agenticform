@@ -23,6 +23,11 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode params = mapper.createObjectNode();
         params.put("cwd", cwd);
         params.put("baseInstructions", responsibility);
+        // Keep the execution boundary deterministic regardless of the host's global Codex config.
+        // Agenticform is the user-facing approval client and applies HITL/HOTL policy itself.
+        params.put("approvalPolicy", "on-request");
+        params.put("approvalsReviewer", "user");
+        params.put("sandbox", "workspace-write");
         params.set("dynamicTools", agenticformTools());
         JsonNode result = client.request("thread/start", params);
         return new ThreadHandle(result.path("thread").path("id").asText());
@@ -38,8 +43,6 @@ public class CodexAppServerGateway implements CodexGateway {
             JsonNode result = client.request("thread/queue/add", params);
             String queueId = result.path("queuedSubmission").path("id").asText();
 
-            // Queue persistence and wake-up are deliberately separate. Once queue/add succeeds,
-            // falling back to turn/start would risk executing the same user intent twice.
             try {
                 resumeThread(threadId);
             } catch (CodexRpcException ignored) {
@@ -65,6 +68,14 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode params = mapper.createObjectNode();
         params.put("threadId", threadId);
         client.request("thread/resume", params);
+    }
+
+    @Override
+    public void interruptTurn(String threadId, String turnId) {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("threadId", threadId);
+        params.put("turnId", turnId);
+        client.request("turn/interrupt", params);
     }
 
     private boolean isQueueUnavailable(Throwable failure) {

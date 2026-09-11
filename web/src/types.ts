@@ -21,6 +21,7 @@ export type AgentStatus =
 
 export type AgentQueueMode = 'AUTO' | 'REVIEW_BETWEEN_TASKS' | 'PAUSED';
 export type WorkspaceMode = 'ISOLATED_WORKTREE' | 'SHARED_PROJECT';
+export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
 
 export type Agent = {
   id: string;
@@ -34,6 +35,7 @@ export type Agent = {
   branch: string | null;
   status: AgentStatus;
   queueMode: AgentQueueMode;
+  humanControlMode: HumanControlMode;
   activeTaskId: string | null;
   activeTurnId: string | null;
   createdAt: string;
@@ -98,4 +100,39 @@ export type AgentMessage = {
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type HumanApprovalType = 'COMMAND_EXECUTION' | 'FILE_CHANGE' | 'PERMISSIONS' | 'USER_INPUT';
+export type HumanApprovalRisk = 'LOW' | 'ELEVATED' | 'HIGH';
+export type HumanApprovalStatus =
+  | 'PENDING'
+  | 'AUTO_APPROVED'
+  | 'APPROVED'
+  | 'APPROVED_FOR_SESSION'
+  | 'DECLINED'
+  | 'CANCELLED'
+  | 'ANSWERED'
+  | 'FAILED'
+  | 'ORPHANED';
+export type HumanApprovalDecision = 'APPROVE_ONCE' | 'APPROVE_SESSION' | 'DECLINE' | 'CANCEL';
+
+export type HumanApproval = {
+  id: string;
+  projectId: string;
+  agentId: string;
+  codexRequestId: string;
+  method: string;
+  type: HumanApprovalType;
+  controlMode: HumanControlMode;
+  risk: HumanApprovalRisk;
+  status: HumanApprovalStatus;
+  threadId: string;
+  turnId: string | null;
+  itemId: string | null;
+  summary: string;
+  requestPayload: string;
+  responsePayload: string | null;
+  lastError: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
 };

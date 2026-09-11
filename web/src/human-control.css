@@ -1,0 +1,7 @@
+.human-agent-row { grid-template-columns: minmax(130px,.75fr) 120px minmax(220px,1.5fr) 150px 160px minmax(180px,1fr) 88px; }
+.control-stack { min-width: 0; display: grid; gap: 4px; }
+.control-stack small { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.compact-select { min-width: 0; padding: 6px 7px; font-size: 11px; }
+@media (max-width: 1280px) { .human-agent-row { grid-template-columns: minmax(140px,1fr) 120px minmax(220px,1.5fr) 150px 160px; }.human-agent-row > *:nth-child(n+6) { grid-column: auto; } }
+@media (max-width: 1000px) { .human-agent-row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 680px) { .human-agent-row { grid-template-columns: 1fr; } }

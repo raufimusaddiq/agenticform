@@ -54,6 +54,10 @@ public class AgentEntity {
     @Column(name = "queue_mode", nullable = false)
     private AgentQueueMode queueMode;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "human_control_mode", nullable = false)
+    private HumanControlMode humanControlMode;
+
     @Column(name = "active_task_id")
     private UUID activeTaskId;
 
@@ -70,7 +74,7 @@ public class AgentEntity {
 
     public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
-                       String branch, AgentQueueMode queueMode) {
+                       String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode) {
         this.projectId = projectId;
         this.name = name;
         this.responsibility = responsibility;
@@ -80,6 +84,7 @@ public class AgentEntity {
         this.workingDirectory = workingDirectory;
         this.branch = branch;
         this.queueMode = queueMode;
+        this.humanControlMode = humanControlMode;
         this.status = AgentStatus.IDLE;
     }
 
@@ -100,6 +105,7 @@ public class AgentEntity {
     public String getBranch() { return branch; }
     public AgentStatus getStatus() { return status; }
     public AgentQueueMode getQueueMode() { return queueMode; }
+    public HumanControlMode getHumanControlMode() { return humanControlMode; }
     public UUID getActiveTaskId() { return activeTaskId; }
     public String getActiveTurnId() { return activeTurnId; }
     public Instant getCreatedAt() { return createdAt; }
@@ -107,6 +113,7 @@ public class AgentEntity {
 
     public void setStatus(AgentStatus status) { this.status = status; }
     public void setQueueMode(AgentQueueMode queueMode) { this.queueMode = queueMode; }
+    public void setHumanControlMode(HumanControlMode humanControlMode) { this.humanControlMode = humanControlMode; }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
 }

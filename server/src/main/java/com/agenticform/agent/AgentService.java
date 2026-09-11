@@ -51,12 +51,49 @@ public class AgentService {
                 workspace.workingDirectory().toString(), command.responsibility());
 
         AgentQueueMode queueMode = command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode();
+        HumanControlMode humanControlMode = command.humanControlMode() == null
+                ? HumanControlMode.IN_THE_LOOP : command.humanControlMode();
         AgentEntity agent = new AgentEntity(
                 project.getId(), command.name(), command.responsibility(), thread.threadId(), mode,
-                project.getRootDirectory(), workspace.workingDirectory().toString(), workspace.branch(), queueMode);
+                project.getRootDirectory(), workspace.workingDirectory().toString(), workspace.branch(),
+                queueMode, humanControlMode);
         return repository.save(agent);
     }
 
+    @Transactional
+    public AgentEntity updateHumanControlMode(UUID agentId, HumanControlMode mode) {
+        AgentEntity agent = get(agentId);
+        agent.setHumanControlMode(mode);
+        return repository.save(agent);
+    }
+
+    @Transactional
+    public AgentEntity updateQueueMode(UUID agentId, AgentQueueMode mode) {
+        AgentEntity agent = get(agentId);
+        agent.setQueueMode(mode);
+        return repository.save(agent);
+    }
+
+    @Transactional
+    public AgentEntity intervene(UUID agentId) {
+        AgentEntity agent = get(agentId);
+        agent.setQueueMode(AgentQueueMode.PAUSED);
+        repository.save(agent);
+
+        if (agent.getActiveTurnId() != null && !agent.getActiveTurnId().isBlank()) {
+            try {
+                codexGateway.interruptTurn(agent.getCodexThreadId(), agent.getActiveTurnId());
+            } catch (RuntimeException interruptFailure) {
+                // Pausing future work is authoritative even if the active Codex connection is gone.
+                // Mark the transport state so the operator can see that the interrupt itself was not confirmed.
+                agent.setStatus(AgentStatus.DISCONNECTED);
+                return repository.save(agent);
+            }
+        }
+        return agent;
+    }
+
     public record SpawnAgent(UUID projectId, String name, String responsibility, WorkspaceMode workspaceMode,
-                             String baseBranch, String branch, AgentQueueMode queueMode) {}
+                             String baseBranch, String branch, AgentQueueMode queueMode,
+                             HumanControlMode humanControlMode) {}
 }
