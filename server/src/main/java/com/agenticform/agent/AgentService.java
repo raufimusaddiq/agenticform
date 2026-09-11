@@ -81,13 +81,13 @@ public class AgentService {
     }
 
     @Transactional
-    public synchronized AgentEntity ensureOperationalAgent(UUID projectId) {
+    public AgentEntity ensureOperationalAgent(UUID projectId) {
         ProjectEntity project = projectService.get(projectId);
         if (!project.isEnabled()) throw new IllegalStateException("Project is disabled");
         return ensureOperationalAgentInternal(project);
     }
 
-    private AgentEntity ensureOperationalAgentInternal(ProjectEntity project) {
+    private synchronized AgentEntity ensureOperationalAgentInternal(ProjectEntity project) {
         return repository.findByProjectIdAndRole(project.getId(), AgentRole.OPERATIONAL)
                 .orElseGet(() -> createOperationalAgent(project));
     }
