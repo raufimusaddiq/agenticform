@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from './api';
+import { api, type OperationExternalWait } from './api';
 import type { Agent, OperationRun, OperationRunDetail, OperationalEnvironment, OperationalRunbook, OperationalService, Project, WorkspaceCleanupRecord } from './types';
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
@@ -37,6 +37,7 @@ export function OperationsView({ projects, agents, projectFilter }: {
   const [runs, setRuns] = useState<OperationRun[]>([]);
   const [cleanupHistory, setCleanupHistory] = useState<WorkspaceCleanupRecord[]>([]);
   const [selectedRun, setSelectedRun] = useState<OperationRunDetail | null>(null);
+  const [externalWaits, setExternalWaits] = useState<OperationExternalWait[]>([]);
   const [launchRunbook, setLaunchRunbook] = useState<OperationalRunbook | null>(null);
   const [parameters, setParameters] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -54,7 +55,13 @@ export function OperationsView({ projects, agents, projectFilter }: {
       setRuns(nextRuns);
       setCleanupHistory(nextCleanup);
       setError(null);
-      if (selectedRun) setSelectedRun(await api.operationRun(selectedRun.run.id));
+      if (selectedRun) {
+        const [detail, waits] = await Promise.all([
+          api.operationRun(selectedRun.run.id), api.operationExternalWaits(selectedRun.run.id)
+        ]);
+        setSelectedRun(detail);
+        setExternalWaits(waits);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load operational state');
     }
@@ -85,6 +92,20 @@ export function OperationsView({ projects, agents, projectFilter }: {
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Operational action failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectRun(runId: string) {
+    setBusy(true);
+    try {
+      const [detail, waits] = await Promise.all([api.operationRun(runId), api.operationExternalWaits(runId)]);
+      setSelectedRun(detail);
+      setExternalWaits(waits);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to load operation evidence');
     } finally {
       setBusy(false);
     }
@@ -171,7 +192,7 @@ export function OperationsView({ projects, agents, projectFilter }: {
           <div><strong>{runbookById.get(run.runbookId)?.name ?? run.action}</strong><small>{projectById.get(run.projectId)?.name} · {shortId(run.id)}</small></div>
           <Status value={run.status} /><span>{run.policyEffect}</span><span>{run.environmentKey}</span><time>{new Date(run.createdAt).toLocaleString()}</time>
           <div className="top-actions">
-            <button className="button compact ghost" disabled={busy} onClick={() => void mutate(async () => setSelectedRun(await api.operationRun(run.id)))}>Evidence</button>
+            <button className="button compact ghost" disabled={busy} onClick={() => void selectRun(run.id)}>Evidence</button>
             {run.status === 'WAITING_APPROVAL' && <button className="button compact primary" disabled={busy} onClick={() => void mutate(() => api.approveOperation(run.id))}>Approve</button>}
             {run.status === 'WAITING_APPROVAL' && <button className="button compact secondary" disabled={busy} onClick={() => void mutate(() => api.declineOperation(run.id))}>Decline</button>}
           </div>
@@ -180,7 +201,20 @@ export function OperationsView({ projects, agents, projectFilter }: {
     </section>
 
     {selectedRun && <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Immutable evidence</p><h2>{shortId(selectedRun.run.id)} · {selectedRun.run.action}</h2></div><button className="button ghost" onClick={() => setSelectedRun(null)}>Close</button></div>
+      <div className="section-header"><div><p className="eyebrow">Immutable evidence</p><h2>{shortId(selectedRun.run.id)} · {selectedRun.run.action}</h2></div><button className="button ghost" onClick={() => { setSelectedRun(null); setExternalWaits([]); }}>Close</button></div>
+      {externalWaits.length > 0 && <>
+        <p className="eyebrow">External workflows</p>
+        <div className="data-list">
+          {externalWaits.map((wait) => <div className="data-row task-row" key={wait.id}>
+            <div><strong>{wait.workflow}</strong><small>{wait.repository} · {wait.mode}</small></div>
+            <Status value={wait.status} />
+            <code title={wait.expectedHeadSha}>{shortId(wait.expectedHeadSha)}</code>
+            <span>{wait.lastObservedStatus ?? 'awaiting event'}{wait.lastObservedConclusion ? ` / ${wait.lastObservedConclusion}` : ''}</span>
+            {wait.externalUrl ? <a href={wait.externalUrl} target="_blank" rel="noreferrer">GitHub run {wait.externalRunId ?? ''}</a> : <span className="muted">Deadline {new Date(wait.deadline).toLocaleString()}</span>}
+          </div>)}
+        </div>
+      </>}
+      <p className="eyebrow">Runbook steps</p>
       <div className="data-list">
         {selectedRun.steps.length === 0 ? <div className="empty"><strong>No steps executed yet</strong><p>Run status is {label(selectedRun.run.status)}.</p></div> : selectedRun.steps.map((step) => <div className="data-row task-row" key={step.id}>
           <div><strong>{step.stepName}</strong><small>{step.stepType} · {step.durationMs ?? 0} ms</small></div><Status value={step.status} /><span>{step.summary ?? '—'}</span><code title={step.evidence ?? undefined}>{step.evidence ? step.evidence.slice(0, 120) : '—'}</code>
