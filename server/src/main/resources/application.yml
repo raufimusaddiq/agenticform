@@ -20,6 +20,7 @@ management:
         include: health,info
 
 agenticform:
+  public-url: ${AGENTICFORM_PUBLIC_URL:http://localhost:8080}
   project-roots:
     - ${AGENTICFORM_PROJECT_ROOT:/srv/apps}
   workspace:
@@ -37,6 +38,11 @@ agenticform:
     webhook-secret: ${AGENTICFORM_GITHUB_WEBHOOK_SECRET:}
     poll-interval: ${AGENTICFORM_GITHUB_POLL_INTERVAL:3s}
     reconcile-delay-ms: ${AGENTICFORM_GITHUB_RECONCILE_DELAY_MS:30000}
+  node:
+    enrollment-ttl: ${AGENTICFORM_NODE_ENROLLMENT_TTL:10m}
+    offline-after: ${AGENTICFORM_NODE_OFFLINE_AFTER:45s}
+    command-lease: ${AGENTICFORM_NODE_COMMAND_LEASE:30s}
+    image: ${AGENTICFORM_NODE_IMAGE:ghcr.io/raufimusaddiq/agenticform-node:latest}
   ui:
     origin: ${AGENTICFORM_UI_ORIGIN:http://localhost:5173}
   scheduler:
