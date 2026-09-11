@@ -51,12 +51,33 @@ public class AgentService {
                 workspace.workingDirectory().toString(), command.responsibility());
 
         AgentQueueMode queueMode = command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode();
+        HumanControlMode humanControlMode = command.humanControlMode() == null
+                ? HumanControlMode.IN_THE_LOOP : command.humanControlMode();
         AgentEntity agent = new AgentEntity(
                 project.getId(), command.name(), command.responsibility(), thread.threadId(), mode,
-                project.getRootDirectory(), workspace.workingDirectory().toString(), workspace.branch(), queueMode);
+                project.getRootDirectory(), workspace.workingDirectory().toString(), workspace.branch(),
+                queueMode, humanControlMode);
+        return repository.save(agent);
+    }
+
+    @Transactional
+    public AgentEntity updateHumanControlMode(UUID agentId, HumanControlMode mode) {
+        AgentEntity agent = get(agentId);
+        agent.setHumanControlMode(mode);
+        return repository.save(agent);
+    }
+
+    @Transactional
+    public AgentEntity intervene(UUID agentId) {
+        AgentEntity agent = get(agentId);
+        agent.setQueueMode(AgentQueueMode.PAUSED);
+        if (agent.getActiveTurnId() != null && !agent.getActiveTurnId().isBlank()) {
+            codexGateway.interruptTurn(agent.getCodexThreadId(), agent.getActiveTurnId());
+        }
         return repository.save(agent);
     }
 
     public record SpawnAgent(UUID projectId, String name, String responsibility, WorkspaceMode workspaceMode,
-                             String baseBranch, String branch, AgentQueueMode queueMode) {}
+                             String baseBranch, String branch, AgentQueueMode queueMode,
+                             HumanControlMode humanControlMode) {}
 }
