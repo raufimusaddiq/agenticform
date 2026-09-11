@@ -5,6 +5,7 @@ import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.codex.CodexJsonRpcClient;
 import com.agenticform.policy.PolicyEffect;
+import com.agenticform.policy.PolicyPreauthorizationService;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -25,14 +26,17 @@ public class HumanApprovalService {
     private final HumanApprovalRepository repository;
     private final AgentRepository agentRepository;
     private final HumanApprovalPolicy policy;
+    private final PolicyPreauthorizationService preauthorizations;
     private final ObjectMapper mapper;
     private final Map<UUID, CompletableFuture<JsonNode>> pendingResponses = new ConcurrentHashMap<>();
 
     public HumanApprovalService(HumanApprovalRepository repository, AgentRepository agentRepository,
-                                HumanApprovalPolicy policy, ObjectMapper mapper) {
+                                HumanApprovalPolicy policy, PolicyPreauthorizationService preauthorizations,
+                                ObjectMapper mapper) {
         this.repository = repository;
         this.agentRepository = agentRepository;
         this.policy = policy;
+        this.preauthorizations = preauthorizations;
         this.mapper = mapper;
     }
 
@@ -72,6 +76,19 @@ public class HumanApprovalService {
         HumanApprovalType type = typeForMethod(request.method());
         HumanApprovalPolicy.Evaluation evaluation = policy.evaluate(agent, type, params);
         HumanApprovalEntity approval = createApproval(request, agent, type, request.method(), params, evaluation);
+
+        if (evaluation.effect() == PolicyEffect.REQUIRE_HUMAN && type != HumanApprovalType.USER_INPUT) {
+            UUID grantId = preauthorizations.consume(
+                    agent.getId(), agent.getActiveTaskId(), evaluation.action(), evaluation.environment());
+            if (grantId != null) {
+                approval.attachPreauthorizationGrant(grantId);
+                JsonNode response = automaticResponse(type, params);
+                approval.resolve(HumanApprovalStatus.PREAUTHORIZED, toJson(response));
+                repository.save(approval);
+                return CompletableFuture.completedFuture(response);
+            }
+        }
+
         return applyDecision(approval, agent, type, params, evaluation);
     }
 
@@ -169,6 +186,17 @@ public class HumanApprovalService {
         HumanApprovalDecision effectiveDecision = approval.getPolicyEffect() == PolicyEffect.REQUIRE_HUMAN
                 && decision == HumanApprovalDecision.APPROVE_SESSION
                 ? HumanApprovalDecision.APPROVE_ONCE : decision;
+
+        if (effectiveDecision == HumanApprovalDecision.APPROVE_ONCE
+                && approval.getType() == HumanApprovalType.PROTECTED_ACTION
+                && approval.getPolicyEffect() == PolicyEffect.REQUIRE_HUMAN) {
+            UUID grantId = preauthorizations.issue(
+                    approval.getAgentId(),
+                    agentRepository.findById(approval.getAgentId()).map(AgentEntity::getActiveTaskId).orElse(null),
+                    approval.getPolicyAction(),
+                    approval.getPolicyEnvironment());
+            approval.attachPreauthorizationGrant(grantId);
+        }
 
         JsonNode response = decisionResponse(approval, effectiveDecision);
         HumanApprovalStatus status = switch (effectiveDecision) {
@@ -308,7 +336,7 @@ public class HumanApprovalService {
             boolean approved = decision == HumanApprovalDecision.APPROVE_ONCE
                     || decision == HumanApprovalDecision.APPROVE_SESSION;
             return policyToolResponse(approved, approved
-                    ? "Human approved this policy-governed action once. Proceed with exactly the declared action; evaluate again for later governed actions."
+                    ? "Human approved this policy-governed action once. Proceed with exactly the declared action; a matching native Codex approval may consume the one-shot preauthorization without asking again."
                     : "Human declined this policy-governed action. Do not execute it; find an allowed alternative or report the blocker.");
         }
 
