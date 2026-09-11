@@ -38,8 +38,6 @@ public class CodexAppServerGateway implements CodexGateway {
             JsonNode result = client.request("thread/queue/add", params);
             String queueId = result.path("queuedSubmission").path("id").asText();
 
-            // Queue persistence and wake-up are deliberately separate. Once queue/add succeeds,
-            // falling back to turn/start would risk executing the same user intent twice.
             try {
                 resumeThread(threadId);
             } catch (CodexRpcException ignored) {
@@ -65,6 +63,14 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode params = mapper.createObjectNode();
         params.put("threadId", threadId);
         client.request("thread/resume", params);
+    }
+
+    @Override
+    public void interruptTurn(String threadId, String turnId) {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("threadId", threadId);
+        params.put("turnId", turnId);
+        client.request("turn/interrupt", params);
     }
 
     private boolean isQueueUnavailable(Throwable failure) {
