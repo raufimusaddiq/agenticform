@@ -1,15 +1,17 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
-import type { Agent, AgentQueueMode, Project, Task, WorkspaceMode } from './types';
+import { MessagesView } from './MessagesView';
+import type { Agent, AgentMessage, AgentQueueMode, Project, Task, WorkspaceMode } from './types';
 
-type View = 'overview' | 'projects' | 'agents' | 'tasks';
+type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages';
 type Dialog = 'project' | 'agent' | 'task' | null;
 
 const nav: Array<{ id: View; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'projects', label: 'Projects' },
   { id: 'agents', label: 'Agents' },
-  { id: 'tasks', label: 'Tasks' }
+  { id: 'tasks', label: 'Tasks' },
+  { id: 'messages', label: 'Messages' }
 ];
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
@@ -37,6 +39,7 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [view, setView] = useState<View>('overview');
   const [projectFilter, setProjectFilter] = useState('all');
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -46,10 +49,13 @@ export default function App() {
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const [nextProjects, nextAgents, nextTasks] = await Promise.all([api.projects(), api.agents(), api.tasks()]);
+      const [nextProjects, nextAgents, nextTasks, nextMessages] = await Promise.all([
+        api.projects(), api.agents(), api.tasks(), api.messages()
+      ]);
       setProjects(nextProjects);
       setAgents(nextAgents);
       setTasks(nextTasks);
+      setMessages(nextMessages);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load Agenticform state');
@@ -66,11 +72,13 @@ export default function App() {
 
   const visibleAgents = useMemo(() => projectFilter === 'all' ? agents : agents.filter((agent) => agent.projectId === projectFilter), [agents, projectFilter]);
   const visibleTasks = useMemo(() => projectFilter === 'all' ? tasks : tasks.filter((task) => task.projectId === projectFilter), [tasks, projectFilter]);
+  const visibleMessages = useMemo(() => projectFilter === 'all' ? messages : messages.filter((message) => message.projectId === projectFilter), [messages, projectFilter]);
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
 
   const attention = agents.filter((agent) => ['WAITING_APPROVAL', 'BLOCKED', 'DISCONNECTED', 'FAILED'].includes(agent.status)).length
-    + tasks.filter((task) => ['WAITING_APPROVAL', 'BLOCKED', 'FAILED'].includes(task.status)).length;
+    + tasks.filter((task) => ['WAITING_APPROVAL', 'BLOCKED', 'FAILED'].includes(task.status)).length
+    + messages.filter((message) => message.status === 'FAILED').length;
   const active = agents.filter((agent) => agent.status === 'WORKING').length;
   const queued = tasks.filter((task) => ['READY', 'DISPATCHING', 'DISPATCHED'].includes(task.status)).length;
 
@@ -115,6 +123,7 @@ export default function App() {
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} onRegister={() => setDialog('project')} />}
             {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
+            {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} />}
           </>
         )}
       </main>
