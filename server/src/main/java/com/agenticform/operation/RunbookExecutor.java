@@ -314,10 +314,8 @@ public class RunbookExecutor {
 
     private void requireHttp(URI uri) {
         String scheme = uri.getScheme();
-        if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https://"))) {
-            if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
-                throw new IllegalArgumentException("HTTP checks require http or https URL");
-            }
+        if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+            throw new IllegalArgumentException("HTTP checks require http or https URL");
         }
         if (uri.getHost() == null) throw new IllegalArgumentException("HTTP check URL requires a host");
     }
