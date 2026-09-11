@@ -8,9 +8,11 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -89,12 +91,41 @@ public class HumanApprovalService {
         );
 
         if (evaluation.autoApprove()) {
-            JsonNode response = automaticResponse(type);
+            JsonNode response = automaticResponse(type, params);
             approval.resolve(HumanApprovalStatus.AUTO_APPROVED, toJson(response));
             repository.save(approval);
             return CompletableFuture.completedFuture(response);
         }
 
+        return waitForHuman(approval, agent);
+    }
+
+    public CompletionStage<JsonNode> receiveProtectedAction(CodexJsonRpcClient.ServerRequest request,
+                                                              AgentEntity agent,
+                                                              JsonNode arguments) {
+        ProtectedActionKind kind = ProtectedActionKind.valueOf(requiredText(arguments, "kind").toUpperCase(Locale.ROOT));
+        String summary = requiredText(arguments, "summary");
+        String threadId = requiredText(request.params(), "threadId");
+
+        HumanApprovalEntity approval = new HumanApprovalEntity(
+                agent.getProjectId(),
+                agent.getId(),
+                requestId(request.id()),
+                "agenticform/request_protected_action",
+                HumanApprovalType.PROTECTED_ACTION,
+                agent.getHumanControlMode(),
+                HumanApprovalRisk.HIGH,
+                HumanApprovalStatus.PENDING,
+                threadId,
+                nullableText(request.params(), "turnId"),
+                nullableText(request.params(), "itemId"),
+                kind.name().toLowerCase(Locale.ROOT).replace('_', ' ') + ": " + summary,
+                toJson(arguments)
+        );
+        return waitForHuman(approval, agent);
+    }
+
+    private CompletionStage<JsonNode> waitForHuman(HumanApprovalEntity approval, AgentEntity agent) {
         approval = repository.save(approval);
         agent.setStatus(AgentStatus.WAITING_APPROVAL);
         agentRepository.save(agent);
@@ -110,8 +141,14 @@ public class HumanApprovalService {
             throw new IllegalStateException("User input requests must be answered, not approved");
         }
 
-        JsonNode response = decisionResponse(approval, decision);
-        HumanApprovalStatus status = switch (decision) {
+        // Protected actions are intentionally never whitelisted for the rest of a session.
+        // An "approve session" click is narrowed to this one protected action.
+        HumanApprovalDecision effectiveDecision = approval.getType() == HumanApprovalType.PROTECTED_ACTION
+                && decision == HumanApprovalDecision.APPROVE_SESSION
+                ? HumanApprovalDecision.APPROVE_ONCE : decision;
+
+        JsonNode response = decisionResponse(approval, effectiveDecision);
+        HumanApprovalStatus status = switch (effectiveDecision) {
             case APPROVE_ONCE -> HumanApprovalStatus.APPROVED;
             case APPROVE_SESSION -> HumanApprovalStatus.APPROVED_FOR_SESSION;
             case DECLINE -> HumanApprovalStatus.DECLINED;
@@ -176,10 +213,15 @@ public class HumanApprovalService {
         });
     }
 
-    private JsonNode automaticResponse(HumanApprovalType type) {
+    private JsonNode automaticResponse(HumanApprovalType type, JsonNode params) {
         ObjectNode response = mapper.createObjectNode();
         if (type == HumanApprovalType.COMMAND_EXECUTION || type == HumanApprovalType.FILE_CHANGE) {
             response.put("decision", "accept");
+            return response;
+        }
+        if (type == HumanApprovalType.PERMISSIONS) {
+            response.set("permissions", params.path("permissions").deepCopy());
+            response.put("scope", "turn");
             return response;
         }
         throw new IllegalStateException("No automatic response is defined for " + type);
@@ -208,6 +250,19 @@ public class HumanApprovalService {
                 response.putObject("permissions");
                 response.put("scope", "turn");
             }
+            return response;
+        }
+
+        if (approval.getType() == HumanApprovalType.PROTECTED_ACTION) {
+            boolean approved = decision == HumanApprovalDecision.APPROVE_ONCE
+                    || decision == HumanApprovalDecision.APPROVE_SESSION;
+            response.put("success", true);
+            ArrayNode items = response.putArray("contentItems");
+            ObjectNode item = items.addObject();
+            item.put("type", "inputText");
+            item.put("text", approved
+                    ? "Human approved this protected action once. Proceed with exactly the approved action; request approval again for any later protected action."
+                    : "Human declined this protected action. Do not execute it; find a non-destructive alternative or report the blocker.");
             return response;
         }
 
