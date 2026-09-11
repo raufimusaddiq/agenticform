@@ -19,6 +19,8 @@ import type {
   Project,
   RunbookStep,
   Task,
+  WorkspaceCleanupInspection,
+  WorkspaceCleanupRecord,
   WorkspaceMode
 } from './types';
 
@@ -90,6 +92,10 @@ export const api = {
   operationalRunbooks: () => request<OperationalRunbook[]>('/api/operations/runbooks'),
   operationRuns: () => request<OperationRun[]>('/api/operations/runs'),
   operationRun: (runId: string) => request<OperationRunDetail>(`/api/operations/runs/${runId}`),
+  workspaceCleanupHistory: (projectId?: string) => request<WorkspaceCleanupRecord[]>(
+    `/api/workspaces/cleanup-history${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
+  workspaceCleanupInspection: (agentId: string) =>
+    request<WorkspaceCleanupInspection>(`/api/workspaces/agents/${agentId}/cleanup-inspection`),
 
   registerProject: (input: { name: string; path: string; defaultBranch: string }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
@@ -125,6 +131,12 @@ export const api = {
 
   intervene: (agentId: string) =>
     request<Agent>(`/api/agents/${agentId}/intervene`, { method: 'POST' }),
+
+  cleanupWorkspace: (agentId: string, reason = 'Operator requested cleanup') =>
+    request<WorkspaceCleanupRecord>(`/api/workspaces/agents/${agentId}/cleanup`, {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    }),
 
   createTask: (input: { agentId: string; title: string; prompt: string; priority: number }) =>
     request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
