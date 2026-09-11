@@ -34,6 +34,16 @@ public class CodexEventBridge {
 
     @Transactional
     public void handle(CodexJsonRpcClient.Notification notification) {
+        handleInternal(null, notification);
+    }
+
+    @Transactional
+    public void handleRemote(UUID executionNodeId, CodexJsonRpcClient.Notification notification) {
+        if (executionNodeId == null) throw new IllegalArgumentException("Execution node id is required");
+        handleInternal(executionNodeId, notification);
+    }
+
+    private void handleInternal(UUID executionNodeId, CodexJsonRpcClient.Notification notification) {
         JsonNode params = notification.params();
         if (params == null) return;
 
@@ -45,6 +55,7 @@ public class CodexEventBridge {
             try {
                 UUID taskId = UUID.fromString(clientId.substring(TASK_CLIENT_PREFIX.length()));
                 taskRepository.findById(taskId).ifPresent(task -> {
+                    if (!authorizedNode(executionNodeId, task)) return;
                     String turnId = params.path("turnId").asText(null);
                     task.setCodexTurnId(turnId);
                     task.setStatus(TaskStatus.RUNNING);
@@ -65,8 +76,16 @@ public class CodexEventBridge {
         if ("turn/completed".equals(notification.method())) {
             String turnId = params.path("turn").path("id").asText(null);
             if (turnId == null) return;
-            taskRepository.findByCodexTurnId(turnId).ifPresent(task -> completeTask(task, params));
+            taskRepository.findByCodexTurnId(turnId).ifPresent(task -> {
+                if (authorizedNode(executionNodeId, task)) completeTask(task, params);
+            });
         }
+    }
+
+    private boolean authorizedNode(UUID executionNodeId, TaskEntity task) {
+        if (executionNodeId == null) return true;
+        AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
+        return agent != null && executionNodeId.equals(agent.getExecutionNodeId());
     }
 
     private void completeTask(TaskEntity task, JsonNode params) {
