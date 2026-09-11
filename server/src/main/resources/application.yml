@@ -33,3 +33,4 @@ agenticform:
     origin: ${AGENTICFORM_UI_ORIGIN:http://localhost:5173}
   scheduler:
     dispatch-delay-ms: ${AGENTICFORM_DISPATCH_DELAY_MS:2000}
+    reconcile-delay-ms: ${AGENTICFORM_RECONCILE_DELAY_MS:10000}

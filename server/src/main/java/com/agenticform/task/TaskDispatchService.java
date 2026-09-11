@@ -58,7 +58,7 @@ public class TaskDispatchService {
             throw new IllegalStateException("Task is not dispatchable from status " + task.getStatus());
         }
         dispatch(task, agent);
-        return task;
+        return taskRepository.findById(taskId).orElse(task);
     }
 
     private void dispatch(TaskEntity task, AgentEntity agent) {
@@ -71,20 +71,34 @@ public class TaskDispatchService {
             CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
                     agent.getCodexThreadId(), clientMessageId, task.getPrompt());
 
-            task.setCodexQueuedSubmissionId(receipt.queuedSubmissionId());
-            task.setCodexTurnId(receipt.turnId());
-            task.setStatus(receipt.turnId() == null ? TaskStatus.DISPATCHED : TaskStatus.RUNNING);
-            agent.setStatus(AgentStatus.WORKING);
-            agent.setActiveTaskId(task.getId());
-            agent.setActiveTurnId(receipt.turnId());
-            taskRepository.save(task);
-            agentRepository.save(agent);
+            // Codex can start a queued message immediately and emit item/started before this
+            // method returns. Reload before writing so that event-driven RUNNING state wins.
+            TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
+            currentTask.setCodexQueuedSubmissionId(receipt.queuedSubmissionId());
+            if (receipt.turnId() != null) {
+                currentTask.setCodexTurnId(receipt.turnId());
+            }
+            if (currentTask.getStatus() == TaskStatus.DISPATCHING) {
+                currentTask.setStatus(receipt.turnId() == null ? TaskStatus.DISPATCHED : TaskStatus.RUNNING);
+            }
+            taskRepository.save(currentTask);
+
+            if (receipt.turnId() != null && currentTask.getStatus() == TaskStatus.RUNNING) {
+                AgentEntity currentAgent = agentRepository.findById(agent.getId()).orElse(agent);
+                currentAgent.setStatus(AgentStatus.WORKING);
+                currentAgent.setActiveTaskId(currentTask.getId());
+                currentAgent.setActiveTurnId(receipt.turnId());
+                agentRepository.save(currentAgent);
+            }
         } catch (RuntimeException e) {
-            task.setStatus(TaskStatus.BLOCKED);
-            task.setLastError(e.getMessage());
-            agent.setStatus(AgentStatus.DISCONNECTED);
-            taskRepository.save(task);
-            agentRepository.save(agent);
+            TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
+            currentTask.setStatus(TaskStatus.BLOCKED);
+            currentTask.setLastError(e.getMessage());
+            taskRepository.save(currentTask);
+
+            AgentEntity currentAgent = agentRepository.findById(agent.getId()).orElse(agent);
+            currentAgent.setStatus(AgentStatus.DISCONNECTED);
+            agentRepository.save(currentAgent);
         }
     }
 }
