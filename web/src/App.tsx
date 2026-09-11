@@ -1,9 +1,21 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
+import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
-import type { Agent, AgentMessage, AgentQueueMode, Project, Task, WorkspaceMode } from './types';
+import type {
+  Agent,
+  AgentMessage,
+  AgentQueueMode,
+  HumanApproval,
+  HumanControlMode,
+  Project,
+  Task,
+  WorkspaceMode
+} from './types';
+import './approvals.css';
+import './human-control.css';
 
-type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages';
+type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages' | 'approvals';
 type Dialog = 'project' | 'agent' | 'task' | null;
 
 const nav: Array<{ id: View; label: string }> = [
@@ -11,7 +23,8 @@ const nav: Array<{ id: View; label: string }> = [
   { id: 'projects', label: 'Projects' },
   { id: 'agents', label: 'Agents' },
   { id: 'tasks', label: 'Tasks' },
-  { id: 'messages', label: 'Messages' }
+  { id: 'messages', label: 'Messages' },
+  { id: 'approvals', label: 'Approvals' }
 ];
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
@@ -40,6 +53,7 @@ export default function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [approvals, setApprovals] = useState<HumanApproval[]>([]);
   const [view, setView] = useState<View>('overview');
   const [projectFilter, setProjectFilter] = useState('all');
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -49,13 +63,14 @@ export default function App() {
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const [nextProjects, nextAgents, nextTasks, nextMessages] = await Promise.all([
-        api.projects(), api.agents(), api.tasks(), api.messages()
+      const [nextProjects, nextAgents, nextTasks, nextMessages, nextApprovals] = await Promise.all([
+        api.projects(), api.agents(), api.tasks(), api.messages(), api.approvals()
       ]);
       setProjects(nextProjects);
       setAgents(nextAgents);
       setTasks(nextTasks);
       setMessages(nextMessages);
+      setApprovals(nextApprovals);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load Agenticform state');
@@ -73,12 +88,14 @@ export default function App() {
   const visibleAgents = useMemo(() => projectFilter === 'all' ? agents : agents.filter((agent) => agent.projectId === projectFilter), [agents, projectFilter]);
   const visibleTasks = useMemo(() => projectFilter === 'all' ? tasks : tasks.filter((task) => task.projectId === projectFilter), [tasks, projectFilter]);
   const visibleMessages = useMemo(() => projectFilter === 'all' ? messages : messages.filter((message) => message.projectId === projectFilter), [messages, projectFilter]);
+  const visibleApprovals = useMemo(() => projectFilter === 'all' ? approvals : approvals.filter((approval) => approval.projectId === projectFilter), [approvals, projectFilter]);
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
 
   const attention = agents.filter((agent) => ['WAITING_APPROVAL', 'BLOCKED', 'DISCONNECTED', 'FAILED'].includes(agent.status)).length
     + tasks.filter((task) => ['WAITING_APPROVAL', 'BLOCKED', 'FAILED'].includes(task.status)).length
-    + messages.filter((message) => message.status === 'FAILED').length;
+    + messages.filter((message) => message.status === 'FAILED').length
+    + approvals.filter((approval) => approval.status === 'PENDING').length;
   const active = agents.filter((agent) => agent.status === 'WORKING').length;
   const queued = tasks.filter((task) => ['READY', 'DISPATCHING', 'DISPATCHED'].includes(task.status)).length;
 
@@ -121,9 +138,10 @@ export default function App() {
           <>
             {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} attention={attention} active={active} queued={queued} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onSpawn={() => setDialog('agent')} />}
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} onRegister={() => setDialog('project')} />}
-            {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} />}
+            {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
             {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} />}
+            {view === 'approvals' && <ApprovalsView approvals={visibleApprovals} agents={agents} projects={projects} onDecision={async (id, decision) => { await mutate(() => api.decideApproval(id, decision)); }} onAnswer={async (id, answers) => { await mutate(() => api.answerApproval(id, answers)); }} />}
           </>
         )}
       </main>
@@ -155,7 +173,7 @@ function Overview({ projects, agents, tasks, attention, active, queued, projectB
           <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name ?? 'Unknown project'}</small></div>
           <Status value={agent.status} />
           <p>{agent.responsibility}</p>
-          <code>{agent.branch ?? agent.workingDirectory}</code>
+          <div className="machine"><code>{agent.branch ?? agent.workingDirectory}</code><small>{agent.humanControlMode === 'IN_THE_LOOP' ? 'Human in loop' : 'Human on loop'}</small></div>
         </div>)}
       </div>}
     </section>
@@ -190,11 +208,23 @@ function Projects({ projects, agents, tasks, onRegister }: { projects: Project[]
   </section>;
 }
 
-function Agents({ agents, projectById }: { agents: Agent[]; projectById: Map<string, Project> }) {
+function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }: {
+  agents: Agent[];
+  projectById: Map<string, Project>;
+  onControlMode: (id: string, mode: HumanControlMode) => void;
+  onQueueMode: (id: string, mode: AgentQueueMode) => void;
+  onIntervene: (id: string) => void;
+}) {
   return <section className="panel"><div className="section-header"><div><p className="eyebrow">Codex threads</p><h2>Agent roster</h2></div></div>
     {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="data-list">
-      {agents.map((agent) => <div className="data-row agent-detail-row" key={agent.id}>
-        <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name}</small></div><Status value={agent.status} /><p>{agent.responsibility}</p><span>{label(agent.queueMode)}</span><div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small></div><code title={agent.codexThreadId}>{shortId(agent.codexThreadId)}</code>
+      {agents.map((agent) => <div className="data-row agent-detail-row human-agent-row" key={agent.id}>
+        <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name}</small></div>
+        <Status value={agent.status} />
+        <p>{agent.responsibility}</p>
+        <div className="control-stack"><small>Human control</small><select className="compact-select" value={agent.humanControlMode} onChange={(event) => onControlMode(agent.id, event.target.value as HumanControlMode)}><option value="IN_THE_LOOP">In the loop</option><option value="ON_THE_LOOP">On the loop</option></select></div>
+        <div className="control-stack"><small>Queue</small><select className="compact-select" value={agent.queueMode} onChange={(event) => onQueueMode(agent.id, event.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></div>
+        <div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small><code title={agent.codexThreadId}>{shortId(agent.codexThreadId)}</code></div>
+        <button className="button compact secondary" onClick={() => onIntervene(agent.id)} disabled={agent.queueMode === 'PAUSED' && !agent.activeTurnId}>Intervene</button>
       </div>)}
     </div>}
   </section>;
@@ -222,14 +252,27 @@ function ProjectForm({ onClose, onSubmit }: { onClose: () => void; onSubmit: (in
   </form></Modal>;
 }
 
-function AgentForm({ projects, initialProjectId, onClose, onSubmit }: { projects: Project[]; initialProjectId?: string; onClose: () => void; onSubmit: (input: { projectId: string; name: string; responsibility: string; workspaceMode: WorkspaceMode; baseBranch?: string; branch?: string; queueMode: AgentQueueMode }) => void }) {
-  const [projectId, setProjectId] = useState(initialProjectId ?? projects[0]?.id ?? ''); const [name, setName] = useState(''); const [responsibility, setResponsibility] = useState(''); const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ISOLATED_WORKTREE'); const [branch, setBranch] = useState(''); const [queueMode, setQueueMode] = useState<AgentQueueMode>('AUTO');
+function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
+  projects: Project[];
+  initialProjectId?: string;
+  onClose: () => void;
+  onSubmit: (input: { projectId: string; name: string; responsibility: string; workspaceMode: WorkspaceMode; baseBranch?: string; branch?: string; queueMode: AgentQueueMode; humanControlMode: HumanControlMode }) => void;
+}) {
+  const [projectId, setProjectId] = useState(initialProjectId ?? projects[0]?.id ?? '');
+  const [name, setName] = useState('');
+  const [responsibility, setResponsibility] = useState('');
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ISOLATED_WORKTREE');
+  const [branch, setBranch] = useState('');
+  const [queueMode, setQueueMode] = useState<AgentQueueMode>('AUTO');
+  const [humanControlMode, setHumanControlMode] = useState<HumanControlMode>('IN_THE_LOOP');
   const project = projects.find((item) => item.id === projectId);
-  return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode }); }}>
+  return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode, humanControlMode }); }}>
     <label>Project<select required value={projectId} onChange={(e) => setProjectId(e.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label>Agent name<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Backend Auth" /></label>
     <label>Responsibility<textarea required rows={5} value={responsibility} onChange={(e) => setResponsibility(e.target.value)} placeholder="Own authentication, token lifecycle, backend API and tests." /></label>
     <div className="form-grid"><label>Workspace<select value={workspaceMode} onChange={(e) => setWorkspaceMode(e.target.value as WorkspaceMode)}><option value="ISOLATED_WORKTREE">Isolated worktree</option><option value="SHARED_PROJECT">Shared project</option></select></label><label>Queue policy<select value={queueMode} onChange={(e) => setQueueMode(e.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></label></div>
+    <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="IN_THE_LOOP">Human in the loop — approvals block</option><option value="ON_THE_LOOP">Human on the loop — low-risk actions auto-continue</option></select></label>
+    <p className="form-note">On-the-loop only auto-approves low-risk actions inside the agent workspace. Permission expansion, unknown commands, network changes, and user questions still stop for review.</p>
     <label>Agent branch <span className="optional">optional</span><input className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="agent/backend-auth" /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Spawn agent</button></footer>
   </form></Modal>;
@@ -238,7 +281,7 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: { projects
 function TaskForm({ agents, onClose, onSubmit }: { agents: Agent[]; onClose: () => void; onSubmit: (input: { agentId: string; title: string; prompt: string; priority: number }) => void }) {
   const [agentId, setAgentId] = useState(agents[0]?.id ?? ''); const [title, setTitle] = useState(''); const [prompt, setPrompt] = useState(''); const [priority, setPriority] = useState(0);
   return <Modal title="Create task" onClose={onClose}><form onSubmit={(event: FormEvent) => { event.preventDefault(); onSubmit({ agentId, title, prompt, priority }); }}>
-    <label>Agent<select required value={agentId} onChange={(e) => setAgentId(e.target.value)}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {label(agent.status)}</option>)}</select></label>
+    <label>Agent<select required value={agentId} onChange={(e) => setAgentId(e.target.value)}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {label(agent.status)} · {agent.humanControlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</option>)}</select></label>
     <label>Title<input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Implement refresh-token fallback" /></label>
     <label>Instruction<textarea required rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Inspect the current token lifecycle, implement the fallback, add tests, and report any compatibility risks." /></label>
     <label>Priority<input type="number" min="-100" max="100" value={priority} onChange={(e) => setPriority(Number(e.target.value))} /></label>
