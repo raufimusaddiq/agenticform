@@ -2,6 +2,7 @@ package com.agenticform.message;
 
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
+import com.agenticform.approval.HumanApprovalService;
 import com.agenticform.codex.CodexJsonRpcClient;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
@@ -24,13 +25,16 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private final CodexJsonRpcClient client;
     private final AgentRepository agentRepository;
     private final AgentMessageService messageService;
+    private final HumanApprovalService approvalService;
     private final ObjectMapper mapper;
 
     public AgenticformDynamicToolHandler(CodexJsonRpcClient client, AgentRepository agentRepository,
-                                         AgentMessageService messageService, ObjectMapper mapper) {
+                                         AgentMessageService messageService, HumanApprovalService approvalService,
+                                         ObjectMapper mapper) {
         this.client = client;
         this.agentRepository = agentRepository;
         this.messageService = messageService;
+        this.approvalService = approvalService;
         this.mapper = mapper;
     }
 
@@ -57,12 +61,12 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
 
         String tool = requiredText(params, "tool");
         JsonNode arguments = params.path("arguments");
-        JsonNode response = switch (tool) {
-            case "list_agents" -> listAgents(source);
-            case "send_message" -> sendMessage(source, arguments);
+        return switch (tool) {
+            case "list_agents" -> CompletableFuture.completedFuture(listAgents(source));
+            case "send_message" -> CompletableFuture.completedFuture(sendMessage(source, arguments));
+            case "request_protected_action" -> approvalService.receiveProtectedAction(request, source, arguments);
             default -> throw new IllegalArgumentException("Unknown Agenticform dynamic tool: " + tool);
         };
-        return CompletableFuture.completedFuture(response);
     }
 
     private JsonNode listAgents(AgentEntity source) {

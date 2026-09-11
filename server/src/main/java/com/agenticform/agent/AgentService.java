@@ -52,7 +52,7 @@ public class AgentService {
 
         AgentQueueMode queueMode = command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode();
         HumanControlMode humanControlMode = command.humanControlMode() == null
-                ? HumanControlMode.IN_THE_LOOP : command.humanControlMode();
+                ? HumanControlMode.ON_THE_LOOP : command.humanControlMode();
         AgentEntity agent = new AgentEntity(
                 project.getId(), command.name(), command.responsibility(), thread.threadId(), mode,
                 project.getRootDirectory(), workspace.workingDirectory().toString(), workspace.branch(),

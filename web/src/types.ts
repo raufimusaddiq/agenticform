@@ -102,7 +102,7 @@ export type AgentMessage = {
   updatedAt: string;
 };
 
-export type HumanApprovalType = 'COMMAND_EXECUTION' | 'FILE_CHANGE' | 'PERMISSIONS' | 'USER_INPUT';
+export type HumanApprovalType = 'COMMAND_EXECUTION' | 'FILE_CHANGE' | 'PERMISSIONS' | 'USER_INPUT' | 'PROTECTED_ACTION';
 export type HumanApprovalRisk = 'LOW' | 'ELEVATED' | 'HIGH';
 export type HumanApprovalStatus =
   | 'PENDING'

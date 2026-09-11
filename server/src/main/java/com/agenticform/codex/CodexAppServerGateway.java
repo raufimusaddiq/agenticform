@@ -10,6 +10,17 @@ import java.util.Locale;
 
 @Component
 public class CodexAppServerGateway implements CodexGateway {
+    private static final String GOVERNANCE_INSTRUCTIONS = """
+            You operate under Agenticform human-control governance.
+            Continue normal development work autonomously until blocked or until you genuinely need user input.
+            Before executing ANY of these protected actions, you MUST call agenticform.request_protected_action and wait for the human decision:
+            1. deploying or releasing to a production environment;
+            2. mutating production data with DML or equivalent write operations;
+            3. deleting persistent/business data, including DELETE/TRUNCATE/DROP or equivalent destructive API/database operations.
+            Protected-action approval is valid once for exactly the described action and is never reusable for a later protected action.
+            Do not request protected-action approval for normal coding, tests, builds, dependency installation, development/staging work, ordinary network access, or agent-to-agent communication.
+            """;
+
     private final CodexJsonRpcClient client;
     private final ObjectMapper mapper;
 
@@ -23,6 +34,7 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode params = mapper.createObjectNode();
         params.put("cwd", cwd);
         params.put("baseInstructions", responsibility);
+        params.put("developerInstructions", GOVERNANCE_INSTRUCTIONS);
         // Keep the execution boundary deterministic regardless of the host's global Codex config.
         // Agenticform is the user-facing approval client and applies HITL/HOTL policy itself.
         params.put("approvalPolicy", "on-request");
@@ -109,7 +121,7 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode namespace = mapper.createObjectNode();
         namespace.put("type", "namespace");
         namespace.put("name", "agenticform");
-        namespace.put("description", "Coordinate with other Agenticform agents assigned to the same project.");
+        namespace.put("description", "Coordinate with Agenticform agents and request the mandatory human gate for protected production/destructive actions.");
         ArrayNode namespaceTools = namespace.putArray("tools");
 
         ObjectNode listAgents = mapper.createObjectNode();
@@ -146,6 +158,28 @@ public class CodexAppServerGateway implements CodexGateway {
         required.add("content");
         sendSchema.put("additionalProperties", false);
         namespaceTools.add(sendMessage);
+
+        ObjectNode protectedAction = mapper.createObjectNode();
+        protectedAction.put("type", "function");
+        protectedAction.put("name", "request_protected_action");
+        protectedAction.put("description", "MANDATORY human gate immediately before a production deployment, production data DML/mutation, or deletion of persistent/business data. The call blocks until the human approves or declines. Approval is one-shot and must not be reused.");
+        ObjectNode protectedSchema = protectedAction.putObject("inputSchema");
+        protectedSchema.put("type", "object");
+        ObjectNode protectedProperties = protectedSchema.putObject("properties");
+        ObjectNode kind = protectedProperties.putObject("kind");
+        kind.put("type", "string");
+        ArrayNode kinds = kind.putArray("enum");
+        kinds.add("PRODUCTION_DEPLOY");
+        kinds.add("PRODUCTION_DML");
+        kinds.add("DELETE_DATA");
+        property(protectedProperties, "summary", "string", "Concise description of the exact protected action that will run after approval.");
+        property(protectedProperties, "details", "string", "Relevant target/environment/command/data scope so the human can make an informed decision.");
+        ArrayNode protectedRequired = protectedSchema.putArray("required");
+        protectedRequired.add("kind");
+        protectedRequired.add("summary");
+        protectedRequired.add("details");
+        protectedSchema.put("additionalProperties", false);
+        namespaceTools.add(protectedAction);
 
         tools.add(namespace);
         return tools;
