@@ -1,4 +1,15 @@
-import type { Agent, AgentMessage, AgentMessageType, AgentQueueMode, Project, Task, WorkspaceMode } from './types';
+import type {
+  Agent,
+  AgentMessage,
+  AgentMessageType,
+  AgentQueueMode,
+  HumanApproval,
+  HumanApprovalDecision,
+  HumanControlMode,
+  Project,
+  Task,
+  WorkspaceMode
+} from './types';
 
 const base = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -25,6 +36,7 @@ export const api = {
   agents: () => request<Agent[]>('/api/agents'),
   tasks: () => request<Task[]>('/api/tasks'),
   messages: () => request<AgentMessage[]>('/api/messages'),
+  approvals: () => request<HumanApproval[]>('/api/approvals'),
 
   registerProject: (input: { name: string; path: string; defaultBranch: string }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
@@ -37,7 +49,17 @@ export const api = {
     baseBranch?: string;
     branch?: string;
     queueMode: AgentQueueMode;
+    humanControlMode: HumanControlMode;
   }) => request<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(input) }),
+
+  updateHumanControlMode: (agentId: string, mode: HumanControlMode) =>
+    request<Agent>(`/api/agents/${agentId}/human-control-mode`, {
+      method: 'POST',
+      body: JSON.stringify({ mode })
+    }),
+
+  intervene: (agentId: string) =>
+    request<Agent>(`/api/agents/${agentId}/intervene`, { method: 'POST' }),
 
   createTask: (input: { agentId: string; title: string; prompt: string; priority: number }) =>
     request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
@@ -52,5 +74,17 @@ export const api = {
     subject: string;
     content: string;
     replyToMessageId?: string;
-  }) => request<AgentMessage>('/api/messages', { method: 'POST', body: JSON.stringify(input) })
+  }) => request<AgentMessage>('/api/messages', { method: 'POST', body: JSON.stringify(input) }),
+
+  decideApproval: (approvalId: string, decision: HumanApprovalDecision) =>
+    request<HumanApproval>(`/api/approvals/${approvalId}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ decision })
+    }),
+
+  answerApproval: (approvalId: string, answers: Record<string, string[]>) =>
+    request<HumanApproval>(`/api/approvals/${approvalId}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answers })
+    })
 };
