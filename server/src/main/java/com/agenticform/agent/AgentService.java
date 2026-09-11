@@ -14,6 +14,23 @@ import java.util.UUID;
 
 @Service
 public class AgentService {
+    private static final String OPERATIONAL_AGENT_NAME = "Operations";
+    private static final String OPERATIONAL_RESPONSIBILITY = """
+            You are the system-managed Operational Agent for this project.
+            Own operational reasoning and coordination: inspect CI/CD state, release readiness, immutable image availability,
+            migrations, health/readiness, deployment, backup, rollback, and post-operation verification.
+
+            Prefer remote CI/CD workflows such as GitHub Actions for expensive build, test, image-build, and deployment work.
+            Keep the Agenticform host clean: do not build production container images locally when an approved remote workflow exists.
+            Coding/reviewer agents should hand off release candidates and operational requests to you through Agenticform messaging.
+            Ask coding agents to make source-code changes instead of editing application code yourself.
+
+            You do not own production credentials and must never attempt to bypass Agenticform policy.
+            Use registered Agenticform runbooks for operational effects. A runbook request is itself policy-evaluated; do not
+            separately request the same semantic action before requesting the runbook. Obey ALLOW / REQUIRE_HUMAN / DENY.
+            After operations, inspect evidence and communicate concise results or blockers back to the requesting agent.
+            """;
+
     private final AgentRepository repository;
     private final ProjectService projectService;
     private final WorkspaceManager workspaceManager;
@@ -41,6 +58,9 @@ public class AgentService {
         if (!project.isEnabled()) {
             throw new IllegalStateException("Project is disabled");
         }
+
+        ensureOperationalAgentInternal(project);
+
         WorkspaceMode mode = command.workspaceMode() == null ? WorkspaceMode.ISOLATED_WORKTREE : command.workspaceMode();
         String baseBranch = command.baseBranch() == null || command.baseBranch().isBlank()
                 ? project.getDefaultBranch() : command.baseBranch();
@@ -56,7 +76,31 @@ public class AgentService {
         AgentEntity agent = new AgentEntity(
                 project.getId(), command.name(), command.responsibility(), thread.threadId(), mode,
                 project.getRootDirectory(), workspace.workingDirectory().toString(), workspace.branch(),
-                queueMode, humanControlMode);
+                queueMode, humanControlMode, AgentRole.GENERAL, false);
+        return repository.save(agent);
+    }
+
+    @Transactional
+    public synchronized AgentEntity ensureOperationalAgent(UUID projectId) {
+        ProjectEntity project = projectService.get(projectId);
+        if (!project.isEnabled()) throw new IllegalStateException("Project is disabled");
+        return ensureOperationalAgentInternal(project);
+    }
+
+    private AgentEntity ensureOperationalAgentInternal(ProjectEntity project) {
+        return repository.findByProjectIdAndRole(project.getId(), AgentRole.OPERATIONAL)
+                .orElseGet(() -> createOperationalAgent(project));
+    }
+
+    private AgentEntity createOperationalAgent(ProjectEntity project) {
+        WorkspaceManager.WorkspaceAllocation workspace = workspaceManager.allocate(
+                project, WorkspaceMode.SHARED_PROJECT, "operations", null, project.getDefaultBranch());
+        CodexGateway.ThreadHandle thread = codexGateway.startThread(
+                workspace.workingDirectory().toString(), OPERATIONAL_RESPONSIBILITY);
+        AgentEntity agent = new AgentEntity(
+                project.getId(), OPERATIONAL_AGENT_NAME, OPERATIONAL_RESPONSIBILITY, thread.threadId(),
+                WorkspaceMode.SHARED_PROJECT, project.getRootDirectory(), workspace.workingDirectory().toString(),
+                null, AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP, AgentRole.OPERATIONAL, true);
         return repository.save(agent);
     }
 
@@ -84,8 +128,6 @@ public class AgentService {
             try {
                 codexGateway.interruptTurn(agent.getCodexThreadId(), agent.getActiveTurnId());
             } catch (RuntimeException interruptFailure) {
-                // Pausing future work is authoritative even if the active Codex connection is gone.
-                // Mark the transport state so the operator can see that the interrupt itself was not confirmed.
                 agent.setStatus(AgentStatus.DISCONNECTED);
                 return repository.save(agent);
             }
