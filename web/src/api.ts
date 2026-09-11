@@ -1,4 +1,4 @@
-import type { Agent, AgentQueueMode, Project, Task, WorkspaceMode } from './types';
+import type { Agent, AgentMessage, AgentMessageType, AgentQueueMode, Project, Task, WorkspaceMode } from './types';
 
 const base = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -24,6 +24,7 @@ export const api = {
   projects: () => request<Project[]>('/api/projects'),
   agents: () => request<Agent[]>('/api/agents'),
   tasks: () => request<Task[]>('/api/tasks'),
+  messages: () => request<AgentMessage[]>('/api/messages'),
 
   registerProject: (input: { name: string; path: string; defaultBranch: string }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
@@ -42,5 +43,14 @@ export const api = {
     request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
 
   dispatchTask: (taskId: string) =>
-    request<Task>(`/api/tasks/${taskId}/dispatch`, { method: 'POST' })
+    request<Task>(`/api/tasks/${taskId}/dispatch`, { method: 'POST' }),
+
+  sendMessage: (input: {
+    fromAgentId: string;
+    toAgentId: string;
+    type: AgentMessageType;
+    subject: string;
+    content: string;
+    replyToMessageId?: string;
+  }) => request<AgentMessage>('/api/messages', { method: 'POST', body: JSON.stringify(input) })
 };
