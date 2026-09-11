@@ -78,10 +78,19 @@ public class AgentService {
     public AgentEntity intervene(UUID agentId) {
         AgentEntity agent = get(agentId);
         agent.setQueueMode(AgentQueueMode.PAUSED);
+        repository.save(agent);
+
         if (agent.getActiveTurnId() != null && !agent.getActiveTurnId().isBlank()) {
-            codexGateway.interruptTurn(agent.getCodexThreadId(), agent.getActiveTurnId());
+            try {
+                codexGateway.interruptTurn(agent.getCodexThreadId(), agent.getActiveTurnId());
+            } catch (RuntimeException interruptFailure) {
+                // Pausing future work is authoritative even if the active Codex connection is gone.
+                // Mark the transport state so the operator can see that the interrupt itself was not confirmed.
+                agent.setStatus(AgentStatus.DISCONNECTED);
+                return repository.save(agent);
+            }
         }
-        return repository.save(agent);
+        return agent;
     }
 
     public record SpawnAgent(UUID projectId, String name, String responsibility, WorkspaceMode workspaceMode,
