@@ -80,6 +80,27 @@ export type RunbookInput = {
   steps: RunbookStep[];
 };
 
+export type OperationExternalWait = {
+  id: string;
+  operationRunId: string;
+  stepRunId: string;
+  provider: string;
+  mode: 'WAIT' | 'DISPATCH';
+  repository: string;
+  workflow: string;
+  ref: string;
+  expectedHeadSha: string;
+  externalRunId: number | null;
+  externalUrl: string | null;
+  correlationNotBefore: string | null;
+  deadline: string;
+  status: 'WAITING' | 'SUCCEEDED' | 'FAILED' | 'TIMED_OUT';
+  lastObservedStatus: string | null;
+  lastObservedConclusion: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export const api = {
   projects: () => request<Project[]>('/api/projects'),
   agents: () => request<Agent[]>('/api/agents'),
@@ -92,6 +113,7 @@ export const api = {
   operationalRunbooks: () => request<OperationalRunbook[]>('/api/operations/runbooks'),
   operationRuns: () => request<OperationRun[]>('/api/operations/runs'),
   operationRun: (runId: string) => request<OperationRunDetail>(`/api/operations/runs/${runId}`),
+  operationExternalWaits: (runId: string) => request<OperationExternalWait[]>(`/api/operations/runs/${runId}/external-waits`),
   workspaceCleanupHistory: (projectId?: string) => request<WorkspaceCleanupRecord[]>(
     `/api/workspaces/cleanup-history${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
   workspaceCleanupInspection: (agentId: string) =>
