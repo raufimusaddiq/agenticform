@@ -13,6 +13,8 @@ import tools.jackson.databind.node.ObjectNode;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 @Component
 public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerRequestHandler {
@@ -43,7 +45,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     }
 
     @Override
-    public JsonNode handle(CodexJsonRpcClient.ServerRequest request) {
+    public CompletionStage<JsonNode> handle(CodexJsonRpcClient.ServerRequest request) {
         JsonNode params = request.params();
         if (!NAMESPACE.equals(params.path("namespace").asText())) {
             throw new IllegalArgumentException("Unsupported dynamic tool namespace: " + params.path("namespace").asText());
@@ -55,11 +57,12 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
 
         String tool = requiredText(params, "tool");
         JsonNode arguments = params.path("arguments");
-        return switch (tool) {
+        JsonNode response = switch (tool) {
             case "list_agents" -> listAgents(source);
             case "send_message" -> sendMessage(source, arguments);
             default -> throw new IllegalArgumentException("Unknown Agenticform dynamic tool: " + tool);
         };
+        return CompletableFuture.completedFuture(response);
     }
 
     private JsonNode listAgents(AgentEntity source) {
@@ -72,6 +75,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             row.put("responsibility", agent.getResponsibility());
             row.put("status", agent.getStatus().name());
             row.put("queueMode", agent.getQueueMode().name());
+            row.put("humanControlMode", agent.getHumanControlMode().name());
             row.put("self", agent.getId().equals(source.getId()));
             rows.add(row);
         }
