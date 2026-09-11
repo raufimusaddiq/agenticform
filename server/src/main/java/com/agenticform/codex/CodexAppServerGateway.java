@@ -15,6 +15,8 @@ public class CodexAppServerGateway implements CodexGateway {
             Policy decisions are made by Agenticform, not by you. Never claim that an action is allowed, denied, or approved based on your own judgment.
             Use agenticform.list_policy_rules to inspect the rules applicable to your project/agent/task when governance is relevant.
 
+            Agent communication is durable and routed through Agenticform. Use agenticform.send_message for direct communication and replies. Use agenticform.broadcast_message only when multiple agents genuinely need the same information or parallel request. Never broadcast acknowledgement-only messages, and do not reply-all by default. Recipients for multicast/role/group/project broadcast are resolved and snapshotted when the message is sent.
+
             Each active project may have one system-managed OPERATIONAL agent. If you are not that Operational Agent, hand off CI/CD, release, deployment, migration, backup, rollback, and operational verification intent through agenticform.handoff_to_operations. Do not directly request a registered operational runbook from a coding/reviewer/general role.
             If you are the Operational Agent, inspect agenticform.list_runbooks and use agenticform.request_operation for registered operations. request_operation evaluates policy itself, so do not call request_action separately for the same registered operation. Use agenticform.get_operation_status to inspect asynchronous progress and evidence.
 
@@ -67,9 +69,7 @@ public class CodexAppServerGateway implements CodexGateway {
             }
             return new DispatchReceipt(queueId, null);
         } catch (CodexRpcException queueFailure) {
-            if (!isQueueUnavailable(queueFailure)) {
-                throw queueFailure;
-            }
+            if (!isQueueUnavailable(queueFailure)) throw queueFailure;
         }
 
         ObjectNode params = mapper.createObjectNode();
@@ -103,9 +103,7 @@ public class CodexAppServerGateway implements CodexGateway {
                 String normalized = message.toLowerCase(Locale.ROOT);
                 if (normalized.contains("experimental")
                         || normalized.contains("method not found")
-                        || normalized.contains("user message queue is unavailable")) {
-                    return true;
-                }
+                        || normalized.contains("user message queue is unavailable")) return true;
             }
             current = current.getCause();
         }
@@ -126,13 +124,13 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode namespace = mapper.createObjectNode();
         namespace.put("type", "namespace");
         namespace.put("name", "agenticform");
-        namespace.put("description", "Coordinate agents, inspect deterministic policy, hand off operations, and request governed runbooks.");
+        namespace.put("description", "Coordinate agents, communicate with one or many project agents, inspect deterministic policy, hand off operations, and request governed runbooks.");
         ArrayNode namespaceTools = namespace.putArray("tools");
 
         ObjectNode listAgents = mapper.createObjectNode();
         listAgents.put("type", "function");
         listAgents.put("name", "list_agents");
-        listAgents.put("description", "List Agenticform agents in this project, including role, responsibility, system-managed state, and current status.");
+        listAgents.put("description", "List Agenticform agents in this project, including role, responsibility, system-managed state, execution node, and current status.");
         ObjectNode listSchema = listAgents.putObject("inputSchema");
         listSchema.put("type", "object");
         listSchema.putObject("properties");
@@ -142,17 +140,12 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode sendMessage = mapper.createObjectNode();
         sendMessage.put("type", "function");
         sendMessage.put("name", "send_message");
-        sendMessage.put("description", "Send a durable asynchronous message to another Agenticform agent. Use for questions, requests, handoffs, reviews, blockers, and relevant information. Do not send acknowledgement-only messages.");
+        sendMessage.put("description", "Send a durable direct asynchronous message to one Agenticform agent. Replies are direct by default. Do not send acknowledgement-only messages.");
         ObjectNode sendSchema = sendMessage.putObject("inputSchema");
         sendSchema.put("type", "object");
         ObjectNode properties = sendSchema.putObject("properties");
         property(properties, "targetAgentId", "string", "Agenticform agent UUID returned by list_agents.");
-        ObjectNode type = properties.putObject("type");
-        type.put("type", "string");
-        ArrayNode messageTypes = type.putArray("enum");
-        for (String value : new String[]{"QUESTION", "ANSWER", "REQUEST", "RESULT", "HANDOFF", "REVIEW_REQUEST", "REVIEW_RESULT", "INFORMATION", "BLOCKER"}) {
-            messageTypes.add(value);
-        }
+        addMessageType(properties);
         property(properties, "subject", "string", "Short message subject.");
         property(properties, "content", "string", "Message body with the minimum context the receiving agent needs.");
         property(properties, "replyToMessageId", "string", "Optional message UUID when replying to an incoming Agenticform message.");
@@ -163,6 +156,37 @@ public class CodexAppServerGateway implements CodexGateway {
         required.add("content");
         sendSchema.put("additionalProperties", false);
         namespaceTools.add(sendMessage);
+
+        ObjectNode broadcast = mapper.createObjectNode();
+        broadcast.put("type", "function");
+        broadcast.put("name", "broadcast_message");
+        broadcast.put("description", "Send one durable logical message to multiple same-project agents. Recipients are resolved and snapshotted when sent. Use MULTICAST for explicit agent IDs, ROLE for a role, GROUP for a configured group, or PROJECT_BROADCAST for all other active project agents. Never use for acknowledgement-only fanout.");
+        ObjectNode broadcastSchema = broadcast.putObject("inputSchema");
+        broadcastSchema.put("type", "object");
+        ObjectNode broadcastProperties = broadcastSchema.putObject("properties");
+        ObjectNode audience = broadcastProperties.putObject("audienceType");
+        audience.put("type", "string");
+        ArrayNode audienceValues = audience.putArray("enum");
+        for (String value : new String[]{"MULTICAST", "ROLE", "GROUP", "PROJECT_BROADCAST"}) audienceValues.add(value);
+        ObjectNode agentIds = broadcastProperties.putObject("agentIds");
+        agentIds.put("type", "array");
+        agentIds.putObject("items").put("type", "string");
+        ObjectNode role = broadcastProperties.putObject("role");
+        role.put("type", "string");
+        ArrayNode roles = role.putArray("enum");
+        roles.add("GENERAL");
+        roles.add("OPERATIONAL");
+        property(broadcastProperties, "groupId", "string", "Configured agent group UUID for GROUP audience.");
+        addMessageType(broadcastProperties);
+        property(broadcastProperties, "subject", "string", "Short message subject shared by all recipients.");
+        property(broadcastProperties, "content", "string", "Message body with context needed by all recipients.");
+        ArrayNode broadcastRequired = broadcastSchema.putArray("required");
+        broadcastRequired.add("audienceType");
+        broadcastRequired.add("type");
+        broadcastRequired.add("subject");
+        broadcastRequired.add("content");
+        broadcastSchema.put("additionalProperties", false);
+        namespaceTools.add(broadcast);
 
         ObjectNode handoff = mapper.createObjectNode();
         handoff.put("type", "function");
@@ -218,8 +242,7 @@ public class CodexAppServerGateway implements CodexGateway {
         ObjectNode parameterValueSchema = mapper.createObjectNode();
         parameterValueSchema.put("type", "string");
         operationParameters.set("additionalProperties", parameterValueSchema);
-        ArrayNode operationRequired = requestOperationSchema.putArray("required");
-        operationRequired.add("runbookKey");
+        requestOperationSchema.putArray("required").add("runbookKey");
         requestOperationSchema.put("additionalProperties", false);
         namespaceTools.add(requestOperation);
 
@@ -278,6 +301,15 @@ public class CodexAppServerGateway implements CodexGateway {
 
         tools.add(namespace);
         return tools;
+    }
+
+    private void addMessageType(ObjectNode properties) {
+        ObjectNode type = properties.putObject("type");
+        type.put("type", "string");
+        ArrayNode messageTypes = type.putArray("enum");
+        for (String value : new String[]{"QUESTION", "ANSWER", "REQUEST", "RESULT", "HANDOFF", "REVIEW_REQUEST", "REVIEW_RESULT", "INFORMATION", "BLOCKER"}) {
+            messageTypes.add(value);
+        }
     }
 
     private void property(ObjectNode properties, String name, String type, String description) {
