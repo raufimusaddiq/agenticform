@@ -4,16 +4,35 @@
 
 Agenticform operational runbooks are safe actuators for agent intent. They do not replace agentic reasoning, coding, debugging, architecture work, or collaboration.
 
-The boundary is:
+The default project model is:
 
 ```text
-Codex agent
-  reasons / edits / reviews / chooses intent
+Coding / Reviewer / General Agent
+  discover / reason / modify / targeted-test / collaborate
+        |
+        | durable HANDOFF / REQUEST
+        v
+System-managed Operational Agent
+  inspect CI / release readiness / health / migration needs
+  choose operational intent / coordinate failures / report results
+        |
+        | request_operation
+        v
+Deterministic Policy Layer
+  ALLOW / REQUIRE_HUMAN / DENY
         |
         v
-Agenticform operation
-  snapshots / policy-checks / executes / verifies / audits
+Operational Layer
+  snapshot / execute / verify / audit
 ```
+
+The Operational Agent is still an agentic LLM. The Operational Layer is not. This separation keeps reasoning adaptive while production effects remain deterministic.
+
+Every active project gets at most one system-managed `OPERATIONAL` agent. Provisioning is lazy so project registration does not fail merely because Codex is temporarily unavailable: spawning a normal agent guarantees the Operational Agent is provisioned first, and operators can explicitly provision it from the Operations UI/API for existing projects.
+
+The Operational Agent uses the shared project workspace to avoid creating another writer worktree. It does not own production credentials and is not intended to edit application source. When source changes are required, it hands work back to coding agents through Agenticform messaging.
+
+Agenticform enforces separation of duties at the dynamic-tool boundary: only the `OPERATIONAL` role may call `request_operation`. General agents use `handoff_to_operations`, which creates a durable agent-to-agent message to the project's default Operational Agent.
 
 For coding tasks, Agenticform is intentionally **remote-CI-first**. Expensive full-suite validation, production image builds, release publication, and deployment should normally run on GitHub Actions when a project exposes suitable runbooks. Local worktrees remain temporary coding workspaces, not CI build hosts.
 
@@ -84,25 +103,37 @@ GitHub credentials are server configuration (`AGENTICFORM_GITHUB_TOKEN`) and are
 
 ## Agent tools
 
-Agents receive native Agenticform tools:
+General agents receive:
 
-- `list_runbooks`
+- `list_agents`
+- `send_message`
+- `handoff_to_operations`
+- `list_policy_rules`
+- `list_runbooks` for inspection
+- `get_operation_status` when they have a run id
+
+The system-managed Operational Agent additionally has authority to use:
+
 - `request_operation`
-- `get_operation_status`
 
-A registered runbook evaluates deterministic policy as part of `request_operation`; agents should not request a separate policy approval for the same operation.
+The tool is exposed in the common Codex namespace, but Agenticform rejects `request_operation` unless the calling persisted agent role is `OPERATIONAL`. This is an authorization boundary, not only a prompt convention.
 
-This lets an agent choose the right execution path without making authorization probabilistic.
+A registered runbook evaluates deterministic policy as part of `request_operation`; the Operational Agent should not request a separate policy approval for the same operation.
 
 ## Recommended coding lifecycle
 
 ```text
-Agent worktree
+Coding Agent worktree
   |
   | edit / targeted test / commit
   v
 Push branch / PR
   |
+  | handoff_to_operations when CI/release coordination is needed
+  v
+Operational Agent
+  |
+  | inspect / wait for CI / decide next operational intent
   v
 GitHub Actions CI
   | full tests / integration tests / builds
@@ -114,14 +145,24 @@ GitHub Actions release
   | build immutable image sha-<commit>
   | push registry
   v
-Agenticform production operation
-  | deterministic policy gate
+Operational Agent request_operation
+  |
+  v
+Agenticform deterministic policy gate
+  |
+  | production boundary may REQUIRE_HUMAN
+  v
+Operational runbook
   | dispatch deploy workflow
   v
 Production host
   | pull immutable image
   | migrate / restart
   | health + readiness verification
+  v
+Operational Agent
+  | inspect evidence / rollback or investigate if needed
+  | report result to coding/requesting agent
 ```
 
 The production host does not need to build application images. Image retention should normally keep only the releases required for current operation and rollback.
@@ -200,11 +241,12 @@ Agenticform should avoid becoming a second CI worker by default.
 
 For coding projects:
 
-- local worktrees are disposable;
+- coding worktrees are disposable;
+- the default Operational Agent uses the shared project workspace, not another worktree;
 - local targeted tests are allowed when useful;
 - full builds and production Docker builds should prefer remote CI;
 - release artifacts/images live in the configured registry;
 - production hosts pull immutable images;
-- cleanup can remove merged/terminal agent worktrees and old local release images after the configured retention boundary.
+- cleanup can remove merged/terminal coding-agent worktrees and old local release images after the configured retention boundary.
 
 This preserves agent autonomy while keeping the control-plane host small and predictable.
