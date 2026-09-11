@@ -1,5 +1,5 @@
 ALTER TABLE agents
-    ADD COLUMN human_control_mode VARCHAR(64) NOT NULL DEFAULT 'IN_THE_LOOP';
+    ADD COLUMN human_control_mode VARCHAR(64) NOT NULL DEFAULT 'ON_THE_LOOP';
 
 CREATE TABLE human_approvals (
     id UUID PRIMARY KEY,
