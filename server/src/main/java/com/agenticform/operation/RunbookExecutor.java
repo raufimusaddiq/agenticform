@@ -5,6 +5,7 @@ import com.agenticform.project.ProjectRepository;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -18,6 +19,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -46,6 +48,7 @@ public class RunbookExecutor {
     private final OperationStepRunRepository stepRepository;
     private final ProjectRepository projectRepository;
     private final OperationalRegistryService registry;
+    private final GitHubActionsGateway gitHubActions;
     private final ObjectMapper mapper;
     private final HttpClient httpClient;
 
@@ -53,11 +56,13 @@ public class RunbookExecutor {
                            OperationStepRunRepository stepRepository,
                            ProjectRepository projectRepository,
                            OperationalRegistryService registry,
+                           GitHubActionsGateway gitHubActions,
                            ObjectMapper mapper) {
         this.runRepository = runRepository;
         this.stepRepository = stepRepository;
         this.projectRepository = projectRepository;
         this.registry = registry;
+        this.gitHubActions = gitHubActions;
         this.mapper = mapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -119,8 +124,9 @@ public class RunbookExecutor {
             case ASSERT_GIT_CLEAN -> assertGitClean(projectRoot, step.timeoutSeconds());
             case ASSERT_GIT_SHA -> assertGitSha(projectRoot, substitute(config.path("expected").asText(), parameters), step.timeoutSeconds());
             case COMMAND -> executeConfiguredCommand(projectRoot, config, parameters, step.timeoutSeconds());
-            case HTTP_CHECK -> httpCheck(config.path("url").asText(), config, step.timeoutSeconds());
+            case HTTP_CHECK -> httpCheck(substitute(config.path("url").asText(), parameters), config, step.timeoutSeconds());
             case SERVICE_CHECK -> serviceCheck(snapshot, config, step.timeoutSeconds());
+            case GITHUB_WORKFLOW -> githubWorkflow(config, parameters, step.timeoutSeconds());
         };
     }
 
@@ -151,6 +157,43 @@ public class RunbookExecutor {
             throw new IllegalStateException("Command exited with " + result.exitCode() + suffix);
         }
         return new StepOutcome("Command completed successfully", capture ? result.output() : null, result.exitCode());
+    }
+
+    private StepOutcome githubWorkflow(JsonNode config, Map<String, String> parameters,
+                                       int timeoutSeconds) throws Exception {
+        String repository = config.path("repository").asText();
+        String workflow = config.path("workflow").asText();
+        String ref = substitute(config.path("ref").asText(), parameters);
+        String mode = config.path("mode").asText("WAIT").toUpperCase(Locale.ROOT);
+
+        GitHubActionsGateway.WorkflowResult result;
+        if (mode.equals("WAIT")) {
+            String headSha = substitute(config.path("headSha").asText(), parameters);
+            result = gitHubActions.waitForWorkflow(repository, workflow, ref, headSha, timeoutSeconds);
+        } else {
+            Map<String, String> inputs = new LinkedHashMap<>();
+            JsonNode inputNode = config.path("inputs");
+            if (inputNode.isObject()) {
+                inputNode.properties().forEach(entry -> inputs.put(entry.getKey(), substitute(entry.getValue().asText(), parameters)));
+            }
+            String expectedHeadSha = config.hasNonNull("expectedHeadSha")
+                    ? substitute(config.get("expectedHeadSha").asText(), parameters)
+                    : null;
+            result = gitHubActions.dispatchAndWait(repository, workflow, ref, inputs, expectedHeadSha, timeoutSeconds);
+        }
+
+        ObjectNode evidence = mapper.createObjectNode();
+        evidence.put("provider", "github-actions");
+        evidence.put("repository", repository);
+        evidence.put("workflow", workflow);
+        evidence.put("runId", result.runId());
+        if (result.htmlUrl() != null) evidence.put("url", result.htmlUrl());
+        if (result.headSha() != null) evidence.put("headSha", result.headSha());
+        if (result.headBranch() != null) evidence.put("headBranch", result.headBranch());
+        if (result.displayTitle() != null) evidence.put("displayTitle", result.displayTitle());
+        evidence.put("conclusion", result.conclusion());
+        return new StepOutcome("GitHub Actions workflow completed successfully",
+                mapper.writeValueAsString(evidence), null);
     }
 
     private StepOutcome httpCheck(String rawUrl, JsonNode config, int timeoutSeconds) throws Exception {
