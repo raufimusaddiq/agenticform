@@ -34,6 +34,17 @@ public class PolicyRuleService {
         return repository.findAllByOrderByScopeTypeAscActionAscEnvironmentAsc();
     }
 
+    public List<PolicyRuleEntity> applicable(UUID projectId, UUID agentId, UUID taskId) {
+        return repository.findAllByEnabledTrue().stream()
+                .filter(rule -> switch (rule.getScopeType()) {
+                    case GLOBAL -> true;
+                    case PROJECT -> rule.getScopeId().equals(projectId);
+                    case AGENT -> rule.getScopeId().equals(agentId);
+                    case TASK -> taskId != null && rule.getScopeId().equals(taskId);
+                })
+                .toList();
+    }
+
     @Transactional
     public PolicyRuleEntity create(PolicyScopeType scopeType, UUID scopeId, String action, String environment,
                                    PolicyEffect effect, String description, boolean enabled) {
