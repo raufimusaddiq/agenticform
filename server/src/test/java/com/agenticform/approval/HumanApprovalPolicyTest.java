@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -134,9 +135,10 @@ class HumanApprovalPolicyTest {
 
     @Test
     void denyCannotBeWeakenedByHitlOrHotlMode() {
-        when(engine.evaluate(any())).thenReturn(new PolicyDecision(
+        doReturn(new PolicyDecision(
                 PolicyEffect.DENY, UUID.randomUUID(), PolicyScopeType.PROJECT, UUID.randomUUID(),
-                "COMMAND_EXECUTION", "*", "blocked by project policy"));
+                "COMMAND_EXECUTION", "*", "blocked by project policy"))
+                .when(engine).evaluate(any());
 
         HumanApprovalPolicy.Evaluation result = policy.evaluate(
                 agent(HumanControlMode.IN_THE_LOOP), HumanApprovalType.COMMAND_EXECUTION, command("mvn test"));
