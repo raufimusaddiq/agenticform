@@ -32,8 +32,8 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
 
   return <div className="page-stack">
     <section className="control-mode-note">
-      <div><strong>Human-in-the-loop</strong><span>Every Codex approval waits for you.</span></div>
-      <div><strong>Human-on-the-loop</strong><span>Low-risk workspace actions can continue automatically; escalations still stop.</span></div>
+      <div><strong>Human-in-the-loop</strong><span>Tightens configured ALLOW decisions into one-shot human review. DENY can never be weakened.</span></div>
+      <div><strong>Human-on-the-loop</strong><span>Deterministic policy decides: ALLOW continues, REQUIRE HUMAN stops here, and DENY is rejected without an override.</span></div>
     </section>
 
     <section className="panel">
@@ -41,21 +41,21 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
         <div><p className="eyebrow">Needs a human</p><h2>Pending approvals</h2></div>
         <span className="approval-count">{pending.length}</span>
       </div>
-      {!pending.length ? <div className="empty"><strong>No pending approvals</strong><p>Escalated Codex actions and user-input requests will appear here.</p></div> :
+      {!pending.length ? <div className="empty"><strong>No pending approvals</strong><p>Actions resolved to REQUIRE HUMAN and genuine user-input requests will appear here.</p></div> :
         <div className="approval-list">{pending.map((approval) =>
           <ApprovalCard key={approval.id} approval={approval} agent={agentById.get(approval.agentId)} project={projectById.get(approval.projectId)} onDecision={onDecision} onAnswer={onAnswer} />
         )}</div>}
     </section>
 
     <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Human control audit</p><h2>Decision history</h2></div></div>
-      {!history.length ? <div className="empty"><strong>No approval history yet</strong><p>Manual and HOTL auto-approvals are retained here for review.</p></div> :
+      <div className="section-header"><div><p className="eyebrow">Governance audit</p><h2>Decision history</h2></div></div>
+      {!history.length ? <div className="empty"><strong>No policy decisions yet</strong><p>Automatic ALLOW, deterministic DENY, and human decisions are retained here.</p></div> :
         <div className="approval-history">{history.slice(0, 100).map((approval) => {
           const agent = agentById.get(approval.agentId);
           return <div className="approval-history-row" key={approval.id}>
-            <div><strong>{approval.summary}</strong><small>{projectById.get(approval.projectId)?.name} / {agent?.name ?? shortId(approval.agentId)}</small></div>
+            <div><strong>{approval.summary}</strong><small>{projectById.get(approval.projectId)?.name} / {agent?.name ?? shortId(approval.agentId)}{approval.policyAction ? ` · ${approval.policyAction}` : ''}</small></div>
             <span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span>
-            <span className="mode-pill">{approval.controlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</span>
+            <span className="mode-pill">{approval.policyEffect ? label(approval.policyEffect) : approval.controlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</span>
             <span className={`status status-${approval.status.toLowerCase()}`}><span className="status-dot" />{label(approval.status)}</span>
             <time>{new Date(approval.resolvedAt ?? approval.createdAt).toLocaleString()}</time>
           </div>;
@@ -85,7 +85,7 @@ function ApprovalCard({ approval, agent, project, onDecision, onAnswer }: {
         <div className="approval-title-line"><strong>{approval.summary}</strong><span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span></div>
         <small>{project?.name ?? 'Unknown project'} / {agent?.name ?? shortId(approval.agentId)}</small>
       </div>
-      <div className="approval-badges"><span className="mode-pill">{approval.controlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL escalation'}</span><span>{label(approval.type)}</span></div>
+      <div className="approval-badges"><span className="mode-pill">{approval.controlMode === 'IN_THE_LOOP' ? 'HITL override' : 'HOTL'}</span><span>{approval.policyEffect ? label(approval.policyEffect) : label(approval.type)}</span></div>
     </header>
 
     <ApprovalDetails approval={approval} payload={payload} agent={agent} />
@@ -94,7 +94,7 @@ function ApprovalCard({ approval, agent, project, onDecision, onAnswer }: {
       ? <UserInputForm approval={approval} payload={payload} busy={busy} onSubmit={async (answers) => { setBusy(true); try { await onAnswer(approval.id, answers); } finally { setBusy(false); } }} />
       : <footer className="approval-actions">
           <button className="button primary" disabled={busy} onClick={() => void decide('APPROVE_ONCE')}>Approve once</button>
-          <button className="button secondary" disabled={busy} onClick={() => void decide('APPROVE_SESSION')}>Approve session</button>
+          {approval.policyEffect !== 'REQUIRE_HUMAN' && <button className="button secondary" disabled={busy} onClick={() => void decide('APPROVE_SESSION')}>Approve session</button>}
           <button className="button danger" disabled={busy} onClick={() => void decide('DECLINE')}>Decline</button>
         </footer>}
   </article>;
@@ -108,6 +108,8 @@ function ApprovalDetails({ approval, payload, agent }: { approval: HumanApproval
   const permissions = payload.permissions;
 
   return <div className="approval-details">
+    {approval.policyAction && <div><span>Policy action</span><code>{approval.policyAction} · {approval.policyEnvironment ?? '*'}</code></div>}
+    {approval.policyRuleId && <div><span>Matched rule</span><code>{approval.policyEffect ? label(approval.policyEffect) : 'unknown'} · {shortId(approval.policyRuleId)}</code></div>}
     {reason && <div><span>Reason</span><p>{reason}</p></div>}
     {command && <div><span>Command</span><code className="approval-command">{command}</code></div>}
     {cwd && <div><span>Working directory</span><code>{cwd}</code></div>}
