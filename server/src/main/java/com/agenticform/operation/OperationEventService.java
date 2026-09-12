@@ -8,7 +8,9 @@ import com.agenticform.codex.CodexGateway;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -18,13 +20,16 @@ public class OperationEventService {
     private final OperationEventRepository repository;
     private final AgentRepository agentRepository;
     private final CodexGateway codexGateway;
+    private final OperationalSignalService signals;
 
     public OperationEventService(OperationEventRepository repository,
                                  AgentRepository agentRepository,
-                                 CodexGateway codexGateway) {
+                                 CodexGateway codexGateway,
+                                 OperationalSignalService signals) {
         this.repository = repository;
         this.agentRepository = agentRepository;
         this.codexGateway = codexGateway;
+        this.signals = signals;
     }
 
     public synchronized void publishTerminal(OperationRunEntity run) {
@@ -36,6 +41,22 @@ public class OperationEventService {
                 run.getId(), run.getStatus(), run.getAction(), run.getEnvironmentKey(),
                 run.getLastError() == null ? "" : " error=" + bounded(run.getLastError()));
         repository.save(new OperationEventEntity(run.getId(), run.getProjectId(), targetAgentId, eventType, payload));
+
+        boolean failed = run.getStatus() == OperationRunEntity.Status.FAILED
+                || run.getStatus() == OperationRunEntity.Status.INTERRUPTED;
+        signals.record(new OperationalSignalService.SignalInput(
+                run.getProjectId(), OperationalSignalSource.OPERATION,
+                failed ? "OPERATION_FAILED" : "OPERATION_" + run.getStatus().name(),
+                failed ? OperationalSeverity.HIGH : OperationalSeverity.INFO,
+                "operation:" + run.getId() + ":" + run.getStatus(),
+                "operation:" + run.getAction() + ":" + run.getEnvironmentKey(),
+                Map.of(
+                        "runId", run.getId().toString(),
+                        "action", run.getAction(),
+                        "environment", run.getEnvironmentKey(),
+                        "status", run.getStatus().name(),
+                        "error", run.getLastError() == null ? "" : bounded(run.getLastError())),
+                Instant.now()));
     }
 
     @Scheduled(fixedDelayString = "${agenticform.scheduler.operation-event-delay-ms:2000}")
@@ -48,6 +69,17 @@ public class OperationEventService {
                 AgentEntity target = resolveTarget(event);
                 if (target.getStatus() == AgentStatus.STOPPED) {
                     throw new IllegalStateException("Operational Agent is stopped");
+                }
+                if (target.getExecutionNodeId() != null) {
+                    // Remote Operational Agents receive failure response through the incident wake path.
+                    // Successful terminal notifications remain best-effort until the generic operational notice
+                    // dispatcher replaces this legacy event channel.
+                    if (event.getEventType().equals("OPERATION_SUCCEEDED")) {
+                        event.failed("Remote Operational Agent success notification deferred to operational intelligence");
+                        repository.save(event);
+                        continue;
+                    }
+                    throw new IllegalStateException("Remote Operational Agent uses durable incident delivery for failures");
                 }
                 CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
                         target.getCodexThreadId(),
