@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
+import { consumeControlPlaneEvents } from './controlPlaneEvents';
 import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
 import { OperationsView } from './OperationsView';
@@ -88,8 +89,42 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(true), 5000);
-    return () => window.clearInterval(timer);
+    const controller = new AbortController();
+    let stopped = false;
+    let reconnectTimer: number | undefined;
+    let refreshTimer: number | undefined;
+
+    const scheduleRefresh = () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => void refresh(true), 125);
+    };
+
+    const reconnectDelay = () => new Promise<void>((resolve) => {
+      reconnectTimer = window.setTimeout(resolve, 1500);
+    });
+
+    const connect = async () => {
+      while (!stopped && !controller.signal.aborted) {
+        try {
+          await consumeControlPlaneEvents(() => scheduleRefresh(), controller.signal);
+        } catch (cause) {
+          if (controller.signal.aborted || stopped) return;
+          if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') {
+            setError('ADMIN_AUTH_REQUIRED');
+            return;
+          }
+        }
+        if (!stopped && !controller.signal.aborted) await reconnectDelay();
+      }
+    };
+
+    void connect();
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+    };
   }, [refresh]);
 
   const visibleAgents = useMemo(() => projectFilter === 'all' ? agents : agents.filter((agent) => agent.projectId === projectFilter), [agents, projectFilter]);
@@ -125,7 +160,7 @@ export default function App() {
         <nav>
           {nav.map((item) => <button key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setView(item.id)}>{item.label}</button>)}
         </nav>
-        <div className="sidebar-footer"><span className="live-dot" />Local server</div>
+        <div className="sidebar-footer"><span className="live-dot" />Live control plane</div>
       </aside>
 
       <main className="workspace">
