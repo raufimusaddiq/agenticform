@@ -152,6 +152,11 @@ public class AgentMessageEntity {
         this.lastError = null;
     }
 
+    public void markPartial(String error) {
+        this.status = AgentMessageStatus.PARTIAL;
+        this.lastError = error;
+    }
+
     public void markFailed(String error) {
         this.status = AgentMessageStatus.FAILED;
         this.lastError = error;
