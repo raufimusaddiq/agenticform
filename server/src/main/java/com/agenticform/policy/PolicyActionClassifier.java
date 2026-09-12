@@ -38,53 +38,65 @@ public class PolicyActionClassifier {
     public ClassifiedAction classify(HumanApprovalType type, JsonNode params) {
         return switch (type) {
             case COMMAND_EXECUTION -> classifyCommand(params);
-            case FILE_CHANGE -> new ClassifiedAction("FILE_CHANGE", environment(params), summary(params, "reason", "grantRoot", "File change"));
-            case PERMISSIONS -> new ClassifiedAction("PERMISSIONS", environment(params), summary(params, "reason", null, "Additional permission request"));
-            case USER_INPUT -> new ClassifiedAction("USER_INPUT", "*", userInputSummary(params));
+            case FILE_CHANGE -> new ClassifiedAction("FILE_CHANGE", environment(params),
+                    summary(params, "reason", "grantRoot", "File change"), nativeEffectKey(params));
+            case PERMISSIONS -> new ClassifiedAction("PERMISSIONS", environment(params),
+                    summary(params, "reason", null, "Additional permission request"), nativeEffectKey(params));
+            case USER_INPUT -> new ClassifiedAction("USER_INPUT", "*", userInputSummary(params), null);
             case PROTECTED_ACTION -> semanticAction(text(params, "kind"), text(params, "environment"),
-                    summary(params, "summary", "kind", "Protected action"));
+                    summary(params, "summary", "kind", "Protected action"), text(params, "effectKey"));
         };
     }
 
     public ClassifiedAction declaredAction(JsonNode arguments) {
         return semanticAction(text(arguments, "action"), text(arguments, "environment"),
-                summary(arguments, "summary", "action", "Policy-governed action"));
+                summary(arguments, "summary", "action", "Policy-governed action"), text(arguments, "effectKey"));
     }
 
-    private ClassifiedAction semanticAction(String rawAction, String rawEnvironment, String summary) {
+    private ClassifiedAction semanticAction(String rawAction, String rawEnvironment, String summary, String effectKey) {
         String action = normalizeAction(rawAction);
         String environment = normalizeEnvironment(rawEnvironment);
         if ("*".equals(environment)
                 && ("PRODUCTION_DEPLOY".equals(action) || "PRODUCTION_DML".equals(action))) {
             environment = "production";
         }
-        return new ClassifiedAction(action, environment, summary);
+        return new ClassifiedAction(action, environment, summary, normalizeEffectKey(effectKey));
     }
 
     private ClassifiedAction classifyCommand(JsonNode params) {
         String context = commandContext(params);
         String environment = PRODUCTION_MARKER.matcher(context).find() ? "production" : environment(params);
+        String effectKey = nativeEffectKey(params);
         if (DATA_DELETE.matcher(context).find()) {
-            return new ClassifiedAction("DELETE_DATA", environment, "Detected destructive data operation");
+            return new ClassifiedAction("DELETE_DATA", environment, "Detected destructive data operation", effectKey);
         }
         if ("production".equals(environment) && SQL_DML.matcher(context).find()) {
-            return new ClassifiedAction("PRODUCTION_DML", "production", "Detected production data mutation");
+            return new ClassifiedAction("PRODUCTION_DML", "production", "Detected production data mutation", effectKey);
         }
         if ("production".equals(environment) && DEPLOY_ACTION.matcher(context).find()) {
-            return new ClassifiedAction("PRODUCTION_DEPLOY", "production", "Detected production deploy/release");
+            return new ClassifiedAction("PRODUCTION_DEPLOY", "production", "Detected production deploy/release", effectKey);
         }
         return new ClassifiedAction("COMMAND_EXECUTION", environment,
-                summary(params, "reason", "command", "Command execution"));
+                summary(params, "reason", "command", "Command execution"), effectKey);
     }
 
     private String commandContext(JsonNode params) {
         StringBuilder context = new StringBuilder();
-        append(context, text(params, "command"));
+        append(context, nodeValue(params, "command"));
         append(context, text(params, "reason"));
         append(context, text(params, "cwd"));
         if (params != null && params.hasNonNull("commandActions")) append(context, params.get("commandActions").toString());
         if (params != null && params.hasNonNull("networkApprovalContext")) append(context, params.get("networkApprovalContext").toString());
         return context.toString().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
+    }
+
+    private String nativeEffectKey(JsonNode params) {
+        if (params == null) return null;
+        String command = nodeValue(params, "command");
+        if (command == null || command.isBlank()) return null;
+        String cwd = text(params, "cwd");
+        String actions = params.hasNonNull("commandActions") ? params.get("commandActions").toString() : "";
+        return "command=" + command.trim() + "\ncwd=" + (cwd == null ? "" : cwd.trim()) + "\nactions=" + actions;
     }
 
     private String environment(JsonNode params) {
@@ -112,6 +124,13 @@ public class PolicyActionClassifier {
         return value == null || value.isBlank() ? null : value;
     }
 
+    private String nodeValue(JsonNode node, String field) {
+        if (node == null || field == null || !node.hasNonNull(field)) return null;
+        JsonNode value = node.get(field);
+        if (value.isTextual()) return value.asText();
+        return value.toString();
+    }
+
     private void append(StringBuilder builder, String value) {
         if (value == null || value.isBlank()) return;
         if (!builder.isEmpty()) builder.append(' ');
@@ -128,6 +147,10 @@ public class PolicyActionClassifier {
         return environment.trim().toLowerCase(Locale.ROOT);
     }
 
+    private String normalizeEffectKey(String effectKey) {
+        return effectKey == null || effectKey.isBlank() ? null : effectKey.trim();
+    }
+
     private String firstNonBlank(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) return value;
@@ -135,5 +158,5 @@ public class PolicyActionClassifier {
         return null;
     }
 
-    public record ClassifiedAction(String action, String environment, String summary) {}
+    public record ClassifiedAction(String action, String environment, String summary, String effectKey) {}
 }
