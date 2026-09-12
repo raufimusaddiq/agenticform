@@ -39,7 +39,6 @@ class ExecutionNodeSchedulerTest {
         ExecutionNodeEntity node = node(id, "worker", NodeTrustLevel.STANDARD,
                 "{\"codex\":true,\"git\":true}", 2, 1000L);
         when(nodes.findById(id)).thenReturn(Optional.of(node));
-        when(agents.countByExecutionNodeIdAndStatusIn(eq(id), anyList())).thenReturn(0L);
 
         assertThrows(IllegalStateException.class,
                 () -> scheduler.select(id, NodeTrustLevel.TRUSTED, Set.of("codex", "git")));
