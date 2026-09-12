@@ -74,14 +74,14 @@ class NodeSignatureVerifierTest {
         String signature = sign(timestamp, nonce, "GET", path, body);
         when(nonces.insertIfAbsent(any(), eq(nodeId), eq(nonce), any(), any())).thenReturn(0);
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(NodeAuthenticationException.class,
                 () -> verifier.verify(nodeId, timestamp, nonce, signature, "GET", path, body));
     }
 
     @Test
     void rejectsInvalidSignatureBeforeNonceConsumption() {
         String timestamp = Long.toString(Instant.now().toEpochMilli());
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(NodeAuthenticationException.class,
                 () -> verifier.verify(nodeId, timestamp, "nonce-0123456789abcdef",
                         Base64.getEncoder().encodeToString(new byte[64]), "GET",
                         "/api/nodes/" + nodeId + "/commands/next", new byte[0]));
