@@ -35,10 +35,7 @@ public class TaskDependencyService {
         if (!task.getProjectId().equals(prerequisite.getProjectId())) {
             throw new IllegalArgumentException("Task dependencies must stay within one project");
         }
-        if (task.getStatus() != TaskStatus.READY && task.getStatus() != TaskStatus.WAITING_DEPENDENCY
-                && !(task.getStatus() == TaskStatus.BLOCKED && isDependencyBlock(task))) {
-            throw new IllegalStateException("Dependencies can only change before task dispatch");
-        }
+        requireMutableDependencies(task);
         if (dependencies.existsByTaskIdAndDependsOnTaskId(taskId, dependsOnTaskId)) {
             throw new IllegalArgumentException("Task dependency already exists");
         }
@@ -55,10 +52,7 @@ public class TaskDependencyService {
     @Transactional
     public void remove(UUID taskId, UUID dependsOnTaskId) {
         TaskEntity task = requireTask(taskId);
-        if (task.getStatus() != TaskStatus.READY && task.getStatus() != TaskStatus.WAITING_DEPENDENCY
-                && !(task.getStatus() == TaskStatus.BLOCKED && isDependencyBlock(task))) {
-            throw new IllegalStateException("Dependencies can only change before task dispatch");
-        }
+        requireMutableDependencies(task);
         dependencies.deleteById(new TaskDependencyId(taskId, dependsOnTaskId));
         reconcile(taskId);
     }
@@ -67,11 +61,13 @@ public class TaskDependencyService {
     public Evaluation reconcile(UUID taskId) {
         TaskEntity task = requireTask(taskId);
         Evaluation evaluation = evaluate(taskId);
+        boolean becameDependencyBlocked = false;
         if (isPreDispatchDependencyState(task)) {
+            boolean wasDependencyBlocked = task.getStatus() == TaskStatus.BLOCKED && isDependencyBlock(task);
             switch (evaluation.state()) {
                 case READY -> {
                     task.setStatus(TaskStatus.READY);
-                    if (isDependencyBlock(task)) task.setLastError(null);
+                    if (wasDependencyBlocked) task.setLastError(null);
                 }
                 case WAITING -> {
                     task.setStatus(TaskStatus.WAITING_DEPENDENCY);
@@ -80,9 +76,15 @@ public class TaskDependencyService {
                 case BLOCKED -> {
                     task.setStatus(TaskStatus.BLOCKED);
                     task.setLastError(DEPENDENCY_BLOCK_PREFIX + " " + evaluation.reason());
+                    becameDependencyBlocked = !wasDependencyBlocked;
                 }
             }
             tasks.save(task);
+        }
+        if (becameDependencyBlocked) {
+            // A task blocked by an unsatisfied prerequisite is terminal from the dependency graph's
+            // perspective. Propagate that outcome so deeper dependents never wait forever.
+            reconcileDependents(taskId);
         }
         return evaluation;
     }
@@ -104,17 +106,23 @@ public class TaskDependencyService {
             if (prerequisite == null) {
                 return new Evaluation(State.BLOCKED, "missing prerequisite " + edge.getDependsOnTaskId());
             }
-            boolean terminal = isTerminal(prerequisite.getStatus());
-            if (edge.getDependencyType() == TaskDependencyType.REQUIRES_COMPLETION) {
-                if (!terminal) return new Evaluation(State.WAITING, "waiting for " + prerequisite.getId());
-                continue;
+
+            switch (edge.getDependencyType()) {
+                case BLOCKS, REQUIRES_COMPLETION -> {
+                    if (!isDependencyTerminal(prerequisite)) {
+                        return new Evaluation(State.WAITING, "waiting for " + prerequisite.getId());
+                    }
+                }
+                case REQUIRES_SUCCESS -> {
+                    if (prerequisite.getStatus() == TaskStatus.COMPLETED) continue;
+                    if (isDependencyFailure(prerequisite)) {
+                        return new Evaluation(State.BLOCKED,
+                                prerequisite.getId() + " ended as " + prerequisite.getStatus());
+                    }
+                    return new Evaluation(State.WAITING,
+                            "waiting for successful completion of " + prerequisite.getId());
+                }
             }
-            if (prerequisite.getStatus() == TaskStatus.COMPLETED) continue;
-            if (prerequisite.getStatus() == TaskStatus.FAILED || prerequisite.getStatus() == TaskStatus.CANCELLED) {
-                return new Evaluation(State.BLOCKED,
-                        prerequisite.getId() + " ended as " + prerequisite.getStatus());
-            }
-            return new Evaluation(State.WAITING, "waiting for successful completion of " + prerequisite.getId());
         }
         return new Evaluation(State.READY, null);
     }
@@ -136,6 +144,13 @@ public class TaskDependencyService {
         return false;
     }
 
+    private void requireMutableDependencies(TaskEntity task) {
+        if (task.getStatus() != TaskStatus.READY && task.getStatus() != TaskStatus.WAITING_DEPENDENCY
+                && !(task.getStatus() == TaskStatus.BLOCKED && isDependencyBlock(task))) {
+            throw new IllegalStateException("Dependencies can only change before task dispatch");
+        }
+    }
+
     private boolean isPreDispatchDependencyState(TaskEntity task) {
         return task.getStatus() == TaskStatus.READY
                 || task.getStatus() == TaskStatus.WAITING_DEPENDENCY
@@ -146,8 +161,17 @@ public class TaskDependencyService {
         return task.getLastError() != null && task.getLastError().startsWith(DEPENDENCY_BLOCK_PREFIX);
     }
 
-    private boolean isTerminal(TaskStatus status) {
-        return status == TaskStatus.COMPLETED || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
+    private boolean isDependencyTerminal(TaskEntity task) {
+        return task.getStatus() == TaskStatus.COMPLETED
+                || task.getStatus() == TaskStatus.FAILED
+                || task.getStatus() == TaskStatus.CANCELLED
+                || (task.getStatus() == TaskStatus.BLOCKED && isDependencyBlock(task));
+    }
+
+    private boolean isDependencyFailure(TaskEntity task) {
+        return task.getStatus() == TaskStatus.FAILED
+                || task.getStatus() == TaskStatus.CANCELLED
+                || (task.getStatus() == TaskStatus.BLOCKED && isDependencyBlock(task));
     }
 
     private TaskEntity requireTask(UUID taskId) {
