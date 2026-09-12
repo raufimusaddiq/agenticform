@@ -38,7 +38,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 ## Verification and exit gate
 
 - [ ] Add focused server tests for SPI contracts, migration, scheduling, events, approvals, and recovery.
-- [ ] Run `cd server && mvn test`.
+- [x] Run `cd server && mvn test` (Docker Maven image; passed September 12, 2026).
 - [ ] Run `cd web && npm run build` and `cd node && go test ./...`.
 - [ ] Run Flyway/database smoke validation and exact-head CI checks.
 - [ ] Confirm a second runtime can be added without an `Agent`/`Task` schema redesign.
