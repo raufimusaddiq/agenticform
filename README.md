@@ -10,7 +10,10 @@ It is designed around these core concepts:
 - **Agent communication fabric** — durable direct, multicast, role, group, and project-broadcast communication with per-recipient delivery state.
 - **Operational Agent** — one system-managed agent per project that owns CI/CD and operational reasoning without holding production credentials.
 - **Execution nodes** — outbound-only workers enrolled with one-time tokens and long-lived Ed25519 device identities.
-- **Workspaces** — isolated Git worktrees by default for coding agents, with fail-closed lifecycle cleanup.
+- **Runtime generation fencing** — remote agent runtimes are versioned so a stale/reconnected node cannot mutate a newer replacement runtime.
+- **Durable node effects** — node commands use an effectively-once execution ledger and fail closed when a prior side effect is ambiguous.
+- **Durable remote approvals** — human approvals survive control-plane/node restarts without keeping one HTTP request open.
+- **Workspaces** — isolated Git worktrees by default for coding agents, with fail-closed local and distributed lifecycle cleanup.
 - **Deterministic policy** — `ALLOW`, `REQUIRE_HUMAN`, or `DENY` for governed semantic actions.
 - **Operational runbooks** — immutable, policy-gated execution plans for CI/CD, deploy, migration, health/readiness, backup, rollback, and other operational effects.
 - **Durable external waits** — GitHub Actions work is webhook-driven and persisted instead of blocking local worker threads.
@@ -103,6 +106,25 @@ Remote control planes fail closed if HTTPS, admin authentication, or immutable n
 
 See [Distributed Agent Fabric](docs/distributed-agent-fabric.md) for enrollment, trust, replay protection, runtime isolation, revocation, and compromise-containment details.
 
+## Distributed runtime recovery
+
+Remote agents are bound to a monotonically increasing runtime generation. Commands, Codex events, approvals, Git credentials, and runtime snapshots are accepted only for the current `(node, generation)` pair.
+
+Node command transport is intentionally at-least-once, while node effects are fenced by a persistent local execution ledger. A duplicate terminal command returns its cached result. A command left in `STARTED` after a crash is treated as ambiguous and is **not** replayed automatically.
+
+Execution-node heartbeat includes persisted runtime inventory. A restarted node can therefore reconcile an existing current Codex runtime instead of creating another thread.
+
+If a node is lost long enough, eligible GIT-backed agents can be rehydrated onto another node:
+
+```bash
+AGENTICFORM_NODE_RECOVERY_GRACE=2m
+AGENTICFORM_NODE_AUTO_RECOVERY=true
+```
+
+Rehydration creates a new runtime generation and recovery branch. It restores logical/durable Agenticform state and may re-dispatch the active durable task. It does **not** live-migrate a process or recover local-only uncommitted files from a permanently dead node.
+
+See [Durable Recovery](docs/recovery.md) for restart, node-loss, approval, cleanup, and fail-closed semantics.
+
 ## GitHub Actions integration
 
 Remote-first coding/CI/CD uses:
@@ -119,6 +141,24 @@ POST https://<agenticform-host>/api/webhooks/github
 ```
 
 Webhook delivery is the fast path; durable GitHub API reconciliation remains the fallback when a webhook is missed.
+
+### Private GitHub repositories on execution nodes
+
+For private repository materialization, prefer the GitHub App credential broker instead of distributing a PAT to execution nodes:
+
+```bash
+AGENTICFORM_GITHUB_APP_ID=<app-id>
+AGENTICFORM_GITHUB_INSTALLATION_ID=<installation-id>
+AGENTICFORM_GITHUB_APP_PRIVATE_KEY_PATH=/run/secrets/agenticform-github-app.pem
+```
+
+The GitHub App private key remains on the control plane. Execution nodes request repository-scoped, short-lived installation tokens through signed device-authenticated requests. The token is supplied to Git on demand through a generation-scoped credential helper and is not persisted in the repository URL or node state.
+
+The GitHub App must be installed on the repositories Agenticform is allowed to materialize. Repository URLs registered in Agenticform remain credential-free HTTPS URLs such as:
+
+```text
+https://github.com/owner/repository.git
+```
 
 ## Design documents
 
@@ -140,6 +180,7 @@ Webhook delivery is the fast path; durable GitHub API reconciliation remains the
                  │ Policy / approvals            │
                  │ Operational runbooks          │
                  │ Execution-node scheduler      │
+                 │ Runtime generation fencing    │
                  └──────────────┬────────────────┘
                                 │ outbound HTTPS
                    ┌────────────┼────────────┐
@@ -147,6 +188,7 @@ Webhook delivery is the fast path; durable GitHub API reconciliation remains the
                node A       node B       node C
                Codex        Codex        Codex
                workspace    workspace    workspace
+               ledger       ledger       ledger
 
 Coding / Reviewer Agent
         |
