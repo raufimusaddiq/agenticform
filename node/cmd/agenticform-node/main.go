@@ -81,6 +81,7 @@ type runtimeRecord struct {
 	RuntimeGeneration int64  `json:"runtimeGeneration"`
 	RuntimeSessionID  string `json:"runtimeSessionId"`
 	ThreadID          string `json:"-"`
+	LegacyThreadID    string `json:"threadId,omitempty"`
 	SourceDirectory   string `json:"sourceDirectory"`
 	WorkingDirectory  string `json:"workingDirectory"`
 	Branch            string `json:"branch"`
@@ -1077,12 +1078,16 @@ func loadRuntimeState(path string) (runtimeState, error) {
 		if record.RuntimeType == "" {
 			record.RuntimeType = "CODEX"
 		}
+		if record.ThreadID == "" {
+			record.ThreadID = record.LegacyThreadID
+		}
 		if record.RuntimeSessionID == "" {
 			record.RuntimeSessionID = record.ThreadID
 		}
 		if record.ThreadID == "" {
 			record.ThreadID = record.RuntimeSessionID
 		}
+		record.LegacyThreadID = ""
 		state.Runtimes[key] = record
 	}
 	return state, nil
