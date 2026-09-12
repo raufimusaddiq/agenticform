@@ -267,7 +267,17 @@ func (d *daemonRuntime) heartbeatLoop(ctx context.Context) {
 func (d *daemonRuntime) heartbeat() error {
 	hostname, _ := os.Hostname()
 	codexVersion, codexOK := detectCodex()
-	capabilities, _ := json.Marshal(map[string]bool{"git": commandExists("git"), "codex": codexOK})
+	capabilities, _ := json.Marshal(map[string]any{
+		"git": commandExists("git"),
+		"codex": codexOK,
+		"runtimes": map[string]any{
+			"CODEX": map[string]any{
+				"available":     codexOK,
+				"authenticated": codexOK,
+				"version":       codexVersion,
+			},
+		},
+	})
 	labels, _ := json.Marshal(map[string]string{"runtime": "agenticform-node"})
 	d.stateMu.Lock()
 	runtimes := make([]runtimeRecord, 0, len(d.runtimes.Runtimes))

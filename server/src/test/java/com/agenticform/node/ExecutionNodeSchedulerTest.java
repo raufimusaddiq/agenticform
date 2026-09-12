@@ -82,6 +82,18 @@ class ExecutionNodeSchedulerTest {
         assertEquals(freeId, scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("codex", "git")).getId());
     }
 
+    @Test
+    void structuredRuntimeCapabilitySatisfiesRuntimeRequirement() {
+        UUID id = UUID.randomUUID();
+        ExecutionNodeEntity node = node(id, "runtime-worker", NodeTrustLevel.TRUSTED,
+                "{\"git\":true,\"runtimes\":{\"CODEX\":{\"available\":true,\"authenticated\":true}}}",
+                2, 1000L);
+        when(nodes.findById(id)).thenReturn(Optional.of(node));
+
+        assertEquals(id, scheduler.select(id, NodeTrustLevel.STANDARD,
+                Set.of("runtime:CODEX", "git")).getId());
+    }
+
     private ExecutionNodeEntity node(UUID id, String name, NodeTrustLevel trust, String capabilities,
                                      int maxAgents, long diskFreeMb) {
         ExecutionNodeEntity node = mock(ExecutionNodeEntity.class);

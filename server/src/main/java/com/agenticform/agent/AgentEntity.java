@@ -1,6 +1,7 @@
 package com.agenticform.agent;
 
 import com.agenticform.workspace.WorkspaceMode;
+import com.agenticform.runtime.RuntimeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -33,6 +34,13 @@ public class AgentEntity {
 
     @Column(name = "codex_thread_id", unique = true)
     private String codexThreadId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "runtime_type", nullable = false, length = 32)
+    private RuntimeType runtimeType = RuntimeType.CODEX;
+
+    @Column(name = "runtime_session_id", unique = true)
+    private String runtimeSessionId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "workspace_mode", nullable = false)
@@ -123,6 +131,7 @@ public class AgentEntity {
         this.name = name;
         this.responsibility = responsibility;
         this.codexThreadId = codexThreadId;
+        this.runtimeSessionId = codexThreadId;
         this.workspaceMode = workspaceMode;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;
@@ -150,6 +159,8 @@ public class AgentEntity {
     public String getName() { return name; }
     public String getResponsibility() { return responsibility; }
     public String getCodexThreadId() { return codexThreadId; }
+    public RuntimeType getRuntimeType() { return runtimeType; }
+    public String getRuntimeSessionId() { return runtimeSessionId; }
     public WorkspaceMode getWorkspaceMode() { return workspaceMode; }
     public String getSourceDirectory() { return sourceDirectory; }
     public String getWorkingDirectory() { return workingDirectory; }
@@ -194,6 +205,7 @@ public class AgentEntity {
         executionNodeId = nodeId;
         runtimeGeneration++;
         codexThreadId = null;
+        runtimeSessionId = null;
         sourceDirectory = null;
         workingDirectory = null;
         branch = requestedBranch;
@@ -208,6 +220,7 @@ public class AgentEntity {
             throw new IllegalStateException("Stale agent runtime generation: " + generation + ", expected " + runtimeGeneration);
         }
         this.codexThreadId = codexThreadId;
+        this.runtimeSessionId = codexThreadId;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;
         this.branch = branch;
@@ -218,6 +231,7 @@ public class AgentEntity {
                                     String workingDirectory, String branch) {
         if (runtimeGeneration != generation) return;
         if (this.codexThreadId == null || this.codexThreadId.isBlank()) this.codexThreadId = codexThreadId;
+        if (this.runtimeSessionId == null || this.runtimeSessionId.isBlank()) this.runtimeSessionId = codexThreadId;
         if (sourceDirectory != null && !sourceDirectory.isBlank()) this.sourceDirectory = sourceDirectory;
         if (workingDirectory != null && !workingDirectory.isBlank()) this.workingDirectory = workingDirectory;
         if (branch != null && !branch.isBlank()) this.branch = branch;
