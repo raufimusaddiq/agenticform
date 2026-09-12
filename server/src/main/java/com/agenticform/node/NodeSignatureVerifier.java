@@ -57,8 +57,7 @@ public class NodeSignatureVerifier {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(body == null ? new byte[0] : body);
             String canonical = nodeId + "\n" + timestamp + "\n" + nonce + "\n"
                     + method.toUpperCase() + "\n" + path + "\n" + HexFormat.of().formatHex(digest);
-            PublicKey key = KeyFactory.getInstance("Ed25519").generatePublic(
-                    new X509EncodedKeySpec(Base64.getDecoder().decode(node.getPublicKeyBase64())));
+            PublicKey key = decodeEd25519PublicKey(node.getPublicKeyBase64());
             Signature verifier = Signature.getInstance("Ed25519");
             verifier.initVerify(key);
             verifier.update(canonical.getBytes(StandardCharsets.UTF_8));
@@ -83,9 +82,26 @@ public class NodeSignatureVerifier {
 
     public static String fingerprint(String publicKeyBase64) {
         try {
-            byte[] encoded = Base64.getDecoder().decode(publicKeyBase64);
+            PublicKey key = decodeEd25519PublicKey(publicKeyBase64);
             return "SHA256:" + Base64.getUrlEncoder().withoutPadding().encodeToString(
-                    MessageDigest.getInstance("SHA-256").digest(encoded));
+                    MessageDigest.getInstance("SHA-256").digest(key.getEncoded()));
+        } catch (IllegalArgumentException error) {
+            throw error;
+        } catch (Exception error) {
+            throw new IllegalArgumentException("Invalid Ed25519 public key", error);
+        }
+    }
+
+    private static PublicKey decodeEd25519PublicKey(String publicKeyBase64) {
+        try {
+            byte[] encoded = Base64.getDecoder().decode(publicKeyBase64);
+            PublicKey key = KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));
+            if (!"EdDSA".equalsIgnoreCase(key.getAlgorithm()) && !"Ed25519".equalsIgnoreCase(key.getAlgorithm())) {
+                throw new IllegalArgumentException("Node public key must be Ed25519");
+            }
+            return key;
+        } catch (IllegalArgumentException error) {
+            throw error;
         } catch (Exception error) {
             throw new IllegalArgumentException("Invalid Ed25519 public key", error);
         }
