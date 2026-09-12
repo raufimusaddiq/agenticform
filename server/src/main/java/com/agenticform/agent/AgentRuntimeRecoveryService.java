@@ -79,8 +79,9 @@ public class AgentRuntimeRecoveryService {
             throw new IllegalStateException("Current execution node is online; reconcile it instead of creating a second runtime");
         }
 
+        RuntimeType runtimeType = agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
         ExecutionNodeEntity replacement = scheduler.select(null, NodeTrustLevel.STANDARD,
-                        Set.of("runtime:CODEX", "git"), Set.of(oldNodeId));
+                        Set.of("runtime:" + runtimeType.name(), "git"), Set.of(oldNodeId));
         long nextGeneration = agent.getRuntimeGeneration() + 1;
         String recoveryBranch = "recovery/" + safe(agent.getName()) + "-"
                 + agent.getId().toString().substring(0, 8) + "-g" + nextGeneration;
@@ -102,7 +103,7 @@ public class AgentRuntimeRecoveryService {
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("agentId", agent.getId().toString());
-        payload.put("runtimeType", RuntimeType.CODEX.name());
+        payload.put("runtimeType", runtimeType.name());
         payload.put("projectId", project.getId().toString());
         payload.put("projectSlug", project.getSlug());
         payload.put("repositoryUrl", project.getRepositoryUrl());

@@ -209,9 +209,9 @@ func TestCleanupRefusesWorkspaceOutsideManagedRoot(t *testing.T) {
 		runtimes: runtimeState{Runtimes: map[string]runtimeRecord{
 			"agent-1": {
 				AgentID: "agent-1", RuntimeGeneration: 5, ThreadID: "thread-5",
-				SourceDirectory: filepath.Join(stateDir, "repos", "demo"),
+				SourceDirectory:  filepath.Join(stateDir, "repos", "demo"),
 				WorkingDirectory: filepath.Join(t.TempDir(), "foreign-worktree"),
-				Branch: "agent/work", RuntimeStatus: "IDLE",
+				Branch:           "agent/work", RuntimeStatus: "IDLE",
 			},
 		}},
 	}

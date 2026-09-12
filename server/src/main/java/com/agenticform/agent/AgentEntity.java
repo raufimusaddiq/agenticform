@@ -182,7 +182,10 @@ public class AgentEntity {
     public void setQueueMode(AgentQueueMode queueMode) { this.queueMode = queueMode; }
     public void setHumanControlMode(HumanControlMode humanControlMode) { this.humanControlMode = humanControlMode; }
     public void setExecutionNodeId(UUID executionNodeId) { this.executionNodeId = executionNodeId; }
-    public void setRuntimeType(RuntimeType runtimeType) { this.runtimeType = runtimeType == null ? RuntimeType.CODEX : runtimeType; }
+    public void setRuntimeType(RuntimeType runtimeType) {
+        this.runtimeType = runtimeType == null ? RuntimeType.CODEX : runtimeType;
+        if (this.runtimeType != RuntimeType.CODEX) this.codexThreadId = null;
+    }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
 

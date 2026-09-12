@@ -270,7 +270,7 @@ func (d *daemonRuntime) heartbeat() error {
 	hostname, _ := os.Hostname()
 	codexVersion, codexAvailable, codexAuthenticated := detectCodex()
 	capabilities, _ := json.Marshal(map[string]any{
-		"git": commandExists("git"),
+		"git":   commandExists("git"),
 		"codex": codexAvailable && codexAuthenticated,
 		"runtimes": map[string]any{
 			"CODEX": map[string]any{
@@ -542,7 +542,9 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 
 func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	threadID := stringValue(payload, "runtimeSessionId")
-	if threadID == "" { threadID = stringValue(payload, "threadId") }
+	if threadID == "" {
+		threadID = stringValue(payload, "threadId")
+	}
 	prompt := stringValue(payload, "prompt")
 	if threadID == "" || prompt == "" {
 		return nil, errors.New(command.CommandType + " missing threadId or prompt")
@@ -561,9 +563,9 @@ func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (m
 		return nil, err
 	}
 	params := map[string]any{
-		"threadId": threadID,
+		"threadId":            threadID,
 		"clientUserMessageId": clientMessageID,
-		"input": []map[string]any{{"type": "text", "text": prompt}},
+		"input":               []map[string]any{{"type": "text", "text": prompt}},
 	}
 	result, err := client.request("thread/queue/add", params)
 	if err == nil {
@@ -585,7 +587,9 @@ func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (m
 
 func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	threadID := stringValue(payload, "runtimeSessionId")
-	if threadID == "" { threadID = stringValue(payload, "threadId") }
+	if threadID == "" {
+		threadID = stringValue(payload, "threadId")
+	}
 	turnID := stringValue(payload, "turnId")
 	if threadID == "" || turnID == "" {
 		return nil, errors.New("INTERRUPT_TURN missing threadId or turnId")
@@ -606,7 +610,9 @@ func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (
 
 func (d *daemonRuntime) cleanupWorkspace(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	threadID := optionalString(payload, "runtimeSessionId")
-	if threadID == "" { threadID = optionalString(payload, "threadId") }
+	if threadID == "" {
+		threadID = optionalString(payload, "threadId")
+	}
 	d.stateMu.Lock()
 	record, ok := d.runtimes.Runtimes[command.AgentID]
 	d.stateMu.Unlock()
@@ -1068,9 +1074,15 @@ func loadRuntimeState(path string) (runtimeState, error) {
 		state.Runtimes = map[string]runtimeRecord{}
 	}
 	for key, record := range state.Runtimes {
-		if record.RuntimeType == "" { record.RuntimeType = "CODEX" }
-		if record.RuntimeSessionID == "" { record.RuntimeSessionID = record.ThreadID }
-		if record.ThreadID == "" { record.ThreadID = record.RuntimeSessionID }
+		if record.RuntimeType == "" {
+			record.RuntimeType = "CODEX"
+		}
+		if record.RuntimeSessionID == "" {
+			record.RuntimeSessionID = record.ThreadID
+		}
+		if record.ThreadID == "" {
+			record.ThreadID = record.RuntimeSessionID
+		}
 		state.Runtimes[key] = record
 	}
 	return state, nil

@@ -160,4 +160,9 @@ public class TaskDispatchService {
             agentRepository.save(currentAgent);
         }
     }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        String value = agent.getRuntimeSessionId();
+        return value == null || value.isBlank() ? agent.getCodexThreadId() : value;
+    }
 }

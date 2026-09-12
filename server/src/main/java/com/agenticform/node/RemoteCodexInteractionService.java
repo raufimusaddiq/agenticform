@@ -89,13 +89,17 @@ public class RemoteCodexInteractionService {
     }
 
     public AgentEntity requireRuntime(UUID nodeId, long generation, JsonNode params) {
-        String threadId = params == null ? null : params.path("runtimeSessionId").asText(null);
-        if (threadId == null || threadId.isBlank()) threadId = params == null ? null : params.path("threadId").asText(null);
-        if (threadId == null || threadId.isBlank()) {
+        String requestedSessionId = params == null ? null : params.path("runtimeSessionId").asText(null);
+        if (requestedSessionId == null || requestedSessionId.isBlank()) {
+            requestedSessionId = params == null ? null : params.path("threadId").asText(null);
+        }
+        if (requestedSessionId == null || requestedSessionId.isBlank()) {
             throw new IllegalArgumentException("Remote Codex request requires threadId");
         }
-        AgentEntity agent = agents.findByCodexThreadId(threadId)
-                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns Codex thread " + threadId));
+        final String sessionId = requestedSessionId;
+        AgentEntity agent = agents.findByRuntimeSessionId(sessionId)
+                .orElseGet(() -> agents.findByCodexThreadId(sessionId).orElseThrow(
+                        () -> new NoSuchElementException("No Agenticform agent owns runtime session " + sessionId)));
         if (!agent.ownsRuntime(nodeId, generation)) {
             throw new IllegalStateException("Remote Codex request belongs to a stale runtime generation");
         }
