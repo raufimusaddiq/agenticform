@@ -23,7 +23,6 @@ agenticform:
   public-url: ${AGENTICFORM_PUBLIC_URL:http://localhost:8080}
   security:
     admin-token: ${AGENTICFORM_ADMIN_TOKEN:}
-    require-tls: ${AGENTICFORM_REQUIRE_TLS:true}
   project-roots:
     - ${AGENTICFORM_PROJECT_ROOT:/srv/apps}
   workspace:
