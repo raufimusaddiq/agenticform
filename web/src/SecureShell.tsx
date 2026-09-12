@@ -73,6 +73,10 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [trust, setTrust] = useState<NodeTrustLevel>('STANDARD');
   const [enrollment, setEnrollment] = useState<NodeEnrollment | null>(null);
+  const [projectName, setProjectName] = useState('');
+  const [repositoryUrl, setRepositoryUrl] = useState('');
+  const [defaultBranch, setDefaultBranch] = useState('main');
+  const [projectCreated, setProjectCreated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -102,6 +106,22 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to create enrollment');
+    }
+  }
+
+  async function registerGitProject(event: FormEvent) {
+    event.preventDefault();
+    try {
+      const project = await api.registerProject({
+        name: projectName.trim(), sourceType: 'GIT', repositoryUrl: repositoryUrl.trim(), defaultBranch: defaultBranch.trim()
+      });
+      setProjectCreated(project.name);
+      setProjectName('');
+      setRepositoryUrl('');
+      setDefaultBranch('main');
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to register distributed project');
     }
   }
 
@@ -138,6 +158,17 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
         <div className="setup-meta"><span>Expires {new Date(enrollment.expiresAt).toLocaleString()}</span><button className="button secondary" onClick={() => void navigator.clipboard.writeText(enrollment.setupCommand)}>Copy command</button></div>
         <p className="muted">The bootstrap token is consumed once. The permanent daemon keeps only its local Ed25519 device identity.</p>
       </section>}
+
+      <section className="node-enroll-card">
+        <div><h3>Register distributed GIT project</h3><p className="muted">Use a credential-free HTTPS repository URL. Agents for this project are automatically placed on eligible execution nodes.</p></div>
+        <form onSubmit={registerGitProject} className="distributed-project-form">
+          <input placeholder="Project name" value={projectName} onChange={(event) => setProjectName(event.target.value)} required />
+          <input className="mono" type="url" placeholder="https://github.com/org/repo.git" value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} required />
+          <input className="mono" placeholder="main" value={defaultBranch} onChange={(event) => setDefaultBranch(event.target.value)} required />
+          <button className="button secondary">Register GIT project</button>
+        </form>
+        {projectCreated && <p className="form-note">{projectCreated} registered. The main project list will refresh automatically.</p>}
+      </section>
 
       <section className="node-list">
         <div className="section-header"><div><p className="eyebrow">Capacity</p><h3>Registered nodes</h3></div><button className="button ghost" onClick={() => void refresh()}>Refresh</button></div>
