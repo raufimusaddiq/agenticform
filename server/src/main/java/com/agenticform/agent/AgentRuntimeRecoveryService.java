@@ -14,6 +14,7 @@ import com.agenticform.project.ProjectSourceType;
 import com.agenticform.task.TaskEntity;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
+import com.agenticform.workspace.WorkspaceMode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -117,6 +118,37 @@ public class AgentRuntimeRecoveryService {
         nodeService.enqueue(replacement.getId(), agent.getId(), "START_AGENT",
                 "start-agent:" + agent.getId() + ":g" + generation, payload);
         return agent;
+    }
+
+    @Transactional
+    public AgentEntity cleanup(UUID agentId) {
+        AgentEntity agent = agents.findById(agentId)
+                .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
+        if (agent.getExecutionNodeId() == null) {
+            throw new IllegalStateException("Use local workspace cleanup for local Agenticform agents");
+        }
+        if (agent.getWorkspaceMode() != WorkspaceMode.ISOLATED_WORKTREE) {
+            throw new IllegalStateException("Shared project runtimes are never automatically cleaned");
+        }
+        if (agent.getActiveTaskId() != null || agent.getActiveTurnId() != null) {
+            throw new IllegalStateException("Active agent runtime cannot be cleaned");
+        }
+        if (agent.getStatus() != AgentStatus.IDLE && agent.getStatus() != AgentStatus.FAILED) {
+            throw new IllegalStateException("Runtime cleanup requires an idle or failed agent");
+        }
+        if (approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)) {
+            throw new IllegalStateException("Pending human approval prevents runtime cleanup");
+        }
+        ExecutionNodeEntity node = nodeService.get(agent.getExecutionNodeId());
+        if (node.getStatus() != ExecutionNodeStatus.ONLINE) {
+            throw new IllegalStateException("Execution node must be online for deterministic cleanup");
+        }
+        nodeService.enqueue(node.getId(), agent.getId(), "CLEANUP_WORKSPACE",
+                "cleanup-runtime:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
+                        "threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId()));
+        agent.setQueueMode(AgentQueueMode.PAUSED);
+        agent.setStatus(AgentStatus.BLOCKED);
+        return agents.save(agent);
     }
 
     private boolean terminal(TaskStatus status) {
