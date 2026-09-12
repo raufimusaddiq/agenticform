@@ -4,6 +4,8 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.codex.CodexJsonRpcClient;
+import com.agenticform.node.RemoteCodexInteractionService;
+import com.agenticform.node.RemoteInteractionContext;
 import com.agenticform.policy.PolicyEffect;
 import com.agenticform.policy.PolicyPreauthorizationService;
 import jakarta.annotation.PostConstruct;
@@ -27,22 +29,33 @@ public class HumanApprovalService {
     private final AgentRepository agentRepository;
     private final HumanApprovalPolicy policy;
     private final PolicyPreauthorizationService preauthorizations;
+    private final RemoteInteractionContext remoteContext;
+    private final RemoteCodexInteractionService remoteInteractions;
     private final ObjectMapper mapper;
     private final Map<UUID, CompletableFuture<JsonNode>> pendingResponses = new ConcurrentHashMap<>();
 
     public HumanApprovalService(HumanApprovalRepository repository, AgentRepository agentRepository,
                                 HumanApprovalPolicy policy, PolicyPreauthorizationService preauthorizations,
+                                RemoteInteractionContext remoteContext,
+                                RemoteCodexInteractionService remoteInteractions,
                                 ObjectMapper mapper) {
         this.repository = repository;
         this.agentRepository = agentRepository;
         this.policy = policy;
         this.preauthorizations = preauthorizations;
+        this.remoteContext = remoteContext;
+        this.remoteInteractions = remoteInteractions;
         this.mapper = mapper;
     }
 
     @PostConstruct
     void recoverOrphanedRequests() {
         for (HumanApprovalEntity approval : repository.findAllByStatus(HumanApprovalStatus.PENDING)) {
+            if (approval.getRemoteInteractionId() != null) {
+                // Remote interactions are durable. The execution node can reconnect and poll the
+                // stored interaction after this control plane restarts.
+                continue;
+            }
             approval.orphan();
             repository.save(approval);
             agentRepository.findById(approval.getAgentId()).ifPresent(agent -> {
@@ -58,12 +71,8 @@ public class HumanApprovalService {
         if (projectId != null && status != null) {
             return repository.findAllByProjectIdAndStatusOrderByCreatedAtDesc(projectId, status);
         }
-        if (projectId != null) {
-            return repository.findAllByProjectIdOrderByCreatedAtDesc(projectId);
-        }
-        if (status != null) {
-            return repository.findAllByStatusOrderByCreatedAtDesc(status);
-        }
+        if (projectId != null) return repository.findAllByProjectIdOrderByCreatedAtDesc(projectId);
+        if (status != null) return repository.findAllByStatusOrderByCreatedAtDesc(status);
         return repository.findAllByOrderByCreatedAtDesc();
     }
 
@@ -123,25 +132,14 @@ public class HumanApprovalService {
         };
 
         HumanApprovalEntity approval = new HumanApprovalEntity(
-                agent.getProjectId(),
-                agent.getId(),
-                requestId(request.id()),
-                method,
-                type,
-                agent.getHumanControlMode(),
-                evaluation.risk(),
-                initialStatus,
-                requiredText(request.params(), "threadId"),
-                nullableText(request.params(), "turnId"),
-                nullableText(request.params(), "itemId"),
-                evaluation.summary(),
-                toJson(payload)
-        );
-        approval.attachPolicy(
-                evaluation.action(),
-                evaluation.environment(),
-                evaluation.effect(),
+                agent.getProjectId(), agent.getId(), requestId(request.id()), method, type,
+                agent.getHumanControlMode(), evaluation.risk(), initialStatus,
+                requiredText(request.params(), "threadId"), nullableText(request.params(), "turnId"),
+                nullableText(request.params(), "itemId"), evaluation.summary(), toJson(payload));
+        approval.attachPolicy(evaluation.action(), evaluation.environment(), evaluation.effect(),
                 evaluation.configuredDecision().matchedRuleId());
+        UUID remoteInteractionId = remoteContext.currentInteractionId();
+        if (remoteInteractionId != null) approval.attachRemoteInteraction(remoteInteractionId);
         return approval;
     }
 
@@ -181,8 +179,6 @@ public class HumanApprovalService {
             throw new IllegalStateException("User input requests must be answered, not approved");
         }
 
-        // Every REQUIRE_HUMAN policy decision is intentionally one-shot. A broad session grant
-        // would let later governed actions bypass Agenticform's deterministic evaluation.
         HumanApprovalDecision effectiveDecision = approval.getPolicyEffect() == PolicyEffect.REQUIRE_HUMAN
                 && decision == HumanApprovalDecision.APPROVE_SESSION
                 ? HumanApprovalDecision.APPROVE_ONCE : decision;
@@ -193,8 +189,7 @@ public class HumanApprovalService {
             UUID grantId = preauthorizations.issue(
                     approval.getAgentId(),
                     agentRepository.findById(approval.getAgentId()).map(AgentEntity::getActiveTaskId).orElse(null),
-                    approval.getPolicyAction(),
-                    approval.getPolicyEnvironment());
+                    approval.getPolicyAction(), approval.getPolicyEnvironment());
             approval.attachPreauthorizationGrant(grantId);
         }
 
@@ -232,32 +227,33 @@ public class HumanApprovalService {
         if (approval.getStatus() != HumanApprovalStatus.PENDING) {
             throw new IllegalStateException("Approval is not pending: " + approval.getStatus());
         }
-        if (!pendingResponses.containsKey(approvalId)) {
+        if (approval.getRemoteInteractionId() == null && !pendingResponses.containsKey(approvalId)) {
             approval.orphan();
             repository.save(approval);
-            throw new IllegalStateException("Codex request is no longer attached; wait for the request to be replayed");
+            throw new IllegalStateException("Local Codex request is no longer attached; wait for the request to be replayed");
         }
         return approval;
     }
 
     private void resolvePending(HumanApprovalEntity approval, HumanApprovalStatus status, JsonNode response) {
         CompletableFuture<JsonNode> future = pendingResponses.remove(approval.getId());
-        if (future == null) {
+        if (approval.getRemoteInteractionId() == null && future == null) {
             approval.orphan();
             repository.save(approval);
-            throw new IllegalStateException("Codex request is no longer attached");
+            throw new IllegalStateException("Local Codex request is no longer attached");
         }
 
         approval.resolve(status, toJson(response));
         repository.save(approval);
         restoreAgentStatus(approval.getAgentId());
-        future.complete(response);
+        if (approval.getRemoteInteractionId() != null) {
+            remoteInteractions.ready(approval.getRemoteInteractionId(), response);
+        }
+        if (future != null) future.complete(response);
     }
 
     private void restoreAgentStatus(UUID agentId) {
-        if (repository.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)) {
-            return;
-        }
+        if (repository.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)) return;
         agentRepository.findById(agentId).ifPresent(agent -> {
             agent.setStatus(agent.getActiveTurnId() == null ? AgentStatus.IDLE : AgentStatus.WORKING);
             agentRepository.save(agent);

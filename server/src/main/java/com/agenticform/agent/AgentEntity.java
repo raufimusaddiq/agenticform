@@ -68,6 +68,9 @@ public class AgentEntity {
     @Column(name = "execution_node_id")
     private UUID executionNodeId;
 
+    @Column(name = "runtime_generation", nullable = false)
+    private long runtimeGeneration;
+
     @Column(name = "active_task_id")
     private UUID activeTaskId;
 
@@ -114,6 +117,7 @@ public class AgentEntity {
         this.role = role == null ? AgentRole.GENERAL : role;
         this.systemManaged = systemManaged;
         this.executionNodeId = executionNodeId;
+        this.runtimeGeneration = executionNodeId == null ? 0 : 1;
         this.status = codexThreadId == null ? AgentStatus.STARTING : AgentStatus.IDLE;
     }
 
@@ -138,6 +142,7 @@ public class AgentEntity {
     public AgentRole getRole() { return role; }
     public boolean isSystemManaged() { return systemManaged; }
     public UUID getExecutionNodeId() { return executionNodeId; }
+    public long getRuntimeGeneration() { return runtimeGeneration; }
     public UUID getActiveTaskId() { return activeTaskId; }
     public String getActiveTurnId() { return activeTurnId; }
     public Instant getCreatedAt() { return createdAt; }
@@ -150,11 +155,44 @@ public class AgentEntity {
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
 
-    public void bindRuntime(String codexThreadId, String sourceDirectory, String workingDirectory, String branch) {
+    public boolean ownsRuntime(UUID nodeId, long generation) {
+        return executionNodeId != null && executionNodeId.equals(nodeId) && runtimeGeneration == generation;
+    }
+
+    public long reassignRuntime(UUID nodeId, String requestedBranch) {
+        if (nodeId == null) throw new IllegalArgumentException("Execution node is required");
+        executionNodeId = nodeId;
+        runtimeGeneration++;
+        codexThreadId = null;
+        sourceDirectory = null;
+        workingDirectory = null;
+        branch = requestedBranch;
+        activeTurnId = null;
+        status = AgentStatus.STARTING;
+        return runtimeGeneration;
+    }
+
+    public void bindRuntime(long generation, String codexThreadId, String sourceDirectory,
+                            String workingDirectory, String branch) {
+        if (runtimeGeneration != generation) {
+            throw new IllegalStateException("Stale agent runtime generation: " + generation + ", expected " + runtimeGeneration);
+        }
         this.codexThreadId = codexThreadId;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;
         this.branch = branch;
         this.status = AgentStatus.IDLE;
+    }
+
+    public void recoverFromSnapshot(long generation, String codexThreadId, String sourceDirectory,
+                                    String workingDirectory, String branch) {
+        if (runtimeGeneration != generation) return;
+        if (this.codexThreadId == null || this.codexThreadId.isBlank()) this.codexThreadId = codexThreadId;
+        if (sourceDirectory != null && !sourceDirectory.isBlank()) this.sourceDirectory = sourceDirectory;
+        if (workingDirectory != null && !workingDirectory.isBlank()) this.workingDirectory = workingDirectory;
+        if (branch != null && !branch.isBlank()) this.branch = branch;
+        if (status == AgentStatus.DISCONNECTED || status == AgentStatus.STARTING) {
+            status = activeTurnId == null ? AgentStatus.IDLE : AgentStatus.WORKING;
+        }
     }
 }

@@ -1,0 +1,123 @@
+package com.agenticform.agent;
+
+import com.agenticform.approval.HumanApprovalRepository;
+import com.agenticform.approval.HumanApprovalStatus;
+import com.agenticform.codex.CodexThreadConfiguration;
+import com.agenticform.node.ExecutionNodeEntity;
+import com.agenticform.node.ExecutionNodeScheduler;
+import com.agenticform.node.ExecutionNodeService;
+import com.agenticform.node.ExecutionNodeStatus;
+import com.agenticform.node.NodeTrustLevel;
+import com.agenticform.project.ProjectEntity;
+import com.agenticform.project.ProjectService;
+import com.agenticform.project.ProjectSourceType;
+import com.agenticform.task.TaskRepository;
+import com.agenticform.workspace.WorkspaceMode;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class AgentRuntimeRecoveryServiceTest {
+    @Mock AgentRepository agents;
+    @Mock ProjectService projects;
+    @Mock TaskRepository tasks;
+    @Mock HumanApprovalRepository approvals;
+    @Mock ExecutionNodeScheduler scheduler;
+    @Mock ExecutionNodeService nodeService;
+    @Mock CodexThreadConfiguration threadConfiguration;
+    @Mock AgentEntity agent;
+    @Mock ProjectEntity project;
+    @Mock ExecutionNodeEntity oldNode;
+    @Mock ExecutionNodeEntity replacement;
+
+    private AgentRuntimeRecoveryService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new AgentRuntimeRecoveryService(agents, projects, tasks, approvals, scheduler,
+                nodeService, threadConfiguration, new ObjectMapper());
+    }
+
+    @Test
+    void pendingHumanApprovalBlocksRuntimeMovement() {
+        UUID agentId = UUID.randomUUID();
+        UUID oldNodeId = UUID.randomUUID();
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.getExecutionNodeId()).thenReturn(oldNodeId);
+        when(agent.getStatus()).thenReturn(AgentStatus.DISCONNECTED);
+        when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(true);
+
+        assertThrows(IllegalStateException.class, () -> service.recover(agentId));
+        verify(scheduler, never()).select(any(), any(), any(), any());
+    }
+
+    @Test
+    void recoveryMovesToDifferentNodeAndIncrementsGeneration() {
+        UUID agentId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        UUID oldNodeId = UUID.randomUUID();
+        UUID newNodeId = UUID.randomUUID();
+
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.getId()).thenReturn(agentId);
+        when(agent.getExecutionNodeId()).thenReturn(oldNodeId);
+        when(agent.getStatus()).thenReturn(AgentStatus.DISCONNECTED);
+        when(agent.getProjectId()).thenReturn(projectId);
+        when(agent.getRuntimeGeneration()).thenReturn(1L);
+        when(agent.getName()).thenReturn("Coder");
+        when(agent.getBranch()).thenReturn("agent/coder");
+        when(agent.getActiveTaskId()).thenReturn(null);
+        when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
+        when(agent.getResponsibility()).thenReturn("Implement features");
+        when(agent.reassignRuntime(eq(newNodeId), any())).thenReturn(2L);
+        when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
+
+        when(projects.get(projectId)).thenReturn(project);
+        when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);
+        when(project.getId()).thenReturn(projectId);
+        when(project.getSlug()).thenReturn("demo");
+        when(project.getRepositoryUrl()).thenReturn("https://github.com/acme/demo.git");
+        when(project.getDefaultBranch()).thenReturn("main");
+
+        when(nodeService.get(oldNodeId)).thenReturn(oldNode);
+        when(oldNode.getStatus()).thenReturn(ExecutionNodeStatus.OFFLINE);
+        when(replacement.getId()).thenReturn(newNodeId);
+        when(scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("codex", "git"), Set.of(oldNodeId)))
+                .thenReturn(replacement);
+        when(threadConfiguration.startParams("", "Implement features")).thenReturn(new ObjectMapper().createObjectNode());
+
+        AgentEntity recovered = service.recover(agentId);
+
+        assertEquals(agent, recovered);
+        verify(agent).reassignRuntime(eq(newNodeId), any());
+        verify(agents).save(agent);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> payload = ArgumentCaptor.forClass(Map.class);
+        verify(nodeService).enqueue(eq(newNodeId), eq(agentId), eq("START_AGENT"),
+                eq("start-agent:" + agentId + ":g2"), payload.capture());
+        assertEquals(projectId.toString(), payload.getValue().get("projectId"));
+        assertEquals(oldNodeId.toString(), payload.getValue().get("previousNodeId"));
+        assertEquals(true, payload.getValue().get("recovery"));
+        assertTrue(String.valueOf(payload.getValue().get("requestedBranch")).endsWith("-g2"));
+    }
+}

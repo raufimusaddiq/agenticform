@@ -28,22 +28,23 @@ public class CodexEventBridge {
     }
 
     @PostConstruct
-    void subscribe() {
-        client.addNotificationListener(this::handle);
-    }
+    void subscribe() { client.addNotificationListener(this::handle); }
 
     @Transactional
     public void handle(CodexJsonRpcClient.Notification notification) {
-        handleInternal(null, notification);
+        handleInternal(null, 0, notification);
     }
 
     @Transactional
-    public void handleRemote(UUID executionNodeId, CodexJsonRpcClient.Notification notification) {
+    public void handleRemote(UUID executionNodeId, long runtimeGeneration,
+                             CodexJsonRpcClient.Notification notification) {
         if (executionNodeId == null) throw new IllegalArgumentException("Execution node id is required");
-        handleInternal(executionNodeId, notification);
+        if (runtimeGeneration <= 0) throw new IllegalArgumentException("Runtime generation is required");
+        handleInternal(executionNodeId, runtimeGeneration, notification);
     }
 
-    private void handleInternal(UUID executionNodeId, CodexJsonRpcClient.Notification notification) {
+    private void handleInternal(UUID executionNodeId, long runtimeGeneration,
+                                CodexJsonRpcClient.Notification notification) {
         JsonNode params = notification.params();
         if (params == null) return;
 
@@ -51,25 +52,22 @@ public class CodexEventBridge {
             JsonNode item = params.path("item");
             if (!"userMessage".equals(item.path("type").asText())) return;
             String clientId = item.path("clientId").asText("");
-            if (!clientId.startsWith(TASK_CLIENT_PREFIX)) return;
-            try {
-                UUID taskId = UUID.fromString(clientId.substring(TASK_CLIENT_PREFIX.length()));
-                taskRepository.findById(taskId).ifPresent(task -> {
-                    if (!authorizedNode(executionNodeId, task)) return;
-                    String turnId = params.path("turnId").asText(null);
-                    task.setCodexTurnId(turnId);
-                    task.setStatus(TaskStatus.RUNNING);
-                    taskRepository.save(task);
-                    agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
-                        agent.setStatus(AgentStatus.WORKING);
-                        agent.setActiveTaskId(task.getId());
-                        agent.setActiveTurnId(turnId);
-                        agentRepository.save(agent);
-                    });
+            UUID taskId = taskId(clientId);
+            if (taskId == null) return;
+            taskRepository.findById(taskId).ifPresent(task -> {
+                if (!authorizedRuntime(executionNodeId, runtimeGeneration, task)) return;
+                String turnId = params.path("turnId").asText(null);
+                task.setCodexTurnId(turnId);
+                task.setStatus(TaskStatus.RUNNING);
+                taskRepository.save(task);
+                agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
+                    if (!authorizedAgent(executionNodeId, runtimeGeneration, agent)) return;
+                    agent.setStatus(AgentStatus.WORKING);
+                    agent.setActiveTaskId(task.getId());
+                    agent.setActiveTurnId(turnId);
+                    agentRepository.save(agent);
                 });
-            } catch (IllegalArgumentException ignored) {
-                // Not an Agenticform task correlation id.
-            }
+            });
             return;
         }
 
@@ -77,27 +75,42 @@ public class CodexEventBridge {
             String turnId = params.path("turn").path("id").asText(null);
             if (turnId == null) return;
             taskRepository.findByCodexTurnId(turnId).ifPresent(task -> {
-                if (authorizedNode(executionNodeId, task)) completeTask(task, params);
+                if (authorizedRuntime(executionNodeId, runtimeGeneration, task)) {
+                    completeTask(task, params, executionNodeId, runtimeGeneration);
+                }
             });
         }
     }
 
-    private boolean authorizedNode(UUID executionNodeId, TaskEntity task) {
-        if (executionNodeId == null) return true;
-        AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-        return agent != null && executionNodeId.equals(agent.getExecutionNodeId());
+    private UUID taskId(String clientId) {
+        if (clientId == null || !clientId.startsWith(TASK_CLIENT_PREFIX)) return null;
+        String correlation = clientId.substring(TASK_CLIENT_PREFIX.length());
+        int generation = correlation.indexOf(":g");
+        if (generation >= 0) correlation = correlation.substring(0, generation);
+        try { return UUID.fromString(correlation); }
+        catch (IllegalArgumentException ignored) { return null; }
     }
 
-    private void completeTask(TaskEntity task, JsonNode params) {
+    private boolean authorizedRuntime(UUID executionNodeId, long generation, TaskEntity task) {
+        AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
+        return authorizedAgent(executionNodeId, generation, agent);
+    }
+
+    private boolean authorizedAgent(UUID executionNodeId, long generation, AgentEntity agent) {
+        if (agent == null) return false;
+        if (executionNodeId == null) return agent.getExecutionNodeId() == null;
+        return agent.ownsRuntime(executionNodeId, generation);
+    }
+
+    private void completeTask(TaskEntity task, JsonNode params, UUID executionNodeId, long generation) {
+        AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
+        if (!authorizedAgent(executionNodeId, generation, agent)) return;
         String turnStatus = params.path("turn").path("status").asText();
         task.setStatus("completed".equalsIgnoreCase(turnStatus) ? TaskStatus.COMPLETED : TaskStatus.FAILED);
         taskRepository.save(task);
-
-        agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
-            agent.setStatus(AgentStatus.IDLE);
-            agent.setActiveTaskId(null);
-            agent.setActiveTurnId(null);
-            agentRepository.save(agent);
-        });
+        agent.setStatus(AgentStatus.IDLE);
+        agent.setActiveTaskId(null);
+        agent.setActiveTurnId(null);
+        agentRepository.save(agent);
     }
 }

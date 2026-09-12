@@ -75,14 +75,15 @@ public class TaskDispatchService {
             task.setStatus(TaskStatus.DISPATCHING);
             task.setLastError(null);
             taskRepository.save(task);
-            String clientMessageId = "agenticform-task:" + task.getId();
+            String clientMessageId = "agenticform-task:" + task.getId()
+                    + (agent.getExecutionNodeId() == null ? "" : ":g" + agent.getRuntimeGeneration());
 
             if (agent.getExecutionNodeId() != null) {
                 if (agent.getCodexThreadId() == null || agent.getCodexThreadId().isBlank()) {
                     throw new IllegalStateException("Remote agent runtime is not ready");
                 }
                 var command = nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "DISPATCH_TASK",
-                        "dispatch-task:" + task.getId(), Map.of(
+                        "dispatch-task:" + task.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
                                 "taskId", task.getId().toString(),
                                 "threadId", agent.getCodexThreadId(),
                                 "clientMessageId", clientMessageId,

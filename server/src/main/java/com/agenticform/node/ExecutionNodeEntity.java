@@ -38,6 +38,9 @@ public class ExecutionNodeEntity {
     @Column(nullable = false, unique = true, length = 128)
     private String fingerprint;
 
+    @Column(name = "drain_requested", nullable = false)
+    private boolean drainRequested;
+
     @Column(name = "labels_json", nullable = false, columnDefinition = "text")
     private String labelsJson = "{}";
 
@@ -105,7 +108,9 @@ public class ExecutionNodeEntity {
                           String os, String arch, String hostname, String nodeVersion,
                           String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb) {
         if (status == ExecutionNodeStatus.REVOKED || status == ExecutionNodeStatus.DISABLED) return;
-        if (status == ExecutionNodeStatus.OFFLINE) status = ExecutionNodeStatus.ONLINE;
+        if (status == ExecutionNodeStatus.OFFLINE) {
+            status = drainRequested ? ExecutionNodeStatus.DRAINING : ExecutionNodeStatus.ONLINE;
+        }
         this.labelsJson = labelsJson == null || labelsJson.isBlank() ? "{}" : labelsJson;
         this.capabilitiesJson = capabilitiesJson == null || capabilitiesJson.isBlank() ? "{}" : capabilitiesJson;
         this.maxAgents = Math.max(1, maxAgents);
@@ -125,6 +130,11 @@ public class ExecutionNodeEntity {
             throw new IllegalStateException("Revoked execution node must be enrolled again");
         }
         this.status = status;
+        if (status == ExecutionNodeStatus.DRAINING) drainRequested = true;
+        if (status == ExecutionNodeStatus.ONLINE || status == ExecutionNodeStatus.DISABLED
+                || status == ExecutionNodeStatus.REVOKED) {
+            drainRequested = false;
+        }
         if (status == ExecutionNodeStatus.REVOKED) revokedAt = Instant.now();
     }
 
@@ -134,6 +144,7 @@ public class ExecutionNodeEntity {
     public NodeTrustLevel getTrustLevel() { return trustLevel; }
     public String getPublicKeyBase64() { return publicKeyBase64; }
     public String getFingerprint() { return fingerprint; }
+    public boolean isDrainRequested() { return drainRequested; }
     public String getLabelsJson() { return labelsJson; }
     public String getCapabilitiesJson() { return capabilitiesJson; }
     public int getMaxAgents() { return maxAgents; }

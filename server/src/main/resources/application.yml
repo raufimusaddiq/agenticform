@@ -40,12 +40,18 @@ agenticform:
     webhook-secret: ${AGENTICFORM_GITHUB_WEBHOOK_SECRET:}
     poll-interval: ${AGENTICFORM_GITHUB_POLL_INTERVAL:3s}
     reconcile-delay-ms: ${AGENTICFORM_GITHUB_RECONCILE_DELAY_MS:30000}
+    app-id: ${AGENTICFORM_GITHUB_APP_ID:0}
+    installation-id: ${AGENTICFORM_GITHUB_INSTALLATION_ID:0}
+    app-private-key-path: ${AGENTICFORM_GITHUB_APP_PRIVATE_KEY_PATH:}
   node:
     enrollment-ttl: ${AGENTICFORM_NODE_ENROLLMENT_TTL:10m}
     offline-after: ${AGENTICFORM_NODE_OFFLINE_AFTER:45s}
     command-lease: ${AGENTICFORM_NODE_COMMAND_LEASE:15m}
     request-nonce-ttl: ${AGENTICFORM_NODE_REQUEST_NONCE_TTL:10m}
     max-clock-skew: ${AGENTICFORM_NODE_MAX_CLOCK_SKEW:2m}
+    recovery-grace: ${AGENTICFORM_NODE_RECOVERY_GRACE:2m}
+    auto-recovery-enabled: ${AGENTICFORM_NODE_AUTO_RECOVERY:true}
+    recovery-delay-ms: ${AGENTICFORM_NODE_RECOVERY_DELAY_MS:30000}
     image: ${AGENTICFORM_NODE_IMAGE:ghcr.io/raufimusaddiq/agenticform-node:latest}
   ui:
     origin: ${AGENTICFORM_UI_ORIGIN:http://localhost:5173}
