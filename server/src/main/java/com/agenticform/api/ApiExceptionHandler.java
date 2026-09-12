@@ -16,8 +16,13 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(NodeAuthenticationException.class)
-    ProblemDetail unauthorized(NodeAuthenticationException error) {
+    ProblemDetail nodeUnauthorized(NodeAuthenticationException error) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Node authentication failed");
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    ProblemDetail authenticationFailed(SecurityException error) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Authentication failed");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
