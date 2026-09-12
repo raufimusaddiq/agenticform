@@ -79,7 +79,7 @@ public class AgentRuntimeRecoveryService {
             throw new IllegalStateException("Current execution node is online; reconcile it instead of creating a second runtime");
         }
 
-        RuntimeType runtimeType = agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
+        RuntimeType runtimeType = agent.getRuntimeType();
         ExecutionNodeEntity replacement = scheduler.select(null, NodeTrustLevel.STANDARD,
                         Set.of("runtime:" + runtimeType.name(), "git"), Set.of(oldNodeId));
         long nextGeneration = agent.getRuntimeGeneration() + 1;
@@ -149,8 +149,7 @@ public class AgentRuntimeRecoveryService {
         nodeService.enqueue(node.getId(), agent.getId(), "CLEANUP_WORKSPACE",
                 "cleanup-runtime:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
                         "runtimeType", runtimeType(agent).name(),
-                        "runtimeSessionId", runtimeSessionId(agent),
-                        "threadId", runtimeSessionId(agent)));
+                        "runtimeSessionId", runtimeSessionId(agent)));
         agent.setQueueMode(AgentQueueMode.PAUSED);
         agent.setStatus(AgentStatus.BLOCKED);
         return agents.save(agent);
@@ -167,11 +166,10 @@ public class AgentRuntimeRecoveryService {
     }
 
     private String runtimeSessionId(AgentEntity agent) {
-        String value = agent.getRuntimeSessionId();
-        return value == null || value.isBlank() ? agent.getCodexThreadId() : value;
+        return agent.getRuntimeSessionId();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {
-        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
+        return agent.getRuntimeType();
     }
 }

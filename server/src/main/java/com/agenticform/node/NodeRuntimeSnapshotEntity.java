@@ -35,8 +35,8 @@ public class NodeRuntimeSnapshotEntity {
     @Column(name = "runtime_type", nullable = false, length = 32)
     private RuntimeType runtimeType = RuntimeType.CODEX;
 
-    @Column(name = "thread_id")
-    private String threadId;
+    @Column(name = "runtime_session_id")
+    private String runtimeSessionId;
 
     @Column(name = "source_directory", columnDefinition = "text")
     private String sourceDirectory;
@@ -65,11 +65,11 @@ public class NodeRuntimeSnapshotEntity {
         if (observedAt == null) observedAt = Instant.now();
     }
 
-    public void observe(RuntimeType runtimeType, long runtimeGeneration, String threadId, String sourceDirectory,
+    public void observe(RuntimeType runtimeType, long runtimeGeneration, String runtimeSessionId, String sourceDirectory,
                         String workingDirectory, String branch, String runtimeStatus) {
-        this.runtimeType = runtimeType == null ? RuntimeType.CODEX : runtimeType;
+        this.runtimeType = java.util.Objects.requireNonNull(runtimeType, "Runtime type is required");
         this.runtimeGeneration = runtimeGeneration;
-        this.threadId = threadId;
+        this.runtimeSessionId = runtimeSessionId;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;
         this.branch = branch;
@@ -82,7 +82,7 @@ public class NodeRuntimeSnapshotEntity {
     public UUID getAgentId() { return agentId; }
     public long getRuntimeGeneration() { return runtimeGeneration; }
     public RuntimeType getRuntimeType() { return runtimeType; }
-    public String getThreadId() { return threadId; }
+    public String getRuntimeSessionId() { return runtimeSessionId; }
     public String getSourceDirectory() { return sourceDirectory; }
     public String getWorkingDirectory() { return workingDirectory; }
     public String getBranch() { return branch; }

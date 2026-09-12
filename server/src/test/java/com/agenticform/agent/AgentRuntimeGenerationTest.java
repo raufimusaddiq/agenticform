@@ -1,6 +1,7 @@
 package com.agenticform.agent;
 
 import com.agenticform.workspace.WorkspaceMode;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -32,9 +33,9 @@ class AgentRuntimeGenerationTest {
         assertTrue(agent.ownsRuntime(nodeB, 2));
         assertEquals(AgentStatus.STARTING, agent.getStatus());
         assertThrows(IllegalStateException.class,
-                () -> agent.bindRuntime(1, "stale-thread", "/src", "/work", "old"));
+                () -> agent.bindRuntime(1, RuntimeType.CODEX, "stale-thread", "/src", "/work", "old"));
 
-        agent.bindRuntime(2, "thread-2", "/src", "/work", "recovery/coder-g2");
+        agent.bindRuntime(2, RuntimeType.CODEX, "thread-2", "/src", "/work", "recovery/coder-g2");
         assertEquals("thread-2", agent.getCodexThreadId());
         assertEquals("thread-2", agent.getRuntimeSessionId());
         assertEquals(com.agenticform.runtime.RuntimeType.CODEX, agent.getRuntimeType());
@@ -49,9 +50,9 @@ class AgentRuntimeGenerationTest {
                 WorkspaceMode.ISOLATED_WORKTREE, null, null, "agent/coder",
                 AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
                 AgentRole.GENERAL, false, node);
-        agent.bindRuntime(1, "thread-1", "/src-1", "/work-1", "branch-1");
+        agent.bindRuntime(1, RuntimeType.CODEX, "thread-1", "/src-1", "/work-1", "branch-1");
         agent.reassignRuntime(node, "branch-2");
-        agent.bindRuntime(2, "thread-2", "/src-2", "/work-2", "branch-2");
+        agent.bindRuntime(2, RuntimeType.CODEX, "thread-2", "/src-2", "/work-2", "branch-2");
 
         agent.recoverFromSnapshot(1, "stale-thread", "/stale-src", "/stale-work", "stale-branch");
 

@@ -229,7 +229,6 @@ public class AgentMessageService {
                                 "conversationId", message.getConversationId().toString(),
                                 "runtimeType", runtimeType(target).name(),
                                 "runtimeSessionId", runtimeSessionId(target),
-                                "threadId", runtimeSessionId(target),
                                 "clientMessageId", "agenticform-message:" + message.getId() + ":" + delivery.getId()
                                         + ":g" + target.getRuntimeGeneration(),
                                 "prompt", deliveryPrompt(message, source, target)));
@@ -252,12 +251,11 @@ public class AgentMessageService {
     }
 
     private String runtimeSessionId(AgentEntity agent) {
-        String sessionId = agent.getRuntimeSessionId();
-        return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+        return agent.getRuntimeSessionId();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {
-        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
+        return agent.getRuntimeType();
     }
 
     private void updateAggregate(AgentMessageEntity message, List<AgentMessageDeliveryEntity> deliveries) {

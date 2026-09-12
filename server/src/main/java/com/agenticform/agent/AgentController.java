@@ -93,7 +93,7 @@ public class AgentController {
             UUID executionNodeId,
             NodeTrustLevel minimumTrust,
             AgentCapabilityProfile capabilityProfile,
-            RuntimeType runtimeType
+            @NotNull RuntimeType runtimeType
     ) {}
 
     public record EnsureOperationalAgentRequest(@NotNull UUID projectId) {}

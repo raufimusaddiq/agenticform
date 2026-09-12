@@ -21,9 +21,9 @@ public class AgentRuntimeRegistry {
     }
 
     public AgentRuntime get(RuntimeType type) {
-        RuntimeType requested = type == null ? RuntimeType.CODEX : type;
-        AgentRuntime runtime = runtimes.get(requested);
-        if (runtime == null) throw new IllegalStateException("No runtime implementation registered for " + requested);
+        if (type == null) throw new IllegalArgumentException("Runtime type is required");
+        AgentRuntime runtime = runtimes.get(type);
+        if (runtime == null) throw new IllegalStateException("No runtime implementation registered for " + type);
         return runtime;
     }
 }

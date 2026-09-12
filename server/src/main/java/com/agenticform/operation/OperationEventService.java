@@ -121,7 +121,6 @@ public class OperationEventService {
                             "operationEventId", event.getId().toString(),
                             "runtimeType", runtimeType(target).name(),
                             "runtimeSessionId", runtimeSessionId(target),
-                            "threadId", runtimeSessionId(target),
                             "clientMessageId", clientMessageId,
                             "prompt", deliveryPrompt(event)));
             event.queued(command.getId());
@@ -137,12 +136,11 @@ public class OperationEventService {
     }
 
     private String runtimeSessionId(AgentEntity agent) {
-        String sessionId = agent.getRuntimeSessionId();
-        return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+        return agent.getRuntimeSessionId();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {
-        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
+        return agent.getRuntimeType();
     }
 
     private void reconcileQueued(OperationEventEntity event) {

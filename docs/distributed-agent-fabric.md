@@ -148,7 +148,7 @@ The capability payload uses a runtime-neutral inventory:
 }
 ```
 
-Placement requests use requirements such as `runtime:CODEX`. Older nodes may still report the legacy top-level `codex` boolean; the control plane accepts it during migration. Missing `runtimeType` fields in older runtime observations and commands are interpreted as `CODEX`. Explicit unsupported runtime types are rejected at the node command boundary.
+Placement requests use requirements such as `runtime:CODEX`. Runtime observations and commands require an explicit `runtimeType` and `runtimeSessionId`; unsupported runtime types are rejected at the node command boundary.
 
 The scheduler considers:
 

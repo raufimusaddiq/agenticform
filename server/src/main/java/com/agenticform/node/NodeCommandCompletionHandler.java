@@ -69,10 +69,8 @@ public class NodeCommandCompletionHandler {
             return;
         }
         JsonNode result = parse(resultJson);
-        String runtimeSessionId = result.path("runtimeSessionId").asText(null);
-        if (runtimeSessionId == null || runtimeSessionId.isBlank()) runtimeSessionId = required(result, "threadId");
-        RuntimeType runtimeType = result.path("runtimeType").asText(null) == null
-                ? RuntimeType.CODEX : RuntimeType.valueOf(result.path("runtimeType").asText());
+        String runtimeSessionId = required(result, "runtimeSessionId");
+        RuntimeType runtimeType = RuntimeType.valueOf(required(result, "runtimeType"));
         String sourceDirectory = required(result, "sourceDirectory");
         String workingDirectory = required(result, "workingDirectory");
         String branch = result.path("branch").asText(null);
@@ -91,7 +89,6 @@ public class NodeCommandCompletionHandler {
                         "taskId", task.getId().toString(),
                         "runtimeSessionId", runtimeSessionId,
                         "runtimeType", runtimeType.name(),
-                        "threadId", runtimeSessionId,
                         "clientMessageId", clientMessageId,
                         "prompt", task.getPrompt()));
         task.setCodexQueuedSubmissionId("node-command:" + dispatch.getId());
@@ -174,7 +171,7 @@ public class NodeCommandCompletionHandler {
         if (payload.path("cleanupAfterInterrupt").asBoolean(false)) {
             Map<String, Object> cleanup = new LinkedHashMap<>();
             cleanup.put("runtimeSessionId", runtimeSessionId(agent));
-            cleanup.put("runtimeType", runtimeType(agent).name());
+            cleanup.put("runtimeType", agent.getRuntimeType().name());
             cleanup.put("defaultBranch", payload.path("defaultBranch").asText(""));
             cleanup.put("stopLifecycle", true);
             nodes.enqueue(command.getNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
@@ -233,11 +230,10 @@ public class NodeCommandCompletionHandler {
     }
 
     private String runtimeSessionId(AgentEntity agent) {
-        String value = agent.getRuntimeSessionId();
-        return value == null || value.isBlank() ? agent.getCodexThreadId() : value;
+        return agent.getRuntimeSessionId();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {
-        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
+        return agent.getRuntimeType();
     }
 }

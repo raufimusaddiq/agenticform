@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeType;
 
 import java.util.List;
 import java.util.Map;
@@ -60,7 +61,8 @@ class OperationalIncidentWakeServiceTest {
         AgentEntity agent = mock(AgentEntity.class);
         when(agent.getId()).thenReturn(agentId);
         when(agent.getStatus()).thenReturn(AgentStatus.IDLE);
-        when(agent.getCodexThreadId()).thenReturn("thread-1");
+        when(agent.getRuntimeSessionId()).thenReturn("session-1");
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
         when(agent.getExecutionNodeId()).thenReturn(nodeId);
         when(agent.getRuntimeGeneration()).thenReturn(4L);
         when(agents.findByProjectIdAndRole(projectId, AgentRole.OPERATIONAL)).thenReturn(Optional.of(agent));

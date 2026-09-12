@@ -1,3 +1,6 @@
+ALTER TABLE node_runtime_snapshots
+    RENAME COLUMN thread_id TO runtime_session_id;
+
 DROP INDEX IF EXISTS ux_agents_runtime_session_id;
 
 CREATE UNIQUE INDEX ux_agents_runtime_session

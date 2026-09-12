@@ -117,7 +117,6 @@ public class AgentLifecycleService {
             Map<String, Object> interrupt = new LinkedHashMap<>();
             interrupt.put("runtimeType", runtimeType(agent).name());
             interrupt.put("runtimeSessionId", runtimeSessionId(agent));
-            interrupt.put("threadId", runtimeSessionId(agent));
             interrupt.put("turnId", agent.getActiveTurnId());
             interrupt.put("stopLifecycle", true);
             interrupt.put("finalizeStop", !isolated);
@@ -173,12 +172,11 @@ public class AgentLifecycleService {
     }
 
     private String runtimeSessionId(AgentEntity agent) {
-        String sessionId = agent.getRuntimeSessionId();
-        return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+        return agent.getRuntimeSessionId();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {
-        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
+        return agent.getRuntimeType();
     }
 
     private AgentEntity agent(UUID id) {

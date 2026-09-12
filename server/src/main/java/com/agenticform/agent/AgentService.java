@@ -82,7 +82,7 @@ public class AgentService {
         ensureOperationalAgentInternal(project);
         AgentCapabilityProfile profile = command.capabilityProfile() == null
                 ? AgentCapabilityProfile.IMPLEMENTER : command.capabilityProfile();
-        RuntimeType runtimeType = command.runtimeType() == null ? RuntimeType.CODEX : command.runtimeType();
+        RuntimeType runtimeType = command.runtimeType();
 
         if (project.getSourceType() == ProjectSourceType.GIT) {
             return createRemoteAgent(project, command.name(), command.responsibility(),
@@ -215,7 +215,6 @@ public class AgentService {
                     "interrupt:" + agent.getId() + ":g" + agent.getRuntimeGeneration() + ":" + agent.getActiveTurnId(), Map.of(
                             "runtimeType", runtimeType(agent).name(),
                             "runtimeSessionId", runtimeSessionId(agent),
-                            "threadId", runtimeSessionId(agent),
                             "turnId", agent.getActiveTurnId()));
             return agent;
         }
@@ -229,12 +228,11 @@ public class AgentService {
     }
 
     private String runtimeSessionId(AgentEntity agent) {
-        String sessionId = agent.getRuntimeSessionId();
-        return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+        return agent.getRuntimeSessionId();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {
-        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
+        return agent.getRuntimeType();
     }
 
     public record SpawnAgent(UUID projectId, String name, String responsibility, WorkspaceMode workspaceMode,

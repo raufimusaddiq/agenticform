@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-func TestLoadRuntimeStateDefaultsLegacyRuntimeType(t *testing.T) {
+func TestLoadRuntimeStateLoadsRuntimeSession(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime-state.json")
-	if err := os.WriteFile(path, []byte(`{"runtimes":{"agent-1":{"agentId":"agent-1","runtimeGeneration":1,"threadId":"thread-1"}}}`), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"runtimes":{"agent-1":{"agentId":"agent-1","runtimeType":"CODEX","runtimeGeneration":1,"runtimeSessionId":"session-1"}}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	state, err := loadRuntimeState(path)
@@ -18,8 +18,8 @@ func TestLoadRuntimeStateDefaultsLegacyRuntimeType(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := state.Runtimes["agent-1"]
-	if record.RuntimeType != "CODEX" || record.RuntimeSessionID != "thread-1" {
-		t.Fatalf("legacy runtime was not normalized: %+v", record)
+	if record.RuntimeType != "CODEX" || record.RuntimeSessionID != "session-1" {
+		t.Fatalf("runtime state was not loaded: %+v", record)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestDurableCommandRefusesAmbiguousStartedReplay(t *testing.T) {
 		RuntimeGeneration: 3,
 		CommandType:       "DISPATCH_TASK",
 		IdempotencyKey:    "dispatch:1",
-		PayloadJSON:       `{"runtimeGeneration":3,"threadId":"thread-1","prompt":"do work"}`,
+		PayloadJSON:       `{"runtimeGeneration":3,"runtimeType":"CODEX","runtimeSessionId":"session-1","prompt":"do work"}`,
 	}
 	d := daemonRuntime{
 		stateDir: t.TempDir(),
@@ -134,7 +134,7 @@ func TestCommandRejectsUnsupportedRuntimeType(t *testing.T) {
 	command := nodeCommand{
 		ID: "cmd-runtime", AgentID: "agent-1", RuntimeGeneration: 3,
 		CommandType: "DISPATCH_TASK", IdempotencyKey: "dispatch:runtime",
-		PayloadJSON: `{"runtimeGeneration":3,"runtimeType":"CLAUDE","threadId":"thread-1","prompt":"do work"}`,
+		PayloadJSON: `{"runtimeGeneration":3,"runtimeType":"CLAUDE","runtimeSessionId":"session-1","prompt":"do work"}`,
 	}
 	d := daemonRuntime{stateDir: t.TempDir(), ledger: commandLedger{Entries: map[string]commandLedgerEntry{}}, runtimes: runtimeState{Runtimes: map[string]runtimeRecord{}}}
 
@@ -196,7 +196,7 @@ func TestCleanupRefusesSharedProjectWorkspace(t *testing.T) {
 	}
 	command := nodeCommand{AgentID: "agent-1", RuntimeGeneration: 2}
 
-	_, err := d.cleanupWorkspace(command, map[string]any{"threadId": "thread-2", "defaultBranch": "main"})
+	_, err := d.cleanupWorkspace(command, map[string]any{"runtimeSessionId": "thread-2", "defaultBranch": "main"})
 	if err == nil || !strings.Contains(err.Error(), "shared project workspace") {
 		t.Fatalf("expected shared workspace cleanup to be refused, got %v", err)
 	}
@@ -217,7 +217,7 @@ func TestCleanupRefusesWorkspaceOutsideManagedRoot(t *testing.T) {
 	}
 	command := nodeCommand{AgentID: "agent-1", RuntimeGeneration: 5}
 
-	_, err := d.cleanupWorkspace(command, map[string]any{"threadId": "thread-5", "defaultBranch": "main"})
+	_, err := d.cleanupWorkspace(command, map[string]any{"runtimeSessionId": "thread-5", "defaultBranch": "main"})
 	if err == nil || !strings.Contains(err.Error(), "outside the managed worktree root") {
 		t.Fatalf("expected unmanaged path cleanup to be refused, got %v", err)
 	}

@@ -14,6 +14,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -183,7 +184,7 @@ public class AgentEntity {
     public void setHumanControlMode(HumanControlMode humanControlMode) { this.humanControlMode = humanControlMode; }
     public void setExecutionNodeId(UUID executionNodeId) { this.executionNodeId = executionNodeId; }
     public void setRuntimeType(RuntimeType runtimeType) {
-        this.runtimeType = runtimeType == null ? RuntimeType.CODEX : runtimeType;
+        this.runtimeType = Objects.requireNonNull(runtimeType, "Runtime type is required");
         if (this.runtimeType != RuntimeType.CODEX) this.codexThreadId = null;
     }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
@@ -218,18 +219,13 @@ public class AgentEntity {
         return runtimeGeneration;
     }
 
-    public void bindRuntime(long generation, String codexThreadId, String sourceDirectory,
-                            String workingDirectory, String branch) {
-        bindRuntime(generation, RuntimeType.CODEX, codexThreadId, sourceDirectory, workingDirectory, branch);
-    }
-
     public void bindRuntime(long generation, RuntimeType runtimeType, String runtimeSessionId,
                             String sourceDirectory, String workingDirectory, String branch) {
         if (runtimeGeneration != generation) {
             throw new IllegalStateException("Stale agent runtime generation: " + generation + ", expected " + runtimeGeneration);
         }
-        this.runtimeType = runtimeType == null ? RuntimeType.CODEX : runtimeType;
-        this.codexThreadId = this.runtimeType == RuntimeType.CODEX ? runtimeSessionId : this.codexThreadId;
+        this.runtimeType = Objects.requireNonNull(runtimeType, "Runtime type is required");
+        this.codexThreadId = this.runtimeType == RuntimeType.CODEX ? runtimeSessionId : null;
         this.runtimeSessionId = runtimeSessionId;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;
@@ -237,11 +233,10 @@ public class AgentEntity {
         this.status = AgentStatus.IDLE;
     }
 
-    public void recoverFromSnapshot(long generation, String codexThreadId, String sourceDirectory,
+    public void recoverFromSnapshot(long generation, String runtimeSessionId, String sourceDirectory,
                                     String workingDirectory, String branch) {
         if (runtimeGeneration != generation) return;
-        if (this.codexThreadId == null || this.codexThreadId.isBlank()) this.codexThreadId = codexThreadId;
-        if (this.runtimeSessionId == null || this.runtimeSessionId.isBlank()) this.runtimeSessionId = codexThreadId;
+        if (this.runtimeSessionId == null || this.runtimeSessionId.isBlank()) this.runtimeSessionId = runtimeSessionId;
         if (sourceDirectory != null && !sourceDirectory.isBlank()) this.sourceDirectory = sourceDirectory;
         if (workingDirectory != null && !workingDirectory.isBlank()) this.workingDirectory = workingDirectory;
         if (branch != null && !branch.isBlank()) this.branch = branch;

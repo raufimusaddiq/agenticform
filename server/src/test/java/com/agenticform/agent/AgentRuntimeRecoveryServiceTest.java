@@ -13,6 +13,7 @@ import com.agenticform.project.ProjectService;
 import com.agenticform.project.ProjectSourceType;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.workspace.WorkspaceMode;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -87,6 +88,7 @@ class AgentRuntimeRecoveryServiceTest {
         when(agent.getBranch()).thenReturn("agent/coder");
         when(agent.getActiveTaskId()).thenReturn(null);
         when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
         when(agent.getResponsibility()).thenReturn("Implement features");
         when(agent.reassignRuntime(eq(newNodeId), any())).thenReturn(2L);
         when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);

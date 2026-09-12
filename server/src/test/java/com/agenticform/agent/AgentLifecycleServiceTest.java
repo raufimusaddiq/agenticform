@@ -15,6 +15,7 @@ import com.agenticform.workspace.WorkspaceMode;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,9 +69,10 @@ class AgentLifecycleServiceTest {
         when(agent.getId()).thenReturn(agentId);
         when(agent.isSystemManaged()).thenReturn(false);
         when(agent.getStatus()).thenReturn(AgentStatus.WORKING);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getRuntimeSessionId()).thenReturn("session-1");
         when(agent.getProjectId()).thenReturn(projectId);
         when(agent.getExecutionNodeId()).thenReturn(null);
-        when(agent.getCodexThreadId()).thenReturn("thread-1");
         when(agent.getActiveTurnId()).thenReturn("turn-1");
         when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.SHARED_PROJECT);
         when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
@@ -84,7 +86,7 @@ class AgentLifecycleServiceTest {
         verify(task).setStatus(TaskStatus.CANCELLED);
         verify(tasks).save(task);
         verify(dependencies).reconcileDependents(taskId);
-        verify(runtime).interrupt(new RuntimeSession("thread-1"), "turn-1");
+        verify(runtime).interrupt(new RuntimeSession("session-1"), "turn-1");
         verify(agent).setActiveTaskId(null);
         verify(agent).setActiveTurnId(null);
         verify(agent).setStatus(AgentStatus.STOPPED);
@@ -103,7 +105,8 @@ class AgentLifecycleServiceTest {
         when(agent.getProjectId()).thenReturn(projectId);
         when(agent.getExecutionNodeId()).thenReturn(nodeId);
         when(agent.getRuntimeGeneration()).thenReturn(3L);
-        when(agent.getCodexThreadId()).thenReturn("thread-3");
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getRuntimeSessionId()).thenReturn("session-3");
         when(agent.getActiveTurnId()).thenReturn("turn-3");
         when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
         when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);

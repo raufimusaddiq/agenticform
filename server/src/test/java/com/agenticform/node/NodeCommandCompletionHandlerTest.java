@@ -5,6 +5,7 @@ import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.message.AgentMessageDeliveryRepository;
 import com.agenticform.task.TaskRepository;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -88,7 +89,8 @@ class NodeCommandCompletionHandlerTest {
         when(command.getPayloadJson()).thenReturn("{\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true,\"defaultBranch\":\"main\"}");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
         when(agent.getId()).thenReturn(agentId);
-        when(agent.getCodexThreadId()).thenReturn("thread-7");
+        when(agent.getRuntimeSessionId()).thenReturn("session-7");
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
         when(agent.ownsRuntime(nodeId, 7L)).thenReturn(true);
 
         handler.handle(command, true, "{\"interrupted\":true}", null);

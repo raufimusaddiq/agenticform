@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeType;
 
 import java.util.List;
 import java.util.Map;
@@ -69,7 +70,8 @@ class OperationEventServiceTest {
         when(agent.getId()).thenReturn(agentId);
         when(agent.getRole()).thenReturn(AgentRole.OPERATIONAL);
         when(agent.getStatus()).thenReturn(AgentStatus.IDLE);
-        when(agent.getCodexThreadId()).thenReturn("thread-ops");
+        when(agent.getRuntimeSessionId()).thenReturn("session-ops");
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
         when(agent.getExecutionNodeId()).thenReturn(nodeId);
         when(agent.getRuntimeGeneration()).thenReturn(3L);
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));

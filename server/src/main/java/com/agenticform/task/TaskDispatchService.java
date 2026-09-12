@@ -120,7 +120,6 @@ public class TaskDispatchService {
                                 "taskId", task.getId().toString(),
                                 "runtimeType", runtimeType(agent).name(),
                                 "runtimeSessionId", runtimeSessionId(agent),
-                                "threadId", runtimeSessionId(agent),
                                 "clientMessageId", clientMessageId,
                                 "prompt", task.getPrompt()));
                 task.setCodexQueuedSubmissionId("node-command:" + command.getId());
@@ -162,11 +161,10 @@ public class TaskDispatchService {
     }
 
     private String runtimeSessionId(AgentEntity agent) {
-        String value = agent.getRuntimeSessionId();
-        return value == null || value.isBlank() ? agent.getCodexThreadId() : value;
+        return agent.getRuntimeSessionId();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {
-        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
+        return agent.getRuntimeType();
     }
 }

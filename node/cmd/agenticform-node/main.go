@@ -81,7 +81,6 @@ type runtimeRecord struct {
 	RuntimeGeneration int64  `json:"runtimeGeneration"`
 	RuntimeSessionID  string `json:"runtimeSessionId"`
 	ThreadID          string `json:"-"`
-	LegacyThreadID    string `json:"threadId,omitempty"`
 	SourceDirectory   string `json:"sourceDirectory"`
 	WorkingDirectory  string `json:"workingDirectory"`
 	Branch            string `json:"branch"`
@@ -434,7 +433,7 @@ func (d *daemonRuntime) execute(command nodeCommand) (map[string]any, error) {
 	}
 	runtimeType := optionalString(payload, "runtimeType")
 	if runtimeType == "" {
-		runtimeType = "CODEX"
+		return nil, errors.New("command runtime type is required")
 	}
 	if runtimeType != "CODEX" {
 		return nil, fmt.Errorf("unsupported runtime type: %s", runtimeType)
@@ -543,12 +542,9 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 
 func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	threadID := stringValue(payload, "runtimeSessionId")
-	if threadID == "" {
-		threadID = stringValue(payload, "threadId")
-	}
 	prompt := stringValue(payload, "prompt")
 	if threadID == "" || prompt == "" {
-		return nil, errors.New(command.CommandType + " missing threadId or prompt")
+		return nil, errors.New(command.CommandType + " missing runtimeSessionId or prompt")
 	}
 	if err := d.requireRuntime(command.AgentID, command.RuntimeGeneration, threadID); err != nil {
 		return nil, err
@@ -588,12 +584,9 @@ func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (m
 
 func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	threadID := stringValue(payload, "runtimeSessionId")
-	if threadID == "" {
-		threadID = stringValue(payload, "threadId")
-	}
 	turnID := stringValue(payload, "turnId")
 	if threadID == "" || turnID == "" {
-		return nil, errors.New("INTERRUPT_TURN missing threadId or turnId")
+		return nil, errors.New("INTERRUPT_TURN missing runtimeSessionId or turnId")
 	}
 	if err := d.requireRuntime(command.AgentID, command.RuntimeGeneration, threadID); err != nil {
 		return nil, err
@@ -611,9 +604,6 @@ func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (
 
 func (d *daemonRuntime) cleanupWorkspace(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	threadID := optionalString(payload, "runtimeSessionId")
-	if threadID == "" {
-		threadID = optionalString(payload, "threadId")
-	}
 	d.stateMu.Lock()
 	record, ok := d.runtimes.Runtimes[command.AgentID]
 	d.stateMu.Unlock()
@@ -1075,19 +1065,9 @@ func loadRuntimeState(path string) (runtimeState, error) {
 		state.Runtimes = map[string]runtimeRecord{}
 	}
 	for key, record := range state.Runtimes {
-		if record.RuntimeType == "" {
-			record.RuntimeType = "CODEX"
-		}
-		if record.ThreadID == "" {
-			record.ThreadID = record.LegacyThreadID
-		}
-		if record.RuntimeSessionID == "" {
-			record.RuntimeSessionID = record.ThreadID
-		}
 		if record.ThreadID == "" {
 			record.ThreadID = record.RuntimeSessionID
 		}
-		record.LegacyThreadID = ""
 		state.Runtimes[key] = record
 	}
 	return state, nil
