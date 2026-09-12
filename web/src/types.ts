@@ -33,7 +33,7 @@ export type Agent = {
   projectId: string;
   name: string;
   responsibility: string;
-  codexThreadId: string | null;
+  codexThreadId: string;
   workspaceMode: WorkspaceMode;
   sourceDirectory: string | null;
   workingDirectory: string | null;
