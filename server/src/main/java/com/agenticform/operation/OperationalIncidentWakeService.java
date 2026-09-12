@@ -112,7 +112,7 @@ public class OperationalIncidentWakeService {
         String clientMessageId = "agenticform-incident:" + incident.getId() + ":g" + target.getRuntimeGeneration();
         if (target.getExecutionNodeId() != null) {
             NodeCommandEntity command = nodeService.enqueue(
-                    target.getExecutionNodeId(), target.getId(), "DELIVER_OPERATIONAL_INCIDENT",
+                    target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
                     clientMessageId, Map.of(
                             "incidentId", incident.getId().toString(),
                             "threadId", target.getCodexThreadId(),
