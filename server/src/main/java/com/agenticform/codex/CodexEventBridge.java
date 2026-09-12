@@ -6,6 +6,7 @@ import com.agenticform.agent.AgentStatus;
 import com.agenticform.message.AgentMessageDeliveryEntity;
 import com.agenticform.message.AgentMessageDeliveryRepository;
 import com.agenticform.message.AgentMessageService;
+import com.agenticform.task.TaskDependencyService;
 import com.agenticform.task.TaskEntity;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
@@ -26,16 +27,19 @@ public class CodexEventBridge {
     private final AgentRepository agentRepository;
     private final AgentMessageDeliveryRepository messageDeliveries;
     private final AgentMessageService messageService;
+    private final TaskDependencyService taskDependencies;
 
     public CodexEventBridge(CodexJsonRpcClient client, TaskRepository taskRepository,
                             AgentRepository agentRepository,
                             AgentMessageDeliveryRepository messageDeliveries,
-                            AgentMessageService messageService) {
+                            AgentMessageService messageService,
+                            TaskDependencyService taskDependencies) {
         this.client = client;
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
         this.messageDeliveries = messageDeliveries;
         this.messageService = messageService;
+        this.taskDependencies = taskDependencies;
     }
 
     @PostConstruct
@@ -148,6 +152,7 @@ public class CodexEventBridge {
         agent.setActiveTaskId(null);
         agent.setActiveTurnId(null);
         agentRepository.save(agent);
+        taskDependencies.reconcileDependents(task.getId());
     }
 
     private void completeMessage(AgentMessageDeliveryEntity delivery, JsonNode params,
