@@ -9,9 +9,14 @@ ARG CODEX_VERSION=0.154.0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git \
     && npm install -g "@openai/codex@${CODEX_VERSION}" \
+    && groupadd --gid 10001 agenticform \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin agenticform \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 COPY --from=build /out/agenticform-node /usr/local/bin/agenticform-node
-RUN mkdir -p /var/lib/agenticform-node && chmod 0700 /var/lib/agenticform-node
+RUN mkdir -p /var/lib/agenticform-node \
+    && chown 10001:10001 /var/lib/agenticform-node \
+    && chmod 0700 /var/lib/agenticform-node
 WORKDIR /var/lib/agenticform-node
+USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/agenticform-node"]
 CMD ["daemon"]
