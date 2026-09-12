@@ -138,8 +138,12 @@ func main() {
 		if err := daemon(stateDir, server); err != nil {
 			fatal(err.Error())
 		}
+	case "git-credential":
+		if err := gitCredentialHelper(stateDir, server, os.Args[2:]); err != nil {
+			fatal(err.Error())
+		}
 	default:
-		fatal("usage: agenticform-node [enroll|daemon]")
+		fatal("usage: agenticform-node [enroll|daemon|git-credential]")
 	}
 }
 
@@ -448,10 +452,7 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 	}
 
 	repoRoot := filepath.Join(d.stateDir, "repos", projectSlug)
-	if err := ensureRepository(repoRoot, repositoryURL); err != nil {
-		return nil, err
-	}
-	if err := runGit(repoRoot, "fetch", "--prune", "origin"); err != nil {
+	if err := d.ensureProjectRepository(command, payload, repoRoot, repositoryURL); err != nil {
 		return nil, err
 	}
 
@@ -469,7 +470,13 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		if _, err := os.Stat(workingDirectory); errors.Is(err, os.ErrNotExist) {
 			base := "origin/" + baseBranch
 			if err := runGit(repoRoot, "rev-parse", "--verify", base); err != nil {
-				base = baseBranch
+				defaultBranch := stringValue(payload, "defaultBranch")
+				fallback := "origin/" + defaultBranch
+				if defaultBranch != "" && runGit(repoRoot, "rev-parse", "--verify", fallback) == nil {
+					base = fallback
+				} else {
+					base = baseBranch
+				}
 			}
 			if err := runGit(repoRoot, "worktree", "add", "-b", branch, workingDirectory, base); err != nil {
 				return nil, err
@@ -602,9 +609,14 @@ func (d *daemonRuntime) cleanupWorkspace(command nodeCommand, payload map[string
 		return nil, errors.New("worktree is dirty; cleanup refused")
 	}
 	if record.Branch != "" {
-		cmd := exec.Command("git", "-C", record.SourceDirectory, "merge-base", "--is-ancestor", record.Branch, "origin/HEAD")
+		defaultBranch := stringValue(payload, "defaultBranch")
+		target := "origin/HEAD"
+		if defaultBranch != "" {
+			target = "origin/" + defaultBranch
+		}
+		cmd := exec.Command("git", "-C", record.SourceDirectory, "merge-base", "--is-ancestor", record.Branch, target)
 		if err := cmd.Run(); err != nil {
-			return nil, errors.New("worktree branch is not proven merged into origin/HEAD")
+			return nil, errors.New("worktree branch is not proven merged into the default branch")
 		}
 	}
 	if err := runGit(record.SourceDirectory, "worktree", "remove", record.WorkingDirectory); err != nil {
