@@ -20,9 +20,11 @@ import java.util.UUID;
 @RequestMapping("/api/agents")
 public class AgentController {
     private final AgentService service;
+    private final AgentRuntimeRecoveryService recovery;
 
-    public AgentController(AgentService service) {
+    public AgentController(AgentService service, AgentRuntimeRecoveryService recovery) {
         this.service = service;
+        this.recovery = recovery;
     }
 
     @GetMapping
@@ -58,6 +60,16 @@ public class AgentController {
     @PostMapping("/{agentId}/intervene")
     public AgentEntity intervene(@PathVariable UUID agentId) {
         return service.intervene(agentId);
+    }
+
+    @PostMapping("/{agentId}/recover-runtime")
+    public AgentEntity recoverRuntime(@PathVariable UUID agentId) {
+        return recovery.recover(agentId);
+    }
+
+    @PostMapping("/{agentId}/cleanup-runtime")
+    public AgentEntity cleanupRuntime(@PathVariable UUID agentId) {
+        return recovery.cleanup(agentId);
     }
 
     public record SpawnAgentRequest(
