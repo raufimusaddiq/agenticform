@@ -21,10 +21,13 @@ import java.util.UUID;
 public class AgentController {
     private final AgentService service;
     private final AgentRuntimeRecoveryService recovery;
+    private final AgentLifecycleService lifecycle;
 
-    public AgentController(AgentService service, AgentRuntimeRecoveryService recovery) {
+    public AgentController(AgentService service, AgentRuntimeRecoveryService recovery,
+                           AgentLifecycleService lifecycle) {
         this.service = service;
         this.recovery = recovery;
+        this.lifecycle = lifecycle;
     }
 
     @GetMapping
@@ -60,6 +63,11 @@ public class AgentController {
     @PostMapping("/{agentId}/intervene")
     public AgentEntity intervene(@PathVariable UUID agentId) {
         return service.intervene(agentId);
+    }
+
+    @PostMapping("/{agentId}/stop")
+    public AgentEntity stop(@PathVariable UUID agentId) {
+        return lifecycle.stop(agentId);
     }
 
     @PostMapping("/{agentId}/recover-runtime")
