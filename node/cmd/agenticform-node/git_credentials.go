@@ -107,9 +107,9 @@ func configureCredentialHelper(repoRoot, helper string) error {
 }
 
 func credentialHelperCommand(agentID string, generation int64, projectID, repositoryURL string) string {
-	return "!agenticform-node git-credential " + shellQuote(agentID) + " "
-		+ shellQuote(strconv.FormatInt(generation, 10)) + " "
-		+ shellQuote(projectID) + " " + shellQuote(repositoryURL)
+	return "!agenticform-node git-credential " + shellQuote(agentID) + " " +
+		shellQuote(strconv.FormatInt(generation, 10)) + " " +
+		shellQuote(projectID) + " " + shellQuote(repositoryURL)
 }
 
 func shellQuote(value string) string {
