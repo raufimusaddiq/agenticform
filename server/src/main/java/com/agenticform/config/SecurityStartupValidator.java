@@ -25,6 +25,15 @@ public class SecurityStartupValidator {
         if (publicUrl == null || publicUrl.getHost() == null) {
             throw new IllegalStateException("agenticform.public-url must be an absolute URL");
         }
+        if (publicUrl.getUserInfo() != null || publicUrl.getQuery() != null || publicUrl.getFragment() != null
+                || (publicUrl.getPath() != null && !publicUrl.getPath().isBlank() && !"/".equals(publicUrl.getPath()))) {
+            throw new IllegalStateException("agenticform.public-url must be a clean origin without credentials, path, query, or fragment");
+        }
+        String scheme = publicUrl.getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            throw new IllegalStateException("agenticform.public-url must use http or https");
+        }
+
         String host = publicUrl.getHost().toLowerCase(Locale.ROOT);
         boolean local = LOOPBACK_HOSTS.contains(host);
         if (!local && !"https".equalsIgnoreCase(publicUrl.getScheme())) {
