@@ -17,7 +17,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Route local message, operation-event, and incident delivery through `AgentRuntime`.
 - [ ] Preserve dynamic Agenticform tools and fail-closed approval behavior.
 - [ ] Preserve runtime-generation fencing and durable remote command recovery.
-- [ ] Add fake-runtime contract coverage proving orchestration does not require Codex.
+- [x] Add runtime-port contract coverage proving task orchestration does not require `CodexGateway`.
 
 ## Persistence and compatibility
 
