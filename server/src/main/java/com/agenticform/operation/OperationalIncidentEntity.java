@@ -121,6 +121,7 @@ public class OperationalIncidentEntity {
         if (escalated) {
             this.severity = severity;
             this.wakeStatus = WakeStatus.PENDING;
+            this.wakeCommandId = null;
             this.lastWakeError = null;
         }
         if (summary != null && !summary.isBlank()) this.summary = summary;
@@ -130,25 +131,33 @@ public class OperationalIncidentEntity {
     }
 
     public void setOperationalAgentId(UUID operationalAgentId) { this.operationalAgentId = operationalAgentId; }
+
     public void queued(UUID commandId) {
         wakeStatus = WakeStatus.QUEUED;
         wakeCommandId = commandId;
         wakeAttempts++;
         lastWakeError = null;
     }
+
     public void delivered(String queuedSubmissionId, String turnId) {
+        boolean remoteAttempt = wakeCommandId != null;
         wakeStatus = WakeStatus.DELIVERED;
         codexQueuedSubmissionId = queuedSubmissionId;
         codexTurnId = turnId;
         lastWakeError = null;
-        if (wakeCommandId == null) wakeAttempts++;
+        if (!remoteAttempt) wakeAttempts++;
     }
+
     public void wakeFailed(String error) {
+        boolean remoteAttempt = wakeStatus == WakeStatus.QUEUED && wakeCommandId != null;
         wakeStatus = WakeStatus.FAILED;
         lastWakeError = error;
-        wakeCommandId = null;
-        wakeAttempts++;
+        if (!remoteAttempt) {
+            wakeCommandId = null;
+            wakeAttempts++;
+        }
     }
+
     public void retryWake() {
         wakeStatus = WakeStatus.PENDING;
         wakeCommandId = null;
