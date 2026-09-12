@@ -50,10 +50,11 @@ public class ExecutionNodeController {
     @PostMapping("/{nodeId}/heartbeat")
     public ExecutionNodeEntity heartbeat(@PathVariable UUID nodeId,
                                          @RequestHeader("X-AF-Timestamp") String timestamp,
+                                         @RequestHeader("X-AF-Nonce") String nonce,
                                          @RequestHeader("X-AF-Signature") String signature,
                                          @RequestBody byte[] body) throws Exception {
         String path = "/api/nodes/" + nodeId + "/heartbeat";
-        signatures.verify(nodeId, timestamp, signature, "POST", path, body);
+        signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         HeartbeatRequest request = mapper.readValue(body, HeartbeatRequest.class);
         return service.heartbeat(nodeId, new ExecutionNodeService.Heartbeat(
                 request.labelsJson(), request.capabilitiesJson(), request.maxAgents(),
@@ -64,9 +65,10 @@ public class ExecutionNodeController {
     @GetMapping("/{nodeId}/commands/next")
     public ResponseEntity<NodeCommandEntity> nextCommand(@PathVariable UUID nodeId,
                                                           @RequestHeader("X-AF-Timestamp") String timestamp,
+                                                          @RequestHeader("X-AF-Nonce") String nonce,
                                                           @RequestHeader("X-AF-Signature") String signature) {
         String path = "/api/nodes/" + nodeId + "/commands/next";
-        signatures.verify(nodeId, timestamp, signature, "GET", path, new byte[0]);
+        signatures.verify(nodeId, timestamp, nonce, signature, "GET", path, new byte[0]);
         NodeCommandEntity command = service.leaseNext(nodeId);
         return command == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(command);
     }
@@ -75,10 +77,11 @@ public class ExecutionNodeController {
     public NodeCommandEntity complete(@PathVariable UUID nodeId,
                                       @PathVariable UUID commandId,
                                       @RequestHeader("X-AF-Timestamp") String timestamp,
+                                      @RequestHeader("X-AF-Nonce") String nonce,
                                       @RequestHeader("X-AF-Signature") String signature,
                                       @RequestBody byte[] body) throws Exception {
         String path = "/api/nodes/" + nodeId + "/commands/" + commandId + "/complete";
-        signatures.verify(nodeId, timestamp, signature, "POST", path, body);
+        signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         CompleteCommandRequest request = mapper.readValue(body, CompleteCommandRequest.class);
         NodeCommandEntity command = service.complete(nodeId, commandId,
                 request.success(), request.resultJson(), request.error());
