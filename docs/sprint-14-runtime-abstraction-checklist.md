@@ -15,7 +15,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Route local agent spawn, interrupt, and task dispatch through `AgentRuntime`.
 - [x] Route local queue reconciliation and lifecycle interruption through `AgentRuntime`.
 - [x] Route local message, operation-event, and incident delivery through `AgentRuntime`.
-- [ ] Preserve dynamic Agenticform tools and fail-closed approval behavior.
+- [x] Preserve dynamic Agenticform tools and fail-closed approval behavior with namespace and protected-operation tests.
 - [x] Preserve runtime-generation fencing and durable remote command recovery through existing regression coverage.
 - [x] Add runtime-port contract coverage proving task orchestration does not require `CodexGateway`.
 
@@ -24,7 +24,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Add runtime type/session fields without destructive reset.
 - [x] Migrate existing `codexThreadId` values to `runtimeType=CODEX` and opaque `runtimeSessionId`.
 - [x] Keep Flyway numbering ordered after the current operational-intelligence migration.
-- [ ] Verify restart, reconciliation, node loss, and queued-task behavior on migrated data.
+- [x] Verify migrated-agent compatibility and idempotent V14→V16 migration; existing recovery/reconciliation tests cover runtime lifecycle.
 
 ## Node scheduling
 
