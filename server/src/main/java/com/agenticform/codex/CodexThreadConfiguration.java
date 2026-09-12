@@ -1,5 +1,6 @@
 package com.agenticform.codex;
 
+import com.agenticform.agent.AgentCapabilityProfile;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -34,13 +35,21 @@ public class CodexThreadConfiguration {
     }
 
     public ObjectNode startParams(String cwd, String responsibility) {
+        return startParams(cwd, responsibility, AgentCapabilityProfile.IMPLEMENTER);
+    }
+
+    public ObjectNode startParams(String cwd, String responsibility, AgentCapabilityProfile capabilityProfile) {
+        AgentCapabilityProfile profile = capabilityProfile == null
+                ? AgentCapabilityProfile.IMPLEMENTER : capabilityProfile;
         ObjectNode params = mapper.createObjectNode();
         params.put("cwd", cwd);
         params.put("baseInstructions", responsibility);
-        params.put("developerInstructions", GOVERNANCE);
+        params.put("developerInstructions", GOVERNANCE + "\nYour enforced Agenticform capability profile is "
+                + profile.name() + " with capabilities " + profile.capabilities() + ". Do not attempt effects outside it.");
         params.put("approvalPolicy", "on-request");
         params.put("approvalsReviewer", "user");
-        params.put("sandbox", "workspace-write");
+        params.put("sandbox", profile.allows(AgentCapabilityProfile.Capability.WRITE)
+                ? "workspace-write" : "read-only");
         params.set("dynamicTools", tools());
         return params;
     }
