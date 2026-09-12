@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -162,6 +163,15 @@ public class NodeCommandCompletionHandler {
         if (!success) {
             agent.setStatus(AgentStatus.DISCONNECTED);
             agents.save(agent);
+            return;
+        }
+        if (payload.path("cleanupAfterInterrupt").asBoolean(false)) {
+            Map<String, Object> cleanup = new LinkedHashMap<>();
+            cleanup.put("threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId());
+            cleanup.put("defaultBranch", payload.path("defaultBranch").asText(""));
+            cleanup.put("stopLifecycle", true);
+            nodes.enqueue(command.getNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
+                    "stop-cleanup:" + agent.getId() + ":g" + command.getRuntimeGeneration(), cleanup);
             return;
         }
         if (payload.path("finalizeStop").asBoolean(false)) {
