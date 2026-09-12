@@ -38,8 +38,8 @@ class RemoteCodexInteractionServiceTest {
     @Test
     void currentNodeAndGenerationOwnRemoteRequest() {
         UUID nodeId = UUID.randomUUID();
-        ObjectNode params = mapper.createObjectNode().put("threadId", "thread-1");
-        when(agents.findByCodexThreadId("thread-1")).thenReturn(Optional.of(agent));
+        ObjectNode params = mapper.createObjectNode().put("runtimeSessionId", "session-1");
+        when(agents.findByRuntimeSessionId("session-1")).thenReturn(Optional.of(agent));
         when(agent.ownsRuntime(nodeId, 4L)).thenReturn(true);
 
         assertSame(agent, service.requireRuntime(nodeId, 4L, params));
@@ -48,8 +48,8 @@ class RemoteCodexInteractionServiceTest {
     @Test
     void staleGenerationIsRejectedEvenWithKnownThread() {
         UUID nodeId = UUID.randomUUID();
-        ObjectNode params = mapper.createObjectNode().put("threadId", "thread-1");
-        when(agents.findByCodexThreadId("thread-1")).thenReturn(Optional.of(agent));
+        ObjectNode params = mapper.createObjectNode().put("runtimeSessionId", "session-1");
+        when(agents.findByRuntimeSessionId("session-1")).thenReturn(Optional.of(agent));
         when(agent.ownsRuntime(nodeId, 3L)).thenReturn(false);
 
         assertThrows(IllegalStateException.class,

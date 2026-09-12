@@ -78,7 +78,7 @@ func TestDurableCommandCachesTerminalFailure(t *testing.T) {
 		RuntimeGeneration: 1,
 		CommandType:       "UNSUPPORTED",
 		IdempotencyKey:    "test:1",
-		PayloadJSON:       `{"runtimeGeneration":1}`,
+		PayloadJSON:       `{"runtimeGeneration":1,"runtimeType":"CODEX"}`,
 	}
 
 	_, firstErr := d.executeDurable(command)
