@@ -430,6 +430,13 @@ func (d *daemonRuntime) execute(command nodeCommand) (map[string]any, error) {
 	if generation != command.RuntimeGeneration {
 		return nil, errors.New("command runtime generation does not match signed command payload")
 	}
+	runtimeType := optionalString(payload, "runtimeType")
+	if runtimeType == "" {
+		runtimeType = "CODEX"
+	}
+	if runtimeType != "CODEX" {
+		return nil, fmt.Errorf("unsupported runtime type: %s", runtimeType)
+	}
 	switch command.CommandType {
 	case "START_AGENT":
 		return d.startAgent(command, payload)

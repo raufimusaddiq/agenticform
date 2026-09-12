@@ -31,6 +31,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Advertise structured runtime inventory while retaining the legacy Codex capability alias.
 - [x] Persist runtime type on node observations and include it in node heartbeats/commands.
 - [x] Include runtime type in remote start, dispatch, delivery, recovery, and stop payloads.
+- [x] Reject unsupported runtime types at the node command boundary; legacy missing type defaults to `CODEX`.
 - [x] Replace production placement/recovery Codex requirements with `runtime:CODEX`; retain legacy alias parsing.
 - [ ] Validate runtime requirements during placement and command dispatch.
 - [ ] Preserve node identity, capability sandbox, and tenant/security checks.

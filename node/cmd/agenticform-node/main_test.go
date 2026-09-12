@@ -114,6 +114,20 @@ func TestDurableCommandRefusesAmbiguousStartedReplay(t *testing.T) {
 	}
 }
 
+func TestCommandRejectsUnsupportedRuntimeType(t *testing.T) {
+	command := nodeCommand{
+		ID: "cmd-runtime", AgentID: "agent-1", RuntimeGeneration: 3,
+		CommandType: "DISPATCH_TASK", IdempotencyKey: "dispatch:runtime",
+		PayloadJSON: `{"runtimeGeneration":3,"runtimeType":"CLAUDE","threadId":"thread-1","prompt":"do work"}`,
+	}
+	d := daemonRuntime{stateDir: t.TempDir(), ledger: commandLedger{Entries: map[string]commandLedgerEntry{}}, runtimes: runtimeState{Runtimes: map[string]runtimeRecord{}}}
+
+	_, err := d.execute(command)
+	if err == nil || !strings.Contains(err.Error(), "unsupported runtime type") {
+		t.Fatalf("expected unsupported runtime type rejection, got %v", err)
+	}
+}
+
 func TestRuntimeStateRejectsOlderGeneration(t *testing.T) {
 	d := daemonRuntime{
 		stateDir: t.TempDir(),
