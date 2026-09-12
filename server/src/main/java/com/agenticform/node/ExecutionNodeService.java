@@ -68,14 +68,16 @@ public class ExecutionNodeService {
         String server = properties.getPublicUrl().toString().replaceAll("/$", "");
         String image = properties.getNode().getImage();
         String containerName = "agenticform-node-" + name.toLowerCase().replaceAll("[^a-z0-9]+", "-");
-        String command = "test -d \"$HOME/.codex\" || { echo 'Codex login is required on this node first'; exit 1; }; "
+        String command = "test \"$(id -u)\" -ne 0 || { echo 'Run Agenticform node setup as a non-root user'; exit 1; }; "
+                + "test -d \"$HOME/.codex\" || { echo 'Codex login is required on this node first'; exit 1; }; "
                 + "mkdir -p \"$HOME/.agenticform-node\" && chmod 700 \"$HOME/.agenticform-node\" && "
                 + "docker run --rm --user \"$(id -u):$(id -g)\" "
+                + "--security-opt no-new-privileges:true --cap-drop ALL "
                 + "-v \"$HOME/.agenticform-node:/var/lib/agenticform-node\" "
                 + "-e AGENTICFORM_SERVER='" + server + "' "
                 + "-e AGENTICFORM_ENROLLMENT_TOKEN='" + token + "' " + image + " enroll"
                 + " && docker run -d --name " + containerName + " --restart unless-stopped "
-                + "--user \"$(id -u):$(id -g)\" "
+                + "--user \"$(id -u):$(id -g)\" --security-opt no-new-privileges:true --cap-drop ALL "
                 + "-v \"$HOME/.agenticform-node:/var/lib/agenticform-node\" "
                 + "-v \"$HOME/.codex:/codex-home\" -e CODEX_HOME=/codex-home "
                 + "-e AGENTICFORM_SERVER='" + server + "' " + image + " daemon";
