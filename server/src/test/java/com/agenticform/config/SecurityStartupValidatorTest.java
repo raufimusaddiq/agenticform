@@ -13,9 +13,12 @@ class SecurityStartupValidatorTest {
             + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     @Test
-    void localhostMayBootstrapWithoutAdminToken() {
+    void localhostStillRequiresAdminToken() {
         AgenticformProperties properties = new AgenticformProperties();
         properties.setPublicUrl(URI.create("http://localhost:8080"));
+        assertThrows(IllegalStateException.class, () -> new SecurityStartupValidator(properties).validate());
+
+        properties.getSecurity().setAdminToken(ADMIN_TOKEN);
         assertDoesNotThrow(() -> new SecurityStartupValidator(properties).validate());
     }
 
