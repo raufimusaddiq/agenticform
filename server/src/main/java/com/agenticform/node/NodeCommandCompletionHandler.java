@@ -42,8 +42,10 @@ public class NodeCommandCompletionHandler {
         } catch (Exception completionError) {
             if (command.getAgentId() != null) {
                 agents.findById(command.getAgentId()).ifPresent(agent -> {
-                    agent.setStatus(AgentStatus.DISCONNECTED);
-                    agents.save(agent);
+                    if (agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) {
+                        agent.setStatus(AgentStatus.DISCONNECTED);
+                        agents.save(agent);
+                    }
                 });
             }
         }
@@ -52,7 +54,7 @@ public class NodeCommandCompletionHandler {
     private void completeStart(NodeCommandEntity command, boolean success, String resultJson, String error) throws Exception {
         if (command.getAgentId() == null) return;
         AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
-        if (agent == null) return;
+        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
         if (!success) {
             agent.setStatus(AgentStatus.FAILED);
             agents.save(agent);
@@ -63,7 +65,7 @@ public class NodeCommandCompletionHandler {
         String sourceDirectory = required(result, "sourceDirectory");
         String workingDirectory = required(result, "workingDirectory");
         String branch = result.path("branch").asText(null);
-        agent.bindRuntime(threadId, sourceDirectory, workingDirectory, branch);
+        agent.bindRuntime(command.getRuntimeGeneration(), threadId, sourceDirectory, workingDirectory, branch);
         agents.save(agent);
     }
 
@@ -73,16 +75,15 @@ public class NodeCommandCompletionHandler {
         TaskEntity task = tasks.findById(taskId).orElse(null);
         if (task == null) return;
         AgentEntity agent = agents.findById(task.getAssignedAgentId()).orElse(null);
+        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
         if (!success) {
             task.setStatus(TaskStatus.BLOCKED);
             task.setLastError(error == null || error.isBlank() ? "Remote task dispatch failed" : error);
             tasks.save(task);
-            if (agent != null) {
-                agent.setStatus(AgentStatus.DISCONNECTED);
-                agent.setActiveTaskId(null);
-                agent.setActiveTurnId(null);
-                agents.save(agent);
-            }
+            agent.setStatus(AgentStatus.DISCONNECTED);
+            agent.setActiveTaskId(null);
+            agent.setActiveTurnId(null);
+            agents.save(agent);
             return;
         }
         JsonNode result = parse(resultJson);
@@ -96,7 +97,7 @@ public class NodeCommandCompletionHandler {
             task.setStatus(TaskStatus.DISPATCHED);
         }
         tasks.save(task);
-        if (agent != null && turnId != null && !turnId.isBlank()) {
+        if (turnId != null && !turnId.isBlank()) {
             agent.setStatus(AgentStatus.WORKING);
             agent.setActiveTaskId(task.getId());
             agent.setActiveTurnId(turnId);
@@ -109,6 +110,8 @@ public class NodeCommandCompletionHandler {
         if (parts.length != 3 || !"message".equals(parts[0])) return;
         UUID messageId = UUID.fromString(parts[1]);
         UUID agentId = UUID.fromString(parts[2]);
+        AgentEntity agent = agents.findById(agentId).orElse(null);
+        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
         AgentMessageDeliveryEntity delivery = deliveries.findByMessageIdAndToAgentId(messageId, agentId).orElse(null);
         if (delivery == null) return;
         if (!success) {
