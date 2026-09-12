@@ -17,10 +17,6 @@ WHERE command.agent_id = agent.id;
 ALTER TABLE human_approvals
     ADD COLUMN remote_interaction_id UUID;
 
-CREATE UNIQUE INDEX ux_human_approvals_remote_interaction
-    ON human_approvals(remote_interaction_id)
-    WHERE remote_interaction_id IS NOT NULL;
-
 CREATE TABLE remote_codex_interactions (
     id UUID PRIMARY KEY,
     node_id UUID NOT NULL REFERENCES execution_nodes(id) ON DELETE CASCADE,
@@ -39,6 +35,16 @@ CREATE TABLE remote_codex_interactions (
 );
 CREATE INDEX idx_remote_codex_interactions_status ON remote_codex_interactions(status, created_at);
 CREATE INDEX idx_remote_codex_interactions_agent ON remote_codex_interactions(agent_id, runtime_generation);
+
+ALTER TABLE human_approvals
+    ADD CONSTRAINT fk_human_approvals_remote_interaction
+    FOREIGN KEY (remote_interaction_id)
+    REFERENCES remote_codex_interactions(id)
+    ON DELETE SET NULL;
+
+CREATE UNIQUE INDEX ux_human_approvals_remote_interaction
+    ON human_approvals(remote_interaction_id)
+    WHERE remote_interaction_id IS NOT NULL;
 
 CREATE TABLE node_runtime_snapshots (
     id UUID PRIMARY KEY,
