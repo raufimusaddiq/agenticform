@@ -2,7 +2,6 @@ package com.agenticform.node;
 
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
-import com.agenticform.agent.AgentStatus;
 import com.agenticform.config.AgenticformProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,7 +11,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HexFormat;
@@ -30,7 +28,7 @@ public class ExecutionNodeService {
     public record RuntimeObservation(UUID agentId, long runtimeGeneration, String threadId,
                                      String sourceDirectory, String workingDirectory, String branch,
                                      String runtimeStatus) {}
-    public record Heartbeat(String labelsJson, String capabilitiesJson, int maxAgents,
+    public record Heartbeat(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
                             String os, String arch, String hostname, String nodeVersion,
                             String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb,
                             List<RuntimeObservation> runtimes) {}
@@ -128,8 +126,8 @@ public class ExecutionNodeService {
     @Transactional
     public ExecutionNodeEntity heartbeat(UUID nodeId, Heartbeat heartbeat) {
         ExecutionNodeEntity node = get(nodeId);
-        node.heartbeat(heartbeat.labelsJson(), heartbeat.capabilitiesJson(), heartbeat.maxAgents(),
-                heartbeat.os(), heartbeat.arch(), heartbeat.hostname(), heartbeat.nodeVersion,
+        node.heartbeat(heartbeat.protocolVersion(), heartbeat.labelsJson(), heartbeat.capabilitiesJson(), heartbeat.maxAgents(),
+                heartbeat.os(), heartbeat.arch(), heartbeat.hostname(), heartbeat.nodeVersion(),
                 heartbeat.codexVersion(), heartbeat.cpuCores(), heartbeat.memoryMb(), heartbeat.diskFreeMb());
         ExecutionNodeEntity saved = nodes.save(node);
         reconcileRuntimeInventory(nodeId, heartbeat.runtimes());
@@ -176,6 +174,10 @@ public class ExecutionNodeService {
         if (node.getStatus() == ExecutionNodeStatus.REVOKED || node.getStatus() == ExecutionNodeStatus.DISABLED) {
             throw new IllegalStateException("Execution node cannot accept commands: " + node.getStatus());
         }
+        if (!node.isProtocolCompatible()) {
+            throw new IllegalStateException("Execution node protocol " + node.getProtocolVersion()
+                    + " is incompatible with this control plane");
+        }
         long generation = 0;
         if (agentId != null) {
             AgentEntity agent = agents.findById(agentId)
@@ -201,6 +203,8 @@ public class ExecutionNodeService {
 
     @Transactional
     public NodeCommandEntity leaseNext(UUID nodeId) {
+        ExecutionNodeEntity node = get(nodeId);
+        if (!node.isProtocolCompatible()) return null;
         Instant now = Instant.now();
         for (int stale = 0; stale < 100; stale++) {
             NodeCommandEntity command = commands.findNextAvailableForUpdate(nodeId, now).orElse(null);
