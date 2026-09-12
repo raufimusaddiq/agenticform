@@ -1,5 +1,6 @@
 package com.agenticform.approval;
 
+import com.agenticform.agent.AgentCapabilityPolicy;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentQueueMode;
 import com.agenticform.agent.HumanControlMode;
@@ -27,7 +28,7 @@ class HumanApprovalPolicyTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final DeterministicPolicyEngine engine = mock(DeterministicPolicyEngine.class);
     private final PolicyActionClassifier classifier = new PolicyActionClassifier();
-    private final HumanApprovalPolicy policy = new HumanApprovalPolicy(classifier, engine);
+    private final HumanApprovalPolicy policy = new HumanApprovalPolicy(classifier, engine, new AgentCapabilityPolicy());
 
     @BeforeEach
     void defaultRules() {
