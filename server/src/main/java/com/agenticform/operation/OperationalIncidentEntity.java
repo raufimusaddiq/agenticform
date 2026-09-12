@@ -120,14 +120,22 @@ public class OperationalIncidentEntity {
         boolean escalated = severity != null && severity.higherThan(this.severity);
         if (escalated) {
             this.severity = severity;
-            this.wakeStatus = WakeStatus.PENDING;
-            this.wakeCommandId = null;
-            this.lastWakeError = null;
+            requestWakeForNewEvidence();
         }
         if (summary != null && !summary.isBlank()) this.summary = summary;
         if (suspectedChange != null && !suspectedChange.isBlank()) this.suspectedChange = suspectedChange;
         lastSeenAt = observedAt == null ? Instant.now() : observedAt;
         return escalated;
+    }
+
+    public void requestWakeForNewEvidence() {
+        if (terminal()) return;
+        if (wakeStatus == WakeStatus.DELIVERED || (wakeStatus == WakeStatus.FAILED && wakeCommandId == null)) {
+            wakeStatus = WakeStatus.PENDING;
+            wakeCommandId = null;
+            wakeAttempts = 0;
+            lastWakeError = null;
+        }
     }
 
     public void setOperationalAgentId(UUID operationalAgentId) { this.operationalAgentId = operationalAgentId; }
@@ -165,11 +173,18 @@ public class OperationalIncidentEntity {
     }
 
     public void transition(Status next, String resolutionSummary) {
-        if (status == Status.RESOLVED && next != Status.RESOLVED) {
-            throw new IllegalStateException("Resolved incident cannot be reopened implicitly");
+        if (terminal() && next != status) {
+            throw new IllegalStateException("Terminal incident cannot be reopened implicitly");
+        }
+        if ((next == Status.RESOLVED || next == Status.SUPPRESSED)
+                && (resolutionSummary == null || resolutionSummary.isBlank())) {
+            throw new IllegalArgumentException("Terminal incident status requires a resolution or suppression summary");
         }
         status = next;
         if (next == Status.RESOLVED) {
+            this.resolutionSummary = resolutionSummary;
+            resolvedAt = Instant.now();
+        } else if (next == Status.SUPPRESSED) {
             this.resolutionSummary = resolutionSummary;
             resolvedAt = Instant.now();
         } else if (resolutionSummary != null && !resolutionSummary.isBlank()) {
