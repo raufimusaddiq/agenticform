@@ -16,7 +16,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "node_commands")
 public class NodeCommandEntity {
-    public enum Status { QUEUED, LEASED, SUCCEEDED, FAILED }
+    public enum Status { QUEUED, LEASED, SUCCEEDED, FAILED, CANCELLED }
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -27,6 +27,9 @@ public class NodeCommandEntity {
 
     @Column(name = "agent_id")
     private UUID agentId;
+
+    @Column(name = "runtime_generation", nullable = false)
+    private long runtimeGeneration;
 
     @Column(name = "command_type", nullable = false, length = 64)
     private String commandType;
@@ -43,6 +46,9 @@ public class NodeCommandEntity {
 
     @Column(name = "lease_until")
     private Instant leaseUntil;
+
+    @Column(name = "attempt_count", nullable = false)
+    private int attemptCount;
 
     @Column(name = "result_json", columnDefinition = "text")
     private String resultJson;
@@ -61,10 +67,11 @@ public class NodeCommandEntity {
 
     protected NodeCommandEntity() {}
 
-    public NodeCommandEntity(UUID nodeId, UUID agentId, String commandType,
+    public NodeCommandEntity(UUID nodeId, UUID agentId, long runtimeGeneration, String commandType,
                              String idempotencyKey, String payloadJson) {
         this.nodeId = nodeId;
         this.agentId = agentId;
+        this.runtimeGeneration = runtimeGeneration;
         this.commandType = commandType;
         this.idempotencyKey = idempotencyKey;
         this.payloadJson = payloadJson;
@@ -81,6 +88,7 @@ public class NodeCommandEntity {
         status = Status.LEASED;
         leasedAt = Instant.now();
         leaseUntil = until;
+        attemptCount++;
     }
 
     public void succeed(String resultJson) {
@@ -98,14 +106,27 @@ public class NodeCommandEntity {
         this.leaseUntil = null;
     }
 
+    public void cancel(String reason) {
+        status = Status.CANCELLED;
+        lastError = reason;
+        completedAt = Instant.now();
+        leaseUntil = null;
+    }
+
+    public boolean terminal() {
+        return status == Status.SUCCEEDED || status == Status.FAILED || status == Status.CANCELLED;
+    }
+
     public UUID getId() { return id; }
     public UUID getNodeId() { return nodeId; }
     public UUID getAgentId() { return agentId; }
+    public long getRuntimeGeneration() { return runtimeGeneration; }
     public String getCommandType() { return commandType; }
     public String getIdempotencyKey() { return idempotencyKey; }
     public String getPayloadJson() { return payloadJson; }
     public Status getStatus() { return status; }
     public Instant getLeaseUntil() { return leaseUntil; }
+    public int getAttemptCount() { return attemptCount; }
     public String getResultJson() { return resultJson; }
     public String getLastError() { return lastError; }
     public Instant getCreatedAt() { return createdAt; }
