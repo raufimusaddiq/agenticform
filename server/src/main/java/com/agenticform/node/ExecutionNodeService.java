@@ -67,11 +67,14 @@ public class ExecutionNodeService {
 
         String server = properties.getPublicUrl().toString().replaceAll("/$", "");
         String image = properties.getNode().getImage();
-        String command = "docker run -d --name agenticform-node --restart unless-stopped "
-                + "-v agenticform-node:/var/lib/agenticform-node "
+        String volume = "agenticform-node-" + name.toLowerCase().replaceAll("[^a-z0-9]+", "-");
+        String command = "docker run --rm -v " + volume + ":/var/lib/agenticform-node "
                 + "-e AGENTICFORM_SERVER='" + server + "' "
                 + "-e AGENTICFORM_ENROLLMENT_TOKEN='" + token + "' "
-                + "-e AGENTICFORM_NODE_NAME='" + shellSafe(name) + "' " + image;
+                + "-e AGENTICFORM_NODE_NAME='" + shellSafe(name) + "' " + image + " enroll"
+                + " && docker run -d --name agenticform-node-" + shellSafe(name)
+                + " --restart unless-stopped -v " + volume + ":/var/lib/agenticform-node "
+                + "-e AGENTICFORM_SERVER='" + server + "' " + image + " daemon";
         return new Enrollment(token, expiresAt, command);
     }
 
@@ -80,7 +83,7 @@ public class ExecutionNodeService {
         if (rawToken == null || !rawToken.startsWith("afenroll_")) {
             throw new IllegalArgumentException("Invalid enrollment token");
         }
-        NodeEnrollmentTokenEntity token = tokens.findByTokenHash(hash(rawToken))
+        NodeEnrollmentTokenEntity token = tokens.findByTokenHashForUpdate(hash(rawToken))
                 .orElseThrow(() -> new IllegalArgumentException("Invalid enrollment token"));
         if (!token.usable(Instant.now())) throw new IllegalArgumentException("Enrollment token is expired or already used");
 
@@ -92,10 +95,10 @@ public class ExecutionNodeService {
             throw new IllegalArgumentException("Execution node name already exists");
         }
 
-        ExecutionNodeEntity node = nodes.save(new ExecutionNodeEntity(
-                token.getRequestedName(), token.getRequestedTrustLevel(), publicKeyBase64, fingerprint));
         token.consume();
         tokens.save(token);
+        ExecutionNodeEntity node = nodes.save(new ExecutionNodeEntity(
+                token.getRequestedName(), token.getRequestedTrustLevel(), publicKeyBase64, fingerprint));
         return new EnrollmentResult(node.getId(), node.getName(), node.getFingerprint(), node.getTrustLevel());
     }
 
