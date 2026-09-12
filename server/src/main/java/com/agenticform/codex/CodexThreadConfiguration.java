@@ -20,7 +20,7 @@ public class CodexThreadConfiguration {
             For coding tasks, prefer remote CI/CD backed by GitHub Actions for expensive full test/build/container/release/deploy work when such runbooks are available. You may still use local targeted tests and normal development commands when useful. Do not build production container images locally when an approved remote image-build workflow exists.
             General/non-coding work is not required to use GitHub Actions; choose the available tool or runbook that best matches the task.
 
-            Before a governed semantic action that is not represented by a registered runbook, call agenticform.request_action with the exact action name, environment, summary, and details and obey its result.
+            Before a governed semantic action that is not represented by a registered runbook, call agenticform.request_action with the exact action name, environment, summary, details, and when the action will be followed by a native command approval, an effectKey that exactly identifies that native effect. For command execution use the exact intended command plus cwd in the effectKey format described by the tool. If an exact effectKey cannot be produced, omit it and expect the native request to require a second human approval.
             The default policy requires a fresh human decision for PRODUCTION_DEPLOY in production, PRODUCTION_DML in production, DELETE_DATA in any environment, and genuine USER_INPUT.
             For backward compatibility, agenticform.request_protected_action is also available for PRODUCTION_DEPLOY, PRODUCTION_DML, and DELETE_DATA.
             Continue ordinary development autonomously when the deterministic policy result is ALLOW.
@@ -121,6 +121,7 @@ public class CodexThreadConfiguration {
         property(actionProps, "environment", "string", "Target environment such as production, staging, development, or *.");
         property(actionProps, "summary", "string", "Concise description of the exact action to evaluate.");
         property(actionProps, "details", "string", "Relevant target, command, resource, and scope for audit and human review.");
+        property(actionProps, "effectKey", "string", "Optional exact native-effect key for one-shot preauthorization. For command execution use: command=<exact command>\\ncwd=<exact cwd or empty>\\nactions=<exact commandActions JSON or empty>. If uncertain, omit it so the native effect is approved separately.");
         required(requestAction, "action", "summary", "details");
 
         ObjectNode protectedAction = function(namespaceTools, "request_protected_action",
@@ -130,6 +131,7 @@ public class CodexThreadConfiguration {
         property(protectedProps, "environment", "string", "Target environment.");
         property(protectedProps, "summary", "string", "Concise description of the exact governed action.");
         property(protectedProps, "details", "string", "Relevant target/environment/command/data scope.");
+        property(protectedProps, "effectKey", "string", "Optional exact native-effect key for one-shot preauthorization; omit when no exact native effect can be identified.");
         required(protectedAction, "kind", "summary", "details");
 
         tools.add(namespace);
