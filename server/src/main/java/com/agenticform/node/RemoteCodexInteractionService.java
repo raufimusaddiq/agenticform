@@ -13,7 +13,7 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @Service
-public class RemoteCodexInteractionService {
+public class RemoteCodexInteractionService implements RemoteInteractionService {
     public record InteractionView(UUID id, RemoteCodexInteractionEntity.Status status,
                                   String responseJson, String error) {}
 

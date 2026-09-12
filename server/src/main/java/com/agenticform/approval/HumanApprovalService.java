@@ -3,7 +3,7 @@ package com.agenticform.approval;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.node.RemoteCodexInteractionService;
+import com.agenticform.node.RemoteInteractionService;
 import com.agenticform.node.RemoteInteractionContext;
 import com.agenticform.policy.PolicyEffect;
 import com.agenticform.policy.PolicyPreauthorizationService;
@@ -30,14 +30,14 @@ public class HumanApprovalService {
     private final HumanApprovalPolicy policy;
     private final PolicyPreauthorizationService preauthorizations;
     private final RemoteInteractionContext remoteContext;
-    private final RemoteCodexInteractionService remoteInteractions;
+    private final RemoteInteractionService remoteInteractions;
     private final ObjectMapper mapper;
     private final Map<UUID, CompletableFuture<JsonNode>> pendingResponses = new ConcurrentHashMap<>();
 
     public HumanApprovalService(HumanApprovalRepository repository, AgentRepository agentRepository,
                                 HumanApprovalPolicy policy, PolicyPreauthorizationService preauthorizations,
                                 RemoteInteractionContext remoteContext,
-                                RemoteCodexInteractionService remoteInteractions,
+                                RemoteInteractionService remoteInteractions,
                                 ObjectMapper mapper) {
         this.repository = repository;
         this.agentRepository = agentRepository;

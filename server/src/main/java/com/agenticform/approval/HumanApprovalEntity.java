@@ -175,7 +175,7 @@ public class HumanApprovalEntity {
 
     public void orphan() {
         this.status = HumanApprovalStatus.ORPHANED;
-        this.lastError = "Agenticform restarted before the local Codex server request was resolved";
+        this.lastError = "Agenticform restarted before the local runtime request was resolved";
         this.resolvedAt = Instant.now();
     }
 }
