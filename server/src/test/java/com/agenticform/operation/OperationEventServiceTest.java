@@ -47,7 +47,6 @@ class OperationEventServiceTest {
     void remoteOperationalAgentReceivesTerminalEventThroughNodeFabric() {
         UUID eventId = UUID.randomUUID();
         UUID runId = UUID.randomUUID();
-        UUID projectId = UUID.randomUUID();
         UUID agentId = UUID.randomUUID();
         UUID nodeId = UUID.randomUUID();
         UUID commandId = UUID.randomUUID();
@@ -55,7 +54,6 @@ class OperationEventServiceTest {
         OperationEventEntity event = mock(OperationEventEntity.class);
         when(event.getId()).thenReturn(eventId);
         when(event.getOperationRunId()).thenReturn(runId);
-        when(event.getProjectId()).thenReturn(projectId);
         when(event.getTargetAgentId()).thenReturn(agentId);
         when(event.getEventType()).thenReturn("OPERATION_FAILED");
         when(event.getPayload()).thenReturn("failed deploy");
@@ -86,7 +84,6 @@ class OperationEventServiceTest {
 
     @Test
     void queuedRemoteOperationEventReconcilesTerminalCommand() {
-        UUID eventId = UUID.randomUUID();
         UUID commandId = UUID.randomUUID();
         OperationEventEntity event = mock(OperationEventEntity.class);
         when(event.getStatus()).thenReturn(OperationEventEntity.Status.QUEUED);
