@@ -51,6 +51,12 @@ public class OperationalIncidentWakeService {
                 OperationalIncidentEntity.WakeStatus.QUEUED));
         for (OperationalIncidentEntity incident : rows) {
             if (incident.terminal() || incident.getWakeAttempts() >= MAX_ATTEMPTS) continue;
+            if (incident.getWakeStatus() == OperationalIncidentEntity.WakeStatus.FAILED
+                    && incident.getWakeCommandId() != null) {
+                // The node command reached a terminal failure. It may have crossed the side-effect boundary
+                // before a crash, so only an explicit operator retry may create another command.
+                continue;
+            }
             try {
                 if (incident.getWakeStatus() == OperationalIncidentEntity.WakeStatus.QUEUED
                         && reconcileQueued(incident)) continue;
@@ -111,9 +117,10 @@ public class OperationalIncidentWakeService {
         incident.setOperationalAgentId(target.getId());
         String clientMessageId = "agenticform-incident:" + incident.getId() + ":g" + target.getRuntimeGeneration();
         if (target.getExecutionNodeId() != null) {
+            String commandKey = clientMessageId + ":attempt:" + (incident.getWakeAttempts() + 1);
             NodeCommandEntity command = nodeService.enqueue(
                     target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
-                    clientMessageId, Map.of(
+                    commandKey, Map.of(
                             "incidentId", incident.getId().toString(),
                             "threadId", target.getCodexThreadId(),
                             "clientMessageId", clientMessageId,
