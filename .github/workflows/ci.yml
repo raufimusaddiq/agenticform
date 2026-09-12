@@ -8,6 +8,24 @@ on:
 jobs:
   server:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: agenticform_migration_test
+          POSTGRES_USER: agenticform
+          POSTGRES_PASSWORD: agenticform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agenticform -d agenticform_migration_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MIGRATION_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/agenticform_migration_test
+      MIGRATION_TEST_DATABASE_USER: agenticform
+      MIGRATION_TEST_DATABASE_PASSWORD: agenticform
     defaults:
       run:
         working-directory: server
@@ -18,7 +36,7 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - name: Test server
+      - name: Test server and Flyway migrations
         run: mvn -B test
 
   node:
@@ -48,7 +66,7 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
       - name: Install dependencies
