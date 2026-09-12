@@ -110,7 +110,7 @@ public class ExecutionNodeService {
     public ExecutionNodeEntity heartbeat(UUID nodeId, Heartbeat heartbeat) {
         ExecutionNodeEntity node = get(nodeId);
         node.heartbeat(heartbeat.labelsJson(), heartbeat.capabilitiesJson(), heartbeat.maxAgents(),
-                heartbeat.os(), heartbeat.arch(), heartbeat.hostname(), heartbeat.nodeVersion(),
+                heartbeat.os(), heartbeat.arch(), heartbeat.hostname(), heartbeat.nodeVersion,
                 heartbeat.codexVersion(), heartbeat.cpuCores(), heartbeat.memoryMb(), heartbeat.diskFreeMb());
         return nodes.save(node);
     }
@@ -142,9 +142,7 @@ public class ExecutionNodeService {
     @Transactional
     public NodeCommandEntity leaseNext(UUID nodeId) {
         Instant now = Instant.now();
-        NodeCommandEntity command = commands.findAllByNodeIdOrderByCreatedAtAsc(nodeId).stream()
-                .filter(candidate -> candidate.available(now))
-                .findFirst().orElse(null);
+        NodeCommandEntity command = commands.findNextAvailableForUpdate(nodeId, now).orElse(null);
         if (command == null) return null;
         command.lease(now.plus(properties.getNode().getCommandLease()));
         return commands.save(command);
@@ -153,9 +151,15 @@ public class ExecutionNodeService {
     @Transactional
     public NodeCommandEntity complete(UUID nodeId, UUID commandId, boolean success,
                                       String resultJson, String error) {
-        NodeCommandEntity command = commands.findById(commandId)
+        NodeCommandEntity command = commands.findByIdForUpdate(commandId)
                 .orElseThrow(() -> new NoSuchElementException("Node command not found: " + commandId));
         if (!nodeId.equals(command.getNodeId())) throw new IllegalArgumentException("Node command belongs to another node");
+        if (command.getStatus() == NodeCommandEntity.Status.SUCCEEDED || command.getStatus() == NodeCommandEntity.Status.FAILED) {
+            throw new IllegalStateException("Node command is already terminal");
+        }
+        if (command.getStatus() != NodeCommandEntity.Status.LEASED) {
+            throw new IllegalStateException("Node command is not currently leased");
+        }
         if (success) command.succeed(resultJson == null ? "{}" : resultJson);
         else command.fail(error == null || error.isBlank() ? "Node command failed" : error);
         return commands.save(command);
