@@ -112,7 +112,7 @@ public class AgentRuntimeRecoveryService {
         payload.put("recovery", true);
         payload.put("previousNodeId", oldNodeId.toString());
         if (activeTask != null) payload.put("recoveryTaskId", activeTask.getId().toString());
-        payload.put("threadStartParams", runtimeRegistry.get(runtimeType).startParameters("", agent.getResponsibility(), agent.getCapabilityProfile()));
+        payload.put("runtimeStartParams", runtimeRegistry.get(runtimeType).startParameters("", agent.getResponsibility(), agent.getCapabilityProfile()));
         nodeService.enqueue(replacement.getId(), agent.getId(), "START_AGENT",
                 "start-agent:" + agent.getId() + ":g" + generation, payload);
         return agent;

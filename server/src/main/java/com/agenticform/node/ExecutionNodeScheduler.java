@@ -91,10 +91,6 @@ public class ExecutionNodeScheduler {
                     JsonNode descriptor = capabilities.path("runtimes").path(runtime);
                     if (!descriptor.path("available").asBoolean(false)
                             || !descriptor.path("authenticated").asBoolean(false)) return false;
-                } else if ("codex".equalsIgnoreCase(capability) && capabilities.path("runtimes").has("CODEX")) {
-                    JsonNode descriptor = capabilities.path("runtimes").path("CODEX");
-                    if (!descriptor.path("available").asBoolean(false)
-                            || !descriptor.path("authenticated").asBoolean(false)) return false;
                 } else if (!capabilities.path(capability).asBoolean(false)) return false;
             }
             return true;

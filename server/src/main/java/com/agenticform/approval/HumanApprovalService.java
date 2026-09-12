@@ -100,15 +100,6 @@ public class HumanApprovalService {
         return applyDecision(approval, agent, type, params, evaluation);
     }
 
-    public CompletionStage<JsonNode> receiveProtectedAction(CodexJsonRpcClient.ServerRequest request,
-                                                              AgentEntity agent,
-                                                              JsonNode arguments) {
-        HumanApprovalPolicy.Evaluation evaluation = policy.evaluate(agent, HumanApprovalType.PROTECTED_ACTION, arguments);
-        HumanApprovalEntity approval = createApproval(request, agent, HumanApprovalType.PROTECTED_ACTION,
-                "agenticform/request_protected_action", arguments, evaluation);
-        return applyDecision(approval, agent, HumanApprovalType.PROTECTED_ACTION, arguments, evaluation);
-    }
-
     public CompletionStage<JsonNode> receiveDeclaredAction(CodexJsonRpcClient.ServerRequest request,
                                                              AgentEntity agent,
                                                              JsonNode arguments) {

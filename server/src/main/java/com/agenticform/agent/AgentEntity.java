@@ -35,7 +35,7 @@ public class AgentEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "runtime_type", nullable = false, length = 32)
-    private RuntimeType runtimeType = RuntimeType.CODEX;
+    private RuntimeType runtimeType;
 
     @Column(name = "runtime_session_id")
     private String runtimeSessionId;

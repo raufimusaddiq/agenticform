@@ -22,6 +22,7 @@ class AgentRuntimeGenerationTest {
                 WorkspaceMode.ISOLATED_WORKTREE, null, null, "agent/coder",
                 AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
                 AgentRole.GENERAL, false, nodeA);
+        agent.setRuntimeType(RuntimeType.CODEX);
 
         assertEquals(1L, agent.getRuntimeGeneration());
         assertTrue(agent.ownsRuntime(nodeA, 1, RuntimeType.CODEX, null));
@@ -51,6 +52,7 @@ class AgentRuntimeGenerationTest {
                 WorkspaceMode.ISOLATED_WORKTREE, null, null, "agent/coder",
                 AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
                 AgentRole.GENERAL, false, node);
+        agent.setRuntimeType(RuntimeType.CODEX);
         agent.bindRuntime(1, RuntimeType.CODEX, "thread-1", "/src-1", "/work-1", "branch-1");
         agent.reassignRuntime(node, "branch-2");
         agent.bindRuntime(2, RuntimeType.CODEX, "thread-2", "/src-2", "/work-2", "branch-2");

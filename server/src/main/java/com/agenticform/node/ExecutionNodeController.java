@@ -57,16 +57,16 @@ public class ExecutionNodeController {
         String path = "/api/nodes/" + nodeId + "/heartbeat";
         signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         HeartbeatRequest request = mapper.readValue(body, HeartbeatRequest.class);
+        if (request.protocolVersion() <= 0) {
+            throw new IllegalArgumentException("Heartbeat protocolVersion is required");
+        }
         List<ExecutionNodeService.RuntimeObservation> runtimes = request.runtimes() == null ? List.of()
                 : request.runtimes().stream().map(runtime -> new ExecutionNodeService.RuntimeObservation(
                         runtime.agentId(), runtime.runtimeType(), runtime.runtimeGeneration(),
                         runtime.runtimeSessionId(), runtime.sourceDirectory(),
                         runtime.workingDirectory(), runtime.branch(), runtime.runtimeStatus())).toList();
-        int protocolVersion = request.protocolVersion() != null
-                ? request.protocolVersion()
-                : ("0.2.0".equals(request.nodeVersion()) ? ExecutionNodeProtocol.CURRENT : 0);
         return service.heartbeat(nodeId, new ExecutionNodeService.Heartbeat(
-                protocolVersion, request.labelsJson(), request.capabilitiesJson(), request.maxAgents(),
+                request.protocolVersion(), request.labelsJson(), request.capabilitiesJson(), request.maxAgents(),
                 request.os(), request.arch(), request.hostname(), request.nodeVersion(), request.codexVersion(),
                 request.cpuCores(), request.memoryMb(), request.diskFreeMb(), runtimes));
     }
@@ -115,7 +115,7 @@ public class ExecutionNodeController {
     public record RuntimeObservationRequest(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String runtimeSessionId,
                                             String sourceDirectory, String workingDirectory, String branch,
                                             String runtimeStatus) {}
-    public record HeartbeatRequest(Integer protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
+    public record HeartbeatRequest(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
                                    String os, String arch, String hostname, String nodeVersion,
                                    String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb,
                                    List<RuntimeObservationRequest> runtimes) {}

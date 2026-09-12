@@ -2,18 +2,14 @@ package com.agenticform.operation;
 
 import com.agenticform.policy.PolicyEffect;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.ObjectMapper;
 
-import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyMap;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,22 +41,14 @@ class ExternalWorkflowServiceTest {
     }
 
     @Test
-    void dispatchCanUseShaInputForLegacyRunbookCorrelation() throws Exception {
-        when(waits.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(github.dispatchWorkflow(anyString(), anyString(), anyString(), anyMap()))
-                .thenReturn(Instant.parse("2026-09-11T10:00:00Z"));
-        when(github.listWorkflowRuns("owner/repo", "deploy.yml"))
-                .thenReturn(List.of());
+    void dispatchRequiresExplicitExpectedHeadSha() {
         OperationRunEntity run = run();
         OperationStepRunEntity step = new OperationStepRunEntity(UUID.randomUUID(), "deploy", "Deploy", "GITHUB_WORKFLOW", 0);
 
-        service.begin(run, step, new ExternalWorkflowService.BeginRequest(
-                "DISPATCH", "owner/repo", "deploy.yml", "main", null, Map.of("sha", "abc123"), 600));
-
-        ArgumentCaptor<OperationExternalWaitEntity> wait = ArgumentCaptor.forClass(OperationExternalWaitEntity.class);
-        verify(waits).save(wait.capture());
-        assertThat(wait.getValue().getExpectedHeadSha()).isEqualTo("abc123");
-        assertThat(wait.getValue().getMode()).isEqualTo("DISPATCH");
+        assertThatThrownBy(() -> service.begin(run, step, new ExternalWorkflowService.BeginRequest(
+                "DISPATCH", "owner/repo", "deploy.yml", "main", null, Map.of("sha", "abc123"), 600)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Durable GitHub workflow waits require expectedHeadSha");
     }
 
     private OperationRunEntity run() {

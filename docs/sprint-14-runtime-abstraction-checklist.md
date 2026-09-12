@@ -24,19 +24,19 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Add runtime type/session fields without destructive reset.
 - [x] Rename provider-specific task, message, operation-event, and incident execution fields to neutral names.
 - [x] Persist runtime type and opaque `runtimeSessionId` directly; no legacy Codex identity column.
-- [x] Keep Flyway numbering ordered after the current operational-intelligence migration.
-- [x] Verify migrated-agent compatibility and idempotent V14→V19 migration.
+- [x] Consolidate the pre-deployment schema into one final V1 baseline.
+- [x] Verify fresh-baseline application and idempotent Flyway execution.
 
 ## Node scheduling
 
-- [x] Advertise structured runtime inventory while retaining the legacy Codex capability alias.
+- [x] Advertise structured runtime inventory; placement uses `runtime:<type>` requirements.
 - [x] Persist runtime type on node observations and include it in node heartbeats/commands.
 - [x] Include runtime type in remote start, dispatch, delivery, recovery, and stop payloads.
 - [x] Reject unsupported runtime types at the node command boundary; runtime type is required.
 - [x] Use runtime-specific placement/recovery requirements without legacy alias parsing.
 - [x] Validate runtime requirements during placement and command dispatch.
 - [x] Preserve node identity, capability sandbox, and tenant/security checks through existing node security tests.
-- [x] Document the inventory payload and compatibility behavior.
+- [x] Document the inventory payload and explicit runtime identity contract.
 
 ## Verification and exit gate
 

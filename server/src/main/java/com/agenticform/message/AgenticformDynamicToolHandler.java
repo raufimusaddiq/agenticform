@@ -140,7 +140,6 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                 yield CompletableFuture.completedFuture(updateIncident(source, arguments));
             }
             case "request_action" -> approvalService.receiveDeclaredAction(request, source, arguments);
-            case "request_protected_action" -> approvalService.receiveProtectedAction(request, source, arguments);
             default -> throw new IllegalArgumentException("Unknown Agenticform dynamic tool: " + tool);
         };
     }

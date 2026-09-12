@@ -29,7 +29,10 @@ import (
 	"time"
 )
 
-const version = "0.2.0"
+const (
+	version        = "0.2.0"
+	protocolVersion = 1
+)
 
 type identity struct {
 	NodeID       string `json:"nodeId"`
@@ -80,7 +83,6 @@ type runtimeRecord struct {
 	RuntimeType       string `json:"runtimeType"`
 	RuntimeGeneration int64  `json:"runtimeGeneration"`
 	RuntimeSessionID  string `json:"runtimeSessionId"`
-	ThreadID          string `json:"-"`
 	SourceDirectory   string `json:"sourceDirectory"`
 	WorkingDirectory  string `json:"workingDirectory"`
 	Branch            string `json:"branch"`
@@ -277,7 +279,6 @@ func (d *daemonRuntime) heartbeat() error {
 	codexVersion, codexAvailable, codexAuthenticated := detectCodex()
 	capabilities, _ := json.Marshal(map[string]any{
 		"git":   commandExists("git"),
-		"codex": codexAvailable && codexAuthenticated,
 		"runtimes": map[string]any{
 			"CODEX": map[string]any{
 				"available":     codexAvailable,
@@ -295,6 +296,7 @@ func (d *daemonRuntime) heartbeat() error {
 	d.stateMu.Unlock()
 	sort.Slice(runtimes, func(i, j int) bool { return runtimes[i].AgentID < runtimes[j].AgentID })
 	body, _ := json.Marshal(map[string]any{
+		"protocolVersion": protocolVersion,
 		"labelsJson":       string(labels),
 		"capabilitiesJson": string(capabilities),
 		"maxAgents":        envInt("AGENTICFORM_NODE_MAX_AGENTS", 4),
@@ -515,9 +517,9 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		}
 	}
 
-	params, ok := payload["threadStartParams"].(map[string]any)
+	params, ok := payload["runtimeStartParams"].(map[string]any)
 	if !ok {
-		return nil, errors.New("START_AGENT missing threadStartParams")
+		return nil, errors.New("START_AGENT missing runtimeStartParams")
 	}
 	params["cwd"] = workingDirectory
 	client, err := d.ensureCodex()
@@ -533,7 +535,7 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		return nil, errors.New("Codex thread/start returned no thread id")
 	}
 	record := runtimeRecord{
-		AgentID: agentID, RuntimeType: "CODEX", RuntimeGeneration: command.RuntimeGeneration, RuntimeSessionID: threadID, ThreadID: threadID,
+		AgentID: agentID, RuntimeType: "CODEX", RuntimeGeneration: command.RuntimeGeneration, RuntimeSessionID: threadID,
 		SourceDirectory: repoRoot, WorkingDirectory: workingDirectory, Branch: branch, RuntimeStatus: "IDLE",
 	}
 	if err := d.putRuntime(record); err != nil {
@@ -616,7 +618,7 @@ func (d *daemonRuntime) cleanupWorkspace(command nodeCommand, payload map[string
 	if !ok || record.RuntimeGeneration != command.RuntimeGeneration {
 		return nil, errors.New("runtime is not owned by this generation")
 	}
-	if threadID != "" && record.ThreadID != threadID {
+	if threadID != "" && record.RuntimeSessionID != threadID {
 		return nil, errors.New("cleanup thread id does not match runtime")
 	}
 	if record.WorkingDirectory == "" || record.WorkingDirectory == record.SourceDirectory {
@@ -895,7 +897,7 @@ func (d *daemonRuntime) runtimeIdentityForParams(params any) (runtimeIdentity, b
 	d.stateMu.Lock()
 	defer d.stateMu.Unlock()
 	for _, record := range d.runtimes.Runtimes {
-		if record.ThreadID == threadID {
+		if record.RuntimeSessionID == threadID {
 			if record.RuntimeType == "" || record.RuntimeSessionID == "" || record.RuntimeGeneration <= 0 {
 				return runtimeIdentity{}, false
 			}
@@ -915,7 +917,7 @@ func (d *daemonRuntime) observeNotification(method string, params any) {
 	defer d.stateMu.Unlock()
 	changed := false
 	for key, record := range d.runtimes.Runtimes {
-		if record.ThreadID != threadID {
+		if record.RuntimeSessionID != threadID {
 			continue
 		}
 		switch method {
@@ -955,7 +957,7 @@ func (d *daemonRuntime) requireRuntime(agentID string, generation int64, threadI
 	d.stateMu.Lock()
 	defer d.stateMu.Unlock()
 	record, ok := d.runtimes.Runtimes[agentID]
-	if !ok || record.RuntimeGeneration != generation || record.ThreadID != threadID {
+	if !ok || record.RuntimeGeneration != generation || record.RuntimeSessionID != threadID {
 		return errors.New("remote command targets a stale or unknown runtime")
 	}
 	return nil
@@ -1070,15 +1072,6 @@ func loadRuntimeState(path string) (runtimeState, error) {
 	}
 	if state.Runtimes == nil {
 		state.Runtimes = map[string]runtimeRecord{}
-	}
-	for key, record := range state.Runtimes {
-		if record.RuntimeType == "" {
-			record.RuntimeType = "CODEX"
-		}
-		if record.ThreadID == "" {
-			record.ThreadID = record.RuntimeSessionID
-		}
-		state.Runtimes[key] = record
 	}
 	return state, nil
 }

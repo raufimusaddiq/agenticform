@@ -299,7 +299,7 @@ Persisted agents use `runtimeType` plus opaque `runtimeSessionId`. No provider-s
 
 The Codex adapter remains responsible for transport, thread/turn mapping, event translation, approvals, queue semantics, and reconnect/reconciliation.
 
-The legacy gateway remains the adapter's transport seam during this migration:
+The Codex gateway remains the adapter's transport seam:
 
 ```java
 public interface CodexGateway {
@@ -317,7 +317,7 @@ Implementation responsibilities:
 - request/response correlation
 - event parsing
 - reconnect handling
-- protocol version compatibility
+- protocol version validation
 - translating Codex events into Agenticform events
 
 ### Request correlation

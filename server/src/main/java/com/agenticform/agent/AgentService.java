@@ -151,10 +151,10 @@ public class AgentService {
                 minimumTrust == null ? NodeTrustLevel.STANDARD : minimumTrust, Set.of("runtime:" + runtimeType.name(), "git"));
         String baseBranch = requestedBaseBranch == null || requestedBaseBranch.isBlank()
                 ? project.getDefaultBranch() : requestedBaseBranch;
-        AgentEntity agent = repository.save(new AgentEntity(
+        AgentEntity agent = new AgentEntity(
                 project.getId(), name, responsibility, null, mode,
                 null, null, requestedBranch, queueMode, humanControlMode, role, systemManaged,
-                node.getId(), capabilityProfile));
+                node.getId(), capabilityProfile);
         agent.setRuntimeType(runtimeType);
         agent = repository.save(agent);
 
@@ -170,7 +170,7 @@ public class AgentService {
             payload.put("agentName", name);
             payload.put("requestedBranch", requestedBranch == null ? "" : requestedBranch);
             payload.put("runtimeType", runtimeType.name());
-            payload.put("threadStartParams", runtimeRegistry.get(runtimeType).startParameters("", responsibility, capabilityProfile));
+            payload.put("runtimeStartParams", runtimeRegistry.get(runtimeType).startParameters("", responsibility, capabilityProfile));
             nodeService.enqueue(node.getId(), agent.getId(), "START_AGENT",
                     "start-agent:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), payload);
             return agent;

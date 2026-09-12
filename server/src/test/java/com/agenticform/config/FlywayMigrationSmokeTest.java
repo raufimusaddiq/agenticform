@@ -7,11 +7,8 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
-import java.sql.Timestamp;
-import java.time.Instant;
-import java.util.UUID;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FlywayMigrationSmokeTest {
@@ -30,67 +27,16 @@ class FlywayMigrationSmokeTest {
                 .load();
 
         configuration.clean();
-        Flyway baseline = Flyway.configure()
-                .dataSource(url, user, password)
-                .locations("classpath:db/migration")
-                .target("14")
-                .load();
-        var first = baseline.migrate();
-        assertTrue(first.success, "pre-runtime Flyway migration should succeed");
-        assertTrue(first.migrationsExecuted > 0, "expected pre-runtime migrations to execute");
-
-        UUID projectId = UUID.randomUUID();
-        UUID agentId = UUID.randomUUID();
-        Instant now = Instant.now();
-        try (Connection connection = DriverManager.getConnection(url, user, password);
-             PreparedStatement project = connection.prepareStatement("""
-                     INSERT INTO projects (id, name, slug, root_directory, default_branch, enabled, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, TRUE, ?, ?)
-                     """);
-             PreparedStatement agent = connection.prepareStatement("""
-                     INSERT INTO agents (id, project_id, name, responsibility, workspace_mode,
-                         source_directory, working_directory, branch, status, queue_mode, active_task_id,
-                         active_turn_id, created_at, updated_at, human_control_mode, agent_role, system_managed,
-                         execution_node_id, runtime_generation, capability_profile)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, FALSE, NULL, 0, ?)
-                     """)) {
-            project.setObject(1, projectId);
-            project.setString(2, "migration smoke");
-            project.setString(3, "migration-smoke-" + projectId);
-            project.setString(4, "/tmp/migration-smoke-" + projectId);
-            project.setString(5, "main");
-            project.setTimestamp(6, Timestamp.from(now));
-            project.setTimestamp(7, Timestamp.from(now));
-            project.executeUpdate();
-
-            agent.setObject(1, agentId);
-            agent.setObject(2, projectId);
-            agent.setString(3, "legacy agent");
-            agent.setString(4, "migration test");
-            agent.setString(5, "ISOLATED_WORKTREE");
-            agent.setString(6, "/tmp/source");
-            agent.setString(7, "/tmp/work");
-            agent.setString(8, "agent/legacy");
-            agent.setString(9, "IDLE");
-            agent.setString(10, "AUTO");
-            agent.setTimestamp(11, Timestamp.from(now));
-            agent.setTimestamp(12, Timestamp.from(now));
-            agent.setString(13, "IN_THE_LOOP");
-            agent.setString(14, "GENERAL");
-            agent.setString(15, "IMPLEMENTER");
-            agent.executeUpdate();
-        }
-
         var migrated = configuration.migrate();
-        assertTrue(migrated.success, "runtime migrations should succeed");
+        assertTrue(migrated.success, "baseline migration should succeed");
+        assertEquals(1, migrated.migrationsExecuted, "expected exactly one baseline migration");
         try (Connection connection = DriverManager.getConnection(url, user, password);
              PreparedStatement query = connection.prepareStatement(
-                     "SELECT runtime_type, runtime_session_id FROM agents WHERE id = ?")) {
-            query.setObject(1, agentId);
+                     "SELECT column_default FROM information_schema.columns "
+                             + "WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'runtime_type'")) {
             try (var rows = query.executeQuery()) {
-                assertTrue(rows.next(), "legacy agent should survive runtime migration");
-                assertEquals("CODEX", rows.getString("runtime_type"));
-                assertEquals(null, rows.getString("runtime_session_id"));
+                assertTrue(rows.next(), "agents.runtime_type should exist");
+                assertNull(rows.getString("column_default"));
             }
         }
 
