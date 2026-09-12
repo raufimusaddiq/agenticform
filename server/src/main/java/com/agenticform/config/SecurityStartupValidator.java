@@ -41,10 +41,10 @@ public class SecurityStartupValidator {
         }
 
         String adminToken = properties.getSecurity().getAdminToken();
-        if (!local && (adminToken == null || adminToken.isBlank())) {
-            throw new IllegalStateException("AGENTICFORM_ADMIN_TOKEN is required for a non-local control plane");
+        if (adminToken == null || adminToken.isBlank()) {
+            throw new IllegalStateException("AGENTICFORM_ADMIN_TOKEN is required");
         }
-        if (adminToken != null && !adminToken.isBlank() && adminToken.length() < 32) {
+        if (adminToken.length() < 32) {
             throw new IllegalStateException("AGENTICFORM_ADMIN_TOKEN must be at least 32 characters");
         }
 
