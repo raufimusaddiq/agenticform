@@ -76,6 +76,8 @@ public class AgentService {
         ProjectEntity project = projectService.get(command.projectId());
         if (!project.isEnabled()) throw new IllegalStateException("Project is disabled");
         ensureOperationalAgentInternal(project);
+        AgentCapabilityProfile profile = command.capabilityProfile() == null
+                ? AgentCapabilityProfile.IMPLEMENTER : command.capabilityProfile();
 
         if (project.getSourceType() == ProjectSourceType.GIT) {
             return createRemoteAgent(project, command.name(), command.responsibility(),
@@ -83,7 +85,7 @@ public class AgentService {
                     command.baseBranch(), command.branch(),
                     command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode(),
                     command.humanControlMode() == null ? HumanControlMode.ON_THE_LOOP : command.humanControlMode(),
-                    AgentRole.GENERAL, false, command.executionNodeId(), command.minimumTrust());
+                    AgentRole.GENERAL, false, command.executionNodeId(), command.minimumTrust(), profile);
         }
 
         if (command.executionNodeId() != null) {
@@ -94,7 +96,7 @@ public class AgentService {
                 command.baseBranch(), command.branch(),
                 command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode(),
                 command.humanControlMode() == null ? HumanControlMode.ON_THE_LOOP : command.humanControlMode(),
-                AgentRole.GENERAL, false);
+                AgentRole.GENERAL, false, profile);
     }
 
     @Transactional
@@ -114,42 +116,45 @@ public class AgentService {
             return createRemoteAgent(project, OPERATIONAL_AGENT_NAME, OPERATIONAL_RESPONSIBILITY,
                     WorkspaceMode.SHARED_PROJECT, project.getDefaultBranch(), null,
                     AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
-                    AgentRole.OPERATIONAL, true, null, NodeTrustLevel.STANDARD);
+                    AgentRole.OPERATIONAL, true, null, NodeTrustLevel.STANDARD, AgentCapabilityProfile.OPS);
         }
         return createLocalAgent(project, OPERATIONAL_AGENT_NAME, OPERATIONAL_RESPONSIBILITY,
                 WorkspaceMode.SHARED_PROJECT, project.getDefaultBranch(), null,
                 AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
-                AgentRole.OPERATIONAL, true);
+                AgentRole.OPERATIONAL, true, AgentCapabilityProfile.OPS);
     }
 
     private AgentEntity createLocalAgent(ProjectEntity project, String name, String responsibility,
                                          WorkspaceMode mode, String requestedBaseBranch, String requestedBranch,
                                          AgentQueueMode queueMode, HumanControlMode humanControlMode,
-                                         AgentRole role, boolean systemManaged) {
+                                         AgentRole role, boolean systemManaged,
+                                         AgentCapabilityProfile capabilityProfile) {
         String baseBranch = requestedBaseBranch == null || requestedBaseBranch.isBlank()
                 ? project.getDefaultBranch() : requestedBaseBranch;
         WorkspaceManager.WorkspaceAllocation workspace = workspaceManager.allocate(
                 project, mode, name, requestedBranch, baseBranch);
         CodexGateway.ThreadHandle thread = codexGateway.startThread(
-                workspace.workingDirectory().toString(), responsibility);
+                workspace.workingDirectory().toString(), responsibility, capabilityProfile);
         return repository.save(new AgentEntity(
                 project.getId(), name, responsibility, thread.threadId(), mode,
                 project.getRootDirectory(), workspace.workingDirectory().toString(), workspace.branch(),
-                queueMode, humanControlMode, role, systemManaged));
+                queueMode, humanControlMode, role, systemManaged, null, capabilityProfile));
     }
 
     private AgentEntity createRemoteAgent(ProjectEntity project, String name, String responsibility,
                                           WorkspaceMode mode, String requestedBaseBranch, String requestedBranch,
                                           AgentQueueMode queueMode, HumanControlMode humanControlMode,
                                           AgentRole role, boolean systemManaged,
-                                          UUID preferredNodeId, NodeTrustLevel minimumTrust) {
+                                          UUID preferredNodeId, NodeTrustLevel minimumTrust,
+                                          AgentCapabilityProfile capabilityProfile) {
         ExecutionNodeEntity node = nodeScheduler.select(preferredNodeId,
                 minimumTrust == null ? NodeTrustLevel.STANDARD : minimumTrust, Set.of("codex", "git"));
         String baseBranch = requestedBaseBranch == null || requestedBaseBranch.isBlank()
                 ? project.getDefaultBranch() : requestedBaseBranch;
         AgentEntity agent = repository.save(new AgentEntity(
                 project.getId(), name, responsibility, null, mode,
-                null, null, requestedBranch, queueMode, humanControlMode, role, systemManaged, node.getId()));
+                null, null, requestedBranch, queueMode, humanControlMode, role, systemManaged,
+                node.getId(), capabilityProfile));
 
         try {
             Map<String, Object> payload = Map.of(
@@ -162,7 +167,8 @@ public class AgentService {
                     "workspaceMode", mode.name(),
                     "agentName", name,
                     "requestedBranch", requestedBranch == null ? "" : requestedBranch,
-                    "threadStartParams", mapper.convertValue(threadConfiguration.startParams("", responsibility), Map.class)
+                    "threadStartParams", mapper.convertValue(
+                            threadConfiguration.startParams("", responsibility, capabilityProfile), Map.class)
             );
             nodeService.enqueue(node.getId(), agent.getId(), "START_AGENT",
                     "start-agent:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), payload);
@@ -214,5 +220,5 @@ public class AgentService {
     public record SpawnAgent(UUID projectId, String name, String responsibility, WorkspaceMode workspaceMode,
                              String baseBranch, String branch, AgentQueueMode queueMode,
                              HumanControlMode humanControlMode, UUID executionNodeId,
-                             NodeTrustLevel minimumTrust) {}
+                             NodeTrustLevel minimumTrust, AgentCapabilityProfile capabilityProfile) {}
 }

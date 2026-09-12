@@ -31,6 +31,8 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -46,6 +48,8 @@ jobs:
         working-directory: node
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24.x"
@@ -66,6 +70,8 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
@@ -73,3 +79,15 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Build web
         run: npm run build
+      - name: Build web container
+        working-directory: .
+        run: docker build -f web/Dockerfile .
+
+  server-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Build server container
+        run: docker build -f server/Dockerfile .

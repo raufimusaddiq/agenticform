@@ -10,15 +10,24 @@ public class TaskQueueReconciler {
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
     private final CodexGateway codexGateway;
+    private final TaskDependencyService dependencies;
 
-    public TaskQueueReconciler(TaskRepository taskRepository, AgentRepository agentRepository, CodexGateway codexGateway) {
+    public TaskQueueReconciler(TaskRepository taskRepository, AgentRepository agentRepository,
+                               CodexGateway codexGateway, TaskDependencyService dependencies) {
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
         this.codexGateway = codexGateway;
+        this.dependencies = dependencies;
     }
 
     @Scheduled(fixedDelayString = "${agenticform.scheduler.reconcile-delay-ms:10000}")
     public void reconcilePersistedQueue() {
+        // Dependency readiness is derived from durable task state. Re-evaluate waiting tasks so a
+        // control-plane restart cannot strand a dependent after the prerequisite already terminated.
+        for (TaskEntity task : taskRepository.findTop20ByStatusOrderByUpdatedAtAsc(TaskStatus.WAITING_DEPENDENCY)) {
+            dependencies.reconcile(task.getId());
+        }
+
         for (TaskEntity task : taskRepository.findTop20ByStatusOrderByUpdatedAtAsc(TaskStatus.DISPATCHED)) {
             if (task.getCodexQueuedSubmissionId() == null) {
                 continue;

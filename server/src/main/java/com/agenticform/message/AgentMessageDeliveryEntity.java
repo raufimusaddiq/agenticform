@@ -43,6 +43,12 @@ public class AgentMessageDeliveryEntity {
     @Column(name = "last_error", columnDefinition = "text")
     private String lastError;
 
+    @Column(name = "processing_started_at")
+    private Instant processingStartedAt;
+
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -63,28 +69,57 @@ public class AgentMessageDeliveryEntity {
     void onUpdate() { updatedAt = Instant.now(); }
 
     public void markQueuedOnNode(String nodeCommandId) {
-        status = AgentMessageStatus.CREATED;
+        status = AgentMessageStatus.QUEUED;
         codexQueuedSubmissionId = "node-command:" + nodeCommandId;
         codexTurnId = null;
+        processingStartedAt = null;
+        completedAt = null;
         lastError = null;
     }
 
     public void markDispatched(String queuedSubmissionId, String turnId) {
         attemptCount++;
-        status = AgentMessageStatus.DISPATCHED;
+        status = turnId == null || turnId.isBlank() ? AgentMessageStatus.DISPATCHED : AgentMessageStatus.PROCESSING;
         codexQueuedSubmissionId = queuedSubmissionId;
         codexTurnId = turnId;
+        processingStartedAt = turnId == null || turnId.isBlank() ? null : Instant.now();
+        completedAt = null;
+        lastError = null;
+    }
+
+    public void markProcessing(String turnId) {
+        if (status == AgentMessageStatus.COMPLETED || status == AgentMessageStatus.FAILED) return;
+        status = AgentMessageStatus.PROCESSING;
+        if (turnId != null && !turnId.isBlank()) codexTurnId = turnId;
+        if (processingStartedAt == null) processingStartedAt = Instant.now();
+        lastError = null;
+    }
+
+    public void markCompleted() {
+        status = AgentMessageStatus.COMPLETED;
+        if (processingStartedAt == null) processingStartedAt = Instant.now();
+        completedAt = Instant.now();
         lastError = null;
     }
 
     public void markFailed(String error) {
         attemptCount++;
         status = AgentMessageStatus.FAILED;
+        completedAt = Instant.now();
+        lastError = error;
+    }
+
+    public void markProcessingFailed(String error) {
+        status = AgentMessageStatus.FAILED;
+        completedAt = Instant.now();
         lastError = error;
     }
 
     public void resetForRetry() {
         status = AgentMessageStatus.CREATED;
+        codexTurnId = null;
+        processingStartedAt = null;
+        completedAt = null;
         lastError = null;
     }
 
@@ -96,6 +131,8 @@ public class AgentMessageDeliveryEntity {
     public String getCodexQueuedSubmissionId() { return codexQueuedSubmissionId; }
     public String getCodexTurnId() { return codexTurnId; }
     public String getLastError() { return lastError; }
+    public Instant getProcessingStartedAt() { return processingStartedAt; }
+    public Instant getCompletedAt() { return completedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

@@ -3,6 +3,7 @@ package com.agenticform.task;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,9 +19,11 @@ import java.util.UUID;
 @RequestMapping("/api/tasks")
 public class TaskController {
     private final TaskDispatchService service;
+    private final TaskDependencyService dependencies;
 
-    public TaskController(TaskDispatchService service) {
+    public TaskController(TaskDispatchService service, TaskDependencyService dependencies) {
         this.service = service;
+        this.dependencies = dependencies;
     }
 
     @GetMapping
@@ -30,7 +33,12 @@ public class TaskController {
 
     @PostMapping
     public TaskEntity create(@Valid @RequestBody CreateTaskRequest request) {
-        return service.create(request.agentId(), request.title(), request.prompt(), request.priority());
+        List<TaskDependencyService.DependencyRequest> dependencyRequests = request.dependencies() == null
+                ? List.of()
+                : request.dependencies().stream()
+                .map(dep -> new TaskDependencyService.DependencyRequest(dep.dependsOnTaskId(), dep.type()))
+                .toList();
+        return service.create(request.agentId(), request.title(), request.prompt(), request.priority(), dependencyRequests);
     }
 
     @PostMapping("/{taskId}/dispatch")
@@ -38,10 +46,29 @@ public class TaskController {
         return service.dispatchManually(taskId);
     }
 
+    @GetMapping("/{taskId}/dependencies")
+    public List<TaskDependencyEntity> dependencies(@PathVariable UUID taskId) {
+        return dependencies.list(taskId);
+    }
+
+    @PostMapping("/{taskId}/dependencies")
+    public TaskDependencyEntity addDependency(@PathVariable UUID taskId,
+                                               @Valid @RequestBody DependencyRequest request) {
+        return dependencies.add(taskId, request.dependsOnTaskId(), request.type());
+    }
+
+    @DeleteMapping("/{taskId}/dependencies/{dependsOnTaskId}")
+    public void removeDependency(@PathVariable UUID taskId, @PathVariable UUID dependsOnTaskId) {
+        dependencies.remove(taskId, dependsOnTaskId);
+    }
+
     public record CreateTaskRequest(
             @NotNull UUID agentId,
             @NotBlank String title,
             @NotBlank String prompt,
-            int priority
+            int priority,
+            List<DependencyRequest> dependencies
     ) {}
+
+    public record DependencyRequest(@NotNull UUID dependsOnTaskId, TaskDependencyType type) {}
 }

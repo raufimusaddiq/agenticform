@@ -16,7 +16,8 @@ import java.util.UUID;
 public class ExecutionNodeScheduler {
     private static final List<AgentStatus> OCCUPYING = List.of(
             AgentStatus.STARTING, AgentStatus.IDLE, AgentStatus.WORKING,
-            AgentStatus.WAITING_APPROVAL, AgentStatus.BLOCKED, AgentStatus.DISCONNECTED);
+            AgentStatus.WAITING_APPROVAL, AgentStatus.BLOCKED, AgentStatus.DISCONNECTED,
+            AgentStatus.STOPPING);
 
     private final ExecutionNodeRepository nodes;
     private final AgentRepository agents;
@@ -49,6 +50,7 @@ public class ExecutionNodeScheduler {
 
         return nodes.findAllByStatusOrderByName(ExecutionNodeStatus.ONLINE).stream()
                 .filter(node -> !excluded.contains(node.getId()))
+                .filter(ExecutionNodeEntity::isProtocolCompatible)
                 .filter(node -> node.getTrustLevel().atLeast(trust))
                 .filter(node -> supports(node, capabilities))
                 .filter(node -> active(node) < node.getMaxAgents())
@@ -56,11 +58,17 @@ public class ExecutionNodeScheduler {
                         .comparingDouble(this::loadRatio)
                         .thenComparing((ExecutionNodeEntity node) -> node.getDiskFreeMb() == null ? 0L : -node.getDiskFreeMb())
                         .thenComparing(ExecutionNodeEntity::getName))
-                .orElseThrow(() -> new IllegalStateException("No eligible execution node is online with required capabilities and capacity"));
+                .orElseThrow(() -> new IllegalStateException(
+                        "No eligible execution node is online with a compatible protocol, required capabilities, trust, and capacity"));
     }
 
     private void validate(ExecutionNodeEntity node, NodeTrustLevel trust, Set<String> capabilities) {
         if (node.getStatus() != ExecutionNodeStatus.ONLINE) throw new IllegalStateException("Execution node is not online: " + node.getName());
+        if (!node.isProtocolCompatible()) {
+            throw new IllegalStateException("Execution node protocol " + node.getProtocolVersion()
+                    + " is incompatible; supported range is " + ExecutionNodeProtocol.MIN_SUPPORTED
+                    + ".." + ExecutionNodeProtocol.MAX_SUPPORTED);
+        }
         if (!node.getTrustLevel().atLeast(trust)) throw new IllegalStateException("Execution node trust level is below requirement");
         if (!supports(node, capabilities)) throw new IllegalStateException("Execution node is missing required capabilities");
         if (active(node) >= node.getMaxAgents()) throw new IllegalStateException("Execution node has no free agent capacity");

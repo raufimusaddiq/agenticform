@@ -21,12 +21,14 @@ export type AgentStatus =
   | 'BLOCKED'
   | 'DISCONNECTED'
   | 'FAILED'
+  | 'STOPPING'
   | 'STOPPED';
 
 export type AgentQueueMode = 'AUTO' | 'REVIEW_BETWEEN_TASKS' | 'PAUSED';
 export type WorkspaceMode = 'ISOLATED_WORKTREE' | 'SHARED_PROJECT';
 export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
 export type AgentRole = 'GENERAL' | 'OPERATIONAL';
+export type AgentCapabilityProfile = 'IMPLEMENTER' | 'REVIEWER' | 'ARCHITECT' | 'OPS';
 
 export type Agent = {
   id: string;
@@ -42,6 +44,7 @@ export type Agent = {
   queueMode: AgentQueueMode;
   humanControlMode: HumanControlMode;
   role: AgentRole;
+  capabilityProfile: AgentCapabilityProfile;
   systemManaged: boolean;
   executionNodeId: string | null;
   activeTaskId: string | null;
@@ -53,6 +56,7 @@ export type Agent = {
 export type TaskStatus =
   | 'QUEUED'
   | 'READY'
+  | 'WAITING_DEPENDENCY'
   | 'DISPATCHING'
   | 'DISPATCHED'
   | 'RUNNING'
@@ -89,7 +93,7 @@ export type AgentMessageType =
   | 'INFORMATION'
   | 'BLOCKER';
 
-export type AgentMessageStatus = 'CREATED' | 'DISPATCHED' | 'FAILED';
+export type AgentMessageStatus = 'CREATED' | 'QUEUED' | 'DISPATCHED' | 'PROCESSING' | 'COMPLETED' | 'PARTIAL' | 'FAILED';
 export type AgentMessageAudienceType = 'DIRECT' | 'MULTICAST' | 'ROLE' | 'GROUP' | 'PROJECT_BROADCAST';
 
 export type AgentMessage = {
@@ -109,6 +113,17 @@ export type AgentMessage = {
   codexQueuedSubmissionId: string | null;
   codexTurnId: string | null;
   lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CommunicationRule = {
+  id: string;
+  fromProjectId: string;
+  toProjectId: string;
+  action: 'MESSAGE';
+  effect: 'ALLOW' | 'DENY';
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 };

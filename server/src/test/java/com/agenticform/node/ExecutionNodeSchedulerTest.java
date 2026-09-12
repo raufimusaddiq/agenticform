@@ -88,6 +88,8 @@ class ExecutionNodeSchedulerTest {
         lenient().when(node.getId()).thenReturn(id);
         lenient().when(node.getName()).thenReturn(name);
         lenient().when(node.getStatus()).thenReturn(ExecutionNodeStatus.ONLINE);
+        lenient().when(node.getProtocolVersion()).thenReturn(ExecutionNodeProtocol.CURRENT);
+        lenient().when(node.isProtocolCompatible()).thenReturn(true);
         lenient().when(node.getTrustLevel()).thenReturn(trust);
         lenient().when(node.getCapabilitiesJson()).thenReturn(capabilities);
         lenient().when(node.getMaxAgents()).thenReturn(maxAgents);

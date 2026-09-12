@@ -8,5 +8,6 @@ public enum AgentStatus {
     BLOCKED,
     DISCONNECTED,
     FAILED,
+    STOPPING,
     STOPPED
 }

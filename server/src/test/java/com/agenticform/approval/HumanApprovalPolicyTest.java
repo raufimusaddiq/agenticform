@@ -1,5 +1,7 @@
 package com.agenticform.approval;
 
+import com.agenticform.agent.AgentCapabilityPolicy;
+import com.agenticform.agent.AgentCapabilityProfile;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentQueueMode;
 import com.agenticform.agent.HumanControlMode;
@@ -27,7 +29,7 @@ class HumanApprovalPolicyTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final DeterministicPolicyEngine engine = mock(DeterministicPolicyEngine.class);
     private final PolicyActionClassifier classifier = new PolicyActionClassifier();
-    private final HumanApprovalPolicy policy = new HumanApprovalPolicy(classifier, engine);
+    private final HumanApprovalPolicy policy = new HumanApprovalPolicy(classifier, engine, new AgentCapabilityPolicy());
 
     @BeforeEach
     void defaultRules() {
@@ -76,13 +78,24 @@ class HumanApprovalPolicyTest {
     }
 
     @Test
-    void classifierMapsProductionDeployToConfiguredAction() {
+    void implementerCannotEscalateToProductionDeploy() {
         HumanApprovalPolicy.Evaluation result = policy.evaluate(
                 agent(HumanControlMode.ON_THE_LOOP), HumanApprovalType.COMMAND_EXECUTION,
                 command("kubectl apply -f k8s/ --namespace production"));
 
         assertThat(result.action()).isEqualTo("PRODUCTION_DEPLOY");
         assertThat(result.environment()).isEqualTo("production");
+        assertThat(result.effect()).isEqualTo(PolicyEffect.DENY);
+    }
+
+    @Test
+    void opsProfileReachesConfiguredProductionDeployHumanGate() {
+        AgentEntity ops = agent(HumanControlMode.ON_THE_LOOP);
+        ops.setCapabilityProfile(AgentCapabilityProfile.OPS);
+        HumanApprovalPolicy.Evaluation result = policy.evaluate(
+                ops, HumanApprovalType.COMMAND_EXECUTION,
+                command("kubectl apply -f k8s/ --namespace production"));
+
         assertThat(result.effect()).isEqualTo(PolicyEffect.REQUIRE_HUMAN);
     }
 

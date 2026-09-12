@@ -1,5 +1,6 @@
 package com.agenticform.codex;
 
+import com.agenticform.agent.AgentCapabilityProfile;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -23,7 +24,13 @@ public class CodexAppServerGateway implements CodexGateway {
 
     @Override
     public ThreadHandle startThread(String cwd, String responsibility) {
-        JsonNode result = client.request("thread/start", threadConfiguration.startParams(cwd, responsibility));
+        return startThread(cwd, responsibility, AgentCapabilityProfile.IMPLEMENTER);
+    }
+
+    @Override
+    public ThreadHandle startThread(String cwd, String responsibility, AgentCapabilityProfile capabilityProfile) {
+        JsonNode result = client.request("thread/start",
+                threadConfiguration.startParams(cwd, responsibility, capabilityProfile));
         return new ThreadHandle(result.path("thread").path("id").asText());
     }
 
