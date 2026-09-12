@@ -36,6 +36,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [ ] Validate runtime requirements during placement and command dispatch.
 - [ ] Preserve node identity, capability sandbox, and tenant/security checks.
 - [ ] Document the inventory payload and compatibility behavior.
+- [x] Document the inventory payload and compatibility behavior.
 
 ## Verification and exit gate
 

@@ -131,7 +131,24 @@ Mutable tags such as `latest` are allowed only for local development. A non-loca
 
 ## Node placement
 
-Execution nodes heartbeat capacity and observed runtime capabilities such as Codex and Git availability. These are scheduling availability signals, not authorization claims. Trust level is assigned by the operator during enrollment and is not accepted from heartbeat data.
+Execution nodes heartbeat capacity and observed runtime capabilities. These are scheduling availability signals, not authorization claims. Trust level is assigned by the operator during enrollment and is not accepted from heartbeat data.
+
+The capability payload uses a runtime-neutral inventory:
+
+```json
+{
+  "git": true,
+  "runtimes": {
+    "CODEX": {
+      "available": true,
+      "authenticated": true,
+      "version": "0.154.0"
+    }
+  }
+}
+```
+
+Placement requests use requirements such as `runtime:CODEX`. Older nodes may still report the legacy top-level `codex` boolean; the control plane accepts it during migration. Missing `runtimeType` fields in older runtime observations and commands are interpreted as `CODEX`. Explicit unsupported runtime types are rejected at the node command boundary.
 
 The scheduler considers:
 
