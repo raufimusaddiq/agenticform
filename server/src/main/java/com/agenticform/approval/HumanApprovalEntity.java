@@ -78,6 +78,9 @@ public class HumanApprovalEntity {
     @Column(name = "preauthorization_grant_id")
     private UUID preauthorizationGrantId;
 
+    @Column(name = "remote_interaction_id")
+    private UUID remoteInteractionId;
+
     @Column(name = "request_payload", nullable = false, columnDefinition = "text")
     private String requestPayload;
 
@@ -115,9 +118,7 @@ public class HumanApprovalEntity {
     }
 
     @PrePersist
-    void onCreate() {
-        createdAt = Instant.now();
-    }
+    void onCreate() { createdAt = Instant.now(); }
 
     public UUID getId() { return id; }
     public UUID getProjectId() { return projectId; }
@@ -137,6 +138,7 @@ public class HumanApprovalEntity {
     public PolicyEffect getPolicyEffect() { return policyEffect; }
     public UUID getPolicyRuleId() { return policyRuleId; }
     public UUID getPreauthorizationGrantId() { return preauthorizationGrantId; }
+    public UUID getRemoteInteractionId() { return remoteInteractionId; }
     public String getRequestPayload() { return requestPayload; }
     public String getResponsePayload() { return responsePayload; }
     public String getLastError() { return lastError; }
@@ -150,9 +152,8 @@ public class HumanApprovalEntity {
         this.policyRuleId = ruleId;
     }
 
-    public void attachPreauthorizationGrant(UUID grantId) {
-        this.preauthorizationGrantId = grantId;
-    }
+    public void attachPreauthorizationGrant(UUID grantId) { this.preauthorizationGrantId = grantId; }
+    public void attachRemoteInteraction(UUID interactionId) { this.remoteInteractionId = interactionId; }
 
     public void resolve(HumanApprovalStatus status, String responsePayload) {
         this.status = status;
@@ -169,7 +170,7 @@ public class HumanApprovalEntity {
 
     public void orphan() {
         this.status = HumanApprovalStatus.ORPHANED;
-        this.lastError = "Agenticform restarted before the Codex server request was resolved";
+        this.lastError = "Agenticform restarted before the local Codex server request was resolved";
         this.resolvedAt = Instant.now();
     }
 }
