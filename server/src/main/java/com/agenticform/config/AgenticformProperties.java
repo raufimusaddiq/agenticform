@@ -102,11 +102,8 @@ public class AgenticformProperties {
 
     public static class Security {
         private String adminToken = "";
-        private boolean requireTls = true;
 
         public String getAdminToken() { return adminToken; }
         public void setAdminToken(String adminToken) { this.adminToken = adminToken == null ? "" : adminToken; }
-        public boolean isRequireTls() { return requireTls; }
-        public void setRequireTls(boolean requireTls) { this.requireTls = requireTls; }
     }
 }
