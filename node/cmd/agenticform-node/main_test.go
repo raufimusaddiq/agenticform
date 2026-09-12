@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestRequireSecureServerURL(t *testing.T) {
 	for _, value := range []string{"https://agenticform.example.com", "http://localhost:8080", "http://127.0.0.1:8080"} {
@@ -42,5 +46,107 @@ func TestSafeSegmentStripsPathTraversalCharacters(t *testing.T) {
 				t.Fatalf("safe segment contains path separator: %q", got)
 			}
 		}
+	}
+}
+
+func TestDurableCommandCachesTerminalFailure(t *testing.T) {
+	d := daemonRuntime{
+		stateDir: t.TempDir(),
+		ledger:   commandLedger{Entries: map[string]commandLedgerEntry{}},
+		runtimes: runtimeState{Runtimes: map[string]runtimeRecord{}},
+	}
+	command := nodeCommand{
+		ID:                "cmd-1",
+		AgentID:           "agent-1",
+		RuntimeGeneration: 1,
+		CommandType:       "UNSUPPORTED",
+		IdempotencyKey:    "test:1",
+		PayloadJSON:       `{"runtimeGeneration":1}`,
+	}
+
+	_, firstErr := d.executeDurable(command)
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "unsupported node command") {
+		t.Fatalf("expected first execution to fail as unsupported, got %v", firstErr)
+	}
+	first := d.ledger.Entries[command.ID]
+	if first.State != "FAILED" || first.Error == "" {
+		t.Fatalf("expected terminal failed ledger entry, got %+v", first)
+	}
+
+	time.Sleep(time.Millisecond)
+	_, secondErr := d.executeDurable(command)
+	if secondErr == nil || secondErr.Error() != first.Error {
+		t.Fatalf("expected cached terminal failure %q, got %v", first.Error, secondErr)
+	}
+	second := d.ledger.Entries[command.ID]
+	if !second.UpdatedAt.Equal(first.UpdatedAt) {
+		t.Fatalf("cached replay unexpectedly rewrote ledger timestamp: first=%s second=%s", first.UpdatedAt, second.UpdatedAt)
+	}
+}
+
+func TestDurableCommandRefusesAmbiguousStartedReplay(t *testing.T) {
+	command := nodeCommand{
+		ID:                "cmd-started",
+		AgentID:           "agent-1",
+		RuntimeGeneration: 3,
+		CommandType:       "DISPATCH_TASK",
+		IdempotencyKey:    "dispatch:1",
+		PayloadJSON:       `{"runtimeGeneration":3,"threadId":"thread-1","prompt":"do work"}`,
+	}
+	d := daemonRuntime{
+		stateDir: t.TempDir(),
+		ledger: commandLedger{Entries: map[string]commandLedgerEntry{
+			command.ID: {
+				CommandID: command.ID, Fingerprint: commandFingerprint(command),
+				State: "STARTED", UpdatedAt: time.Now().UTC(),
+			},
+		}},
+		runtimes: runtimeState{Runtimes: map[string]runtimeRecord{}},
+	}
+
+	_, err := d.executeDurable(command)
+	if err == nil || !strings.Contains(err.Error(), "refusing unsafe replay") {
+		t.Fatalf("expected ambiguous STARTED command to be fenced, got %v", err)
+	}
+	if d.ledger.Entries[command.ID].State != "STARTED" {
+		t.Fatalf("ambiguous command fence was overwritten")
+	}
+}
+
+func TestRuntimeStateRejectsOlderGeneration(t *testing.T) {
+	d := daemonRuntime{
+		stateDir: t.TempDir(),
+		ledger:   commandLedger{Entries: map[string]commandLedgerEntry{}},
+		runtimes: runtimeState{Runtimes: map[string]runtimeRecord{}},
+	}
+	newer := runtimeRecord{AgentID: "agent-1", RuntimeGeneration: 4, ThreadID: "thread-4", RuntimeStatus: "IDLE"}
+	if err := d.putRuntime(newer); err != nil {
+		t.Fatalf("put newer runtime: %v", err)
+	}
+	older := runtimeRecord{AgentID: "agent-1", RuntimeGeneration: 3, ThreadID: "thread-3", RuntimeStatus: "IDLE"}
+	if err := d.putRuntime(older); err == nil {
+		t.Fatalf("expected older runtime generation to be rejected")
+	}
+	got := d.runtimes.Runtimes["agent-1"]
+	if got.RuntimeGeneration != 4 || got.ThreadID != "thread-4" {
+		t.Fatalf("newer runtime was replaced: %+v", got)
+	}
+	if err := d.requireRuntime("agent-1", 3, "thread-3"); err == nil {
+		t.Fatalf("expected stale generation runtime lookup to fail")
+	}
+	if err := d.requireRuntime("agent-1", 4, "thread-4"); err != nil {
+		t.Fatalf("expected current generation runtime lookup to pass: %v", err)
+	}
+}
+
+func TestCredentialHelperCommandIsGenerationScopedAndQuoted(t *testing.T) {
+	got := credentialHelperCommand("agent';echo bad", 7, "project-1", "https://github.com/acme/private.git")
+	for _, expected := range []string{"git-credential", "'7'", "'project-1'", "'https://github.com/acme/private.git'", "'\\''"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("credential helper command %q missing %q", got, expected)
+		}
+	}
+	if strings.Contains(got, "x-access-token") || strings.Contains(got, "password=") {
+		t.Fatalf("credential helper command must not embed credentials: %q", got)
 	}
 }
