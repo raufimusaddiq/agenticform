@@ -36,6 +36,8 @@ Agenticform enforces separation of duties at the dynamic-tool boundary: only the
 
 For coding tasks, Agenticform is intentionally **remote-CI-first**. Expensive full-suite validation, production image builds, release publication, and deployment should normally run on GitHub Actions when a project exposes suitable runbooks. Local worktrees remain temporary coding workspaces, not CI build hosts.
 
+Execution nodes advertise runtime inventory separately from node trust. For example, `runtimes.CODEX.available` reports executable presence while `runtimes.CODEX.authenticated` reports usable node-local credentials. Placement uses runtime requirements; neither heartbeat capability nor runtime authentication grants control-plane authorization.
+
 General/non-coding tasks are not forced through GitHub Actions. They may use normal agent tools or local deterministic runbooks when that is the correct execution surface.
 
 ## Typed steps

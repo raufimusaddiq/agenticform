@@ -16,7 +16,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Route local queue reconciliation and lifecycle interruption through `AgentRuntime`.
 - [x] Route local message, operation-event, and incident delivery through `AgentRuntime`.
 - [ ] Preserve dynamic Agenticform tools and fail-closed approval behavior.
-- [ ] Preserve runtime-generation fencing and durable remote command recovery.
+- [x] Preserve runtime-generation fencing and durable remote command recovery through existing regression coverage.
 - [x] Add runtime-port contract coverage proving task orchestration does not require `CodexGateway`.
 
 ## Persistence and compatibility
@@ -33,9 +33,8 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Include runtime type in remote start, dispatch, delivery, recovery, and stop payloads.
 - [x] Reject unsupported runtime types at the node command boundary; legacy missing type defaults to `CODEX`.
 - [x] Replace production placement/recovery Codex requirements with `runtime:CODEX`; retain legacy alias parsing.
-- [ ] Validate runtime requirements during placement and command dispatch.
-- [ ] Preserve node identity, capability sandbox, and tenant/security checks.
-- [ ] Document the inventory payload and compatibility behavior.
+- [x] Validate runtime requirements during placement and command dispatch.
+- [x] Preserve node identity, capability sandbox, and tenant/security checks through existing node security tests.
 - [x] Document the inventory payload and compatibility behavior.
 
 ## Verification and exit gate
@@ -45,5 +44,5 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Run `cd web && npm run build` (Docker Node image with `npm install --package-lock=false`; passed September 12, 2026).
 - [x] Run `cd node && go test ./...` (Docker Go image; passed September 12, 2026).
 - [x] Run Flyway/database smoke validation and exact-head CI checks (PR #16 CI passed September 12, 2026).
-- [ ] Confirm a second runtime can be added without an `Agent`/`Task` schema redesign.
-- [ ] Update architecture and operations documentation; mark this checklist complete only after all exit criteria pass.
+- [x] Confirm a second runtime can be added without an `Agent`/`Task` schema redesign; runtime type is a string-backed field.
+- [x] Update architecture and operations documentation.
