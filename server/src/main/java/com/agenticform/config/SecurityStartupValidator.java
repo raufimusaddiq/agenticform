@@ -24,10 +24,17 @@ public class SecurityStartupValidator {
             throw new IllegalStateException("agenticform.public-url must be an absolute URL");
         }
         String host = publicUrl.getHost().toLowerCase(Locale.ROOT);
-        if (properties.getSecurity().isRequireTls()
-                && !LOOPBACK_HOSTS.contains(host)
-                && !"https".equalsIgnoreCase(publicUrl.getScheme())) {
+        boolean local = LOOPBACK_HOSTS.contains(host);
+        if (!local && !"https".equalsIgnoreCase(publicUrl.getScheme())) {
             throw new IllegalStateException("Non-local Agenticform public URL must use HTTPS");
+        }
+
+        String adminToken = properties.getSecurity().getAdminToken();
+        if (!local && (adminToken == null || adminToken.isBlank())) {
+            throw new IllegalStateException("AGENTICFORM_ADMIN_TOKEN is required for a non-local control plane");
+        }
+        if (adminToken != null && !adminToken.isBlank() && adminToken.length() < 32) {
+            throw new IllegalStateException("AGENTICFORM_ADMIN_TOKEN must be at least 32 characters");
         }
     }
 }
