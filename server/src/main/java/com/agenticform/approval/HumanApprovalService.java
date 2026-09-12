@@ -52,8 +52,6 @@ public class HumanApprovalService {
     void recoverOrphanedRequests() {
         for (HumanApprovalEntity approval : repository.findAllByStatus(HumanApprovalStatus.PENDING)) {
             if (approval.getRemoteInteractionId() != null) {
-                // Remote interactions are durable. The execution node can reconnect and poll the
-                // stored interaction after this control plane restarts.
                 continue;
             }
             approval.orphan();
@@ -88,7 +86,8 @@ public class HumanApprovalService {
 
         if (evaluation.effect() == PolicyEffect.REQUIRE_HUMAN && type != HumanApprovalType.USER_INPUT) {
             UUID grantId = preauthorizations.consume(
-                    agent.getId(), agent.getActiveTaskId(), evaluation.action(), evaluation.environment());
+                    agent.getId(), agent.getActiveTaskId(), evaluation.action(), evaluation.environment(),
+                    evaluation.effectDigest());
             if (grantId != null) {
                 approval.attachPreauthorizationGrant(grantId);
                 JsonNode response = automaticResponse(type, params);
@@ -138,6 +137,7 @@ public class HumanApprovalService {
                 nullableText(request.params(), "itemId"), evaluation.summary(), toJson(payload));
         approval.attachPolicy(evaluation.action(), evaluation.environment(), evaluation.effect(),
                 evaluation.configuredDecision().matchedRuleId());
+        approval.attachEffectDigest(evaluation.effectDigest());
         UUID remoteInteractionId = remoteContext.currentInteractionId();
         if (remoteInteractionId != null) approval.attachRemoteInteraction(remoteInteractionId);
         return approval;
@@ -185,11 +185,12 @@ public class HumanApprovalService {
 
         if (effectiveDecision == HumanApprovalDecision.APPROVE_ONCE
                 && approval.getType() == HumanApprovalType.PROTECTED_ACTION
-                && approval.getPolicyEffect() == PolicyEffect.REQUIRE_HUMAN) {
+                && approval.getPolicyEffect() == PolicyEffect.REQUIRE_HUMAN
+                && approval.getEffectDigest() != null) {
             UUID grantId = preauthorizations.issue(
                     approval.getAgentId(),
                     agentRepository.findById(approval.getAgentId()).map(AgentEntity::getActiveTaskId).orElse(null),
-                    approval.getPolicyAction(), approval.getPolicyEnvironment());
+                    approval.getPolicyAction(), approval.getPolicyEnvironment(), approval.getEffectDigest());
             approval.attachPreauthorizationGrant(grantId);
         }
 
@@ -331,8 +332,11 @@ public class HumanApprovalService {
         if (approval.getType() == HumanApprovalType.PROTECTED_ACTION) {
             boolean approved = decision == HumanApprovalDecision.APPROVE_ONCE
                     || decision == HumanApprovalDecision.APPROVE_SESSION;
+            String approvedMessage = approval.getEffectDigest() == null
+                    ? "Human approved this semantic action. No effect key was supplied, so any native Codex approval remains independently human-gated."
+                    : "Human approved this policy-governed action once. Only a native Codex effect with the matching effect digest may consume the one-shot preauthorization.";
             return policyToolResponse(approved, approved
-                    ? "Human approved this policy-governed action once. Proceed with exactly the declared action; a matching native Codex approval may consume the one-shot preauthorization without asking again."
+                    ? approvedMessage
                     : "Human declined this policy-governed action. Do not execute it; find an allowed alternative or report the blocker.");
         }
 
