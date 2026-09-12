@@ -84,8 +84,8 @@ CREATE INDEX idx_agent_messages_conversation_id ON agent_messages(conversation_i
 
 CREATE TABLE human_approvals (
     id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id), agent_id UUID NOT NULL REFERENCES agents(id),
-    codex_request_id VARCHAR(255) NOT NULL, method VARCHAR(255) NOT NULL, type VARCHAR(64) NOT NULL, control_mode VARCHAR(64) NOT NULL,
-    risk VARCHAR(64) NOT NULL, status VARCHAR(64) NOT NULL, thread_id VARCHAR(255) NOT NULL, turn_id VARCHAR(255), item_id VARCHAR(255),
+    runtime_request_id VARCHAR(255) NOT NULL, method VARCHAR(255) NOT NULL, type VARCHAR(64) NOT NULL, control_mode VARCHAR(64) NOT NULL,
+    risk VARCHAR(64) NOT NULL, status VARCHAR(64) NOT NULL, runtime_session_id VARCHAR(255) NOT NULL, turn_id VARCHAR(255), item_id VARCHAR(255),
     summary TEXT NOT NULL, request_payload TEXT NOT NULL, response_payload TEXT, last_error TEXT, policy_action VARCHAR(128),
     policy_environment VARCHAR(64), policy_effect VARCHAR(32), policy_rule_id UUID REFERENCES policy_rules(id), preauthorization_grant_id UUID,
     effect_digest VARCHAR(64), remote_interaction_id UUID, created_at TIMESTAMPTZ NOT NULL, resolved_at TIMESTAMPTZ

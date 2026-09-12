@@ -177,13 +177,13 @@ export type HumanApproval = {
   id: string;
   projectId: string;
   agentId: string;
-  codexRequestId: string;
+  runtimeRequestId: string;
   method: string;
   type: HumanApprovalType;
   controlMode: HumanControlMode;
   risk: HumanApprovalRisk;
   status: HumanApprovalStatus;
-  threadId: string;
+  runtimeSessionId: string;
   turnId: string | null;
   itemId: string | null;
   summary: string;
