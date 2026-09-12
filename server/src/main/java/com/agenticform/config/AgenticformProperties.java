@@ -81,7 +81,7 @@ public class AgenticformProperties {
     public static class Node {
         private Duration enrollmentTtl = Duration.ofMinutes(10);
         private Duration offlineAfter = Duration.ofSeconds(45);
-        private Duration commandLease = Duration.ofSeconds(30);
+        private Duration commandLease = Duration.ofMinutes(15);
         private Duration requestNonceTtl = Duration.ofMinutes(10);
         private Duration maxClockSkew = Duration.ofMinutes(2);
         private String image = "ghcr.io/raufimusaddiq/agenticform-node:latest";
