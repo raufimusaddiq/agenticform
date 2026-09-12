@@ -17,7 +17,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -60,9 +59,7 @@ public class AgentMessageService {
         if (agentId != null) {
             return deliveryRepository.findAllByToAgentIdOrderByCreatedAtDesc(agentId).stream()
                     .map(delivery -> repository.findById(delivery.getMessageId()).orElse(null))
-                    .filter(java.util.Objects::nonNull)
-                    .distinct()
-                    .toList();
+                    .filter(java.util.Objects::nonNull).distinct().toList();
         }
         if (projectId != null) return repository.findAllByProjectIdOrderByCreatedAtDesc(projectId);
         return repository.findAll();
@@ -97,7 +94,7 @@ public class AgentMessageService {
         if (replyToMessageId != null) {
             parent = repository.findById(replyToMessageId)
                     .orElseThrow(() -> new NoSuchElementException("Reply target message not found: " + replyToMessageId));
-            if (!deliveryRepository.findByMessageIdAndToAgentId(parent.getId(), source.getId()).isPresent()) {
+            if (deliveryRepository.findByMessageIdAndToAgentId(parent.getId(), source.getId()).isEmpty()) {
                 throw new IllegalArgumentException("An agent may only reply to a message delivered to that agent");
             }
             conversationId = parent.getConversationId();
@@ -201,13 +198,18 @@ public class AgentMessageService {
                           AgentEntity source, AgentEntity target) {
         try {
             if (target.getExecutionNodeId() != null) {
+                if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+                    throw new IllegalStateException("Target remote runtime is not ready");
+                }
                 var command = nodeService.enqueue(target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
-                        "message:" + message.getId() + ":" + target.getId(), Map.of(
+                        "message:" + message.getId() + ":" + target.getId() + ":g" + target.getRuntimeGeneration(), Map.of(
                                 "messageId", message.getId().toString(),
                                 "conversationId", message.getConversationId().toString(),
-                                "threadId", target.getCodexThreadId() == null ? "" : target.getCodexThreadId(),
+                                "threadId", target.getCodexThreadId(),
+                                "clientMessageId", "agenticform-message:" + message.getId() + ":" + delivery.getId()
+                                        + ":g" + target.getRuntimeGeneration(),
                                 "prompt", deliveryPrompt(message, source, target)));
-                delivery.markDispatched("node-command:" + command.getId(), null);
+                delivery.markQueuedOnNode(command.getId().toString());
             } else {
                 if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
                     throw new IllegalStateException("Target agent runtime is not ready");
