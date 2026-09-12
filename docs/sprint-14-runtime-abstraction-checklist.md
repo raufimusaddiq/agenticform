@@ -44,6 +44,6 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Run `cd server && mvn test`.
 - [x] Run `cd web && npm run build`.
 - [x] Run `cd node && go test ./...`.
-- [ ] Run exact-head CI checks.
+- [x] Run exact-head CI checks; all server, node, web, and server-image jobs passed on September 12, 2026.
 - [ ] Confirm a second runtime implementation can be added without changing orchestration core; currently only the Codex adapter is implemented.
 - [x] Update architecture and operations documentation.
