@@ -60,14 +60,15 @@ export function MessagesView({ messages, agents, projects, onSend }: {
       {!messages.length ? <div className="empty"><strong>No agent messages yet</strong><p>Messages sent through native Codex dynamic tools will appear here.</p></div> : <div className="data-list">
         {[...messages].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map((message) => {
           const from = agentById.get(message.fromAgentId);
-          const to = agentById.get(message.toAgentId);
+          const to = message.toAgentId ? agentById.get(message.toAgentId) : undefined;
+          const targetLabel = to?.name ?? (message.toAgentId ? shortId(message.toAgentId) : label(message.audienceType));
           return <article className="message-row" key={message.id}>
             <div className="message-meta">
               <div><strong>{message.subject}</strong><small>{projectById.get(message.projectId)?.name ?? 'Unknown project'}</small></div>
               <span className={`message-type message-type-${message.type.toLowerCase()}`}>{label(message.type)}</span>
               <span className={`status status-${message.status.toLowerCase()}`}><span className="status-dot" />{label(message.status)}</span>
             </div>
-            <p className="message-route"><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><span>→</span><strong>{to?.name ?? shortId(message.toAgentId)}</strong><span>· hop {message.hopCount}/6</span></p>
+            <p className="message-route"><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><span>→</span><strong>{targetLabel}</strong><span>· hop {message.hopCount}/6</span></p>
             <p className="message-body">{message.content}</p>
             <div className="message-machine"><code>message {shortId(message.id)}</code><code>conversation {shortId(message.conversationId)}</code><code>queue {shortId(message.codexQueuedSubmissionId)}</code><code>turn {shortId(message.codexTurnId)}</code></div>
             {message.lastError && <p className="inline-error">{message.lastError}</p>}
@@ -90,7 +91,7 @@ export function MessagesView({ messages, agents, projects, onSend }: {
         <label>Type<select value={type} onChange={(event) => setType(event.target.value as AgentMessageType)}>{messageTypes.map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></label>
         <label>Subject<input required value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="API contract ready" /></label>
         <label>Message<textarea required rows={6} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Share only the context the receiving agent needs." /></label>
-        <p className="form-note">Cross-project messages are intentionally blocked until Agenticform has an explicit permission policy.</p>
+        <p className="form-note">Cross-project messages are intentionally blocked. Agent fanout is available to Codex through the durable broadcast tool.</p>
         <footer className="form-actions"><button className="button primary" disabled={sending || !targets.length}>{sending ? 'Sending…' : 'Send message'}</button></footer>
       </form>}
     </section>
