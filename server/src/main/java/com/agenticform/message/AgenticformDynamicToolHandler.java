@@ -1,5 +1,7 @@
 package com.agenticform.message;
 
+import com.agenticform.agent.AgentCapabilityPolicy;
+import com.agenticform.agent.AgentCapabilityProfile;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
@@ -40,6 +42,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private final PolicyRuleService policyRuleService;
     private final OperationalRegistryService operationalRegistry;
     private final OperationRunService operationRunService;
+    private final AgentCapabilityPolicy capabilityPolicy;
     private final ObjectMapper mapper;
 
     public AgenticformDynamicToolHandler(CodexJsonRpcClient client, AgentRepository agentRepository,
@@ -47,6 +50,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                                          PolicyRuleService policyRuleService,
                                          OperationalRegistryService operationalRegistry,
                                          OperationRunService operationRunService,
+                                         AgentCapabilityPolicy capabilityPolicy,
                                          ObjectMapper mapper) {
         this.client = client;
         this.agentRepository = agentRepository;
@@ -55,6 +59,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         this.policyRuleService = policyRuleService;
         this.operationalRegistry = operationalRegistry;
         this.operationRunService = operationRunService;
+        this.capabilityPolicy = capabilityPolicy;
         this.mapper = mapper;
     }
 
@@ -82,14 +87,38 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         String tool = requiredText(params, "tool");
         JsonNode arguments = params.path("arguments");
         return switch (tool) {
-            case "list_agents" -> CompletableFuture.completedFuture(listAgents(source));
-            case "send_message" -> CompletableFuture.completedFuture(sendMessage(source, arguments));
-            case "broadcast_message" -> CompletableFuture.completedFuture(broadcastMessage(source, arguments));
-            case "handoff_to_operations" -> CompletableFuture.completedFuture(handoffToOperations(source, arguments));
-            case "list_policy_rules" -> CompletableFuture.completedFuture(listPolicyRules(source));
-            case "list_runbooks" -> CompletableFuture.completedFuture(listRunbooks(source));
-            case "request_operation" -> CompletableFuture.completedFuture(requestOperation(source, arguments));
-            case "get_operation_status" -> CompletableFuture.completedFuture(getOperationStatus(source, arguments));
+            case "list_agents" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.READ);
+                yield CompletableFuture.completedFuture(listAgents(source));
+            }
+            case "send_message" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
+                yield CompletableFuture.completedFuture(sendMessage(source, arguments));
+            }
+            case "broadcast_message" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
+                yield CompletableFuture.completedFuture(broadcastMessage(source, arguments));
+            }
+            case "handoff_to_operations" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
+                yield CompletableFuture.completedFuture(handoffToOperations(source, arguments));
+            }
+            case "list_policy_rules" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.READ);
+                yield CompletableFuture.completedFuture(listPolicyRules(source));
+            }
+            case "list_runbooks" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.READ);
+                yield CompletableFuture.completedFuture(listRunbooks(source));
+            }
+            case "request_operation" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
+                yield CompletableFuture.completedFuture(requestOperation(source, arguments));
+            }
+            case "get_operation_status" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.READ);
+                yield CompletableFuture.completedFuture(getOperationStatus(source, arguments));
+            }
             case "request_action" -> approvalService.receiveDeclaredAction(request, source, arguments);
             case "request_protected_action" -> approvalService.receiveProtectedAction(request, source, arguments);
             default -> throw new IllegalArgumentException("Unknown Agenticform dynamic tool: " + tool);
@@ -104,6 +133,9 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             row.put("id", agent.getId().toString());
             row.put("name", agent.getName());
             row.put("role", agent.getRole().name());
+            row.put("capabilityProfile", agent.getCapabilityProfile().name());
+            ArrayNode capabilities = row.putArray("capabilities");
+            agent.getCapabilityProfile().capabilities().stream().map(Enum::name).sorted().forEach(capabilities::add);
             row.put("systemManaged", agent.isSystemManaged());
             row.put("responsibility", agent.getResponsibility());
             row.put("status", agent.getStatus().name());
@@ -135,7 +167,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             row.put("description", rule.getDescription());
         }
         ObjectNode payload = mapper.createObjectNode();
-        payload.put("precedence", "TASK > AGENT > PROJECT > GLOBAL; exact action > wildcard; exact environment > wildcard");
+        payload.put("precedence", "Capability profile may only tighten policy. Then TASK > AGENT > PROJECT > GLOBAL; exact action > wildcard; exact environment > wildcard.");
         payload.set("rules", rows);
         return success(payload.toString());
     }
