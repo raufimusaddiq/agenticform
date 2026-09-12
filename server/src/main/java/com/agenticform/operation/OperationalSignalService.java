@@ -34,10 +34,7 @@ public class OperationalSignalService {
 
     @Transactional
     public SignalResult record(SignalInput input) {
-        if (input.projectId() == null) throw new IllegalArgumentException("Signal projectId is required");
-        if (input.source() == null) throw new IllegalArgumentException("Signal source is required");
-        if (input.signalType() == null || input.signalType().isBlank()) throw new IllegalArgumentException("Signal type is required");
-        if (input.fingerprint() == null || input.fingerprint().isBlank()) throw new IllegalArgumentException("Signal fingerprint is required");
+        validate(input);
         Instant observedAt = input.observedAt() == null ? Instant.now() : input.observedAt();
         OperationalSeverity severity = input.severity() == null ? OperationalSeverity.WARNING : input.severity();
         String payloadJson = json(input.payload());
@@ -57,11 +54,38 @@ public class OperationalSignalService {
         return new SignalResult(signal, incidents.correlate(signal));
     }
 
+    @Transactional
+    public SignalResult recover(UUID projectId, OperationalSignalSource source,
+                                String failureFingerprint, String correlationKey,
+                                Map<String, ?> payload, Instant observedAt) {
+        OperationalSignalEntity failure = repository
+                .findFirstByProjectIdAndFingerprintAndStatusInOrderByLastSeenAtDesc(
+                        projectId, failureFingerprint, ACTIVE)
+                .orElse(null);
+        if (failure == null) return null;
+        failure.resolve();
+        repository.save(failure);
+
+        Instant when = observedAt == null ? Instant.now() : observedAt;
+        OperationalSignalEntity recovery = repository.save(new OperationalSignalEntity(
+                projectId, source, "SERVICE_HEALTH_RECOVERED", OperationalSeverity.INFO,
+                failureFingerprint + ":recovered:" + failure.getId(), correlationKey,
+                json(payload), when));
+        return new SignalResult(recovery, incidents.correlate(recovery));
+    }
+
     public List<OperationalSignalEntity> list(UUID projectId, OperationalSignalEntity.Status status) {
         if (projectId == null) return repository.findAll();
         return status == null
                 ? repository.findAllByProjectIdOrderByLastSeenAtDesc(projectId)
                 : repository.findAllByProjectIdAndStatusOrderByLastSeenAtDesc(projectId, status);
+    }
+
+    private void validate(SignalInput input) {
+        if (input.projectId() == null) throw new IllegalArgumentException("Signal projectId is required");
+        if (input.source() == null) throw new IllegalArgumentException("Signal source is required");
+        if (input.signalType() == null || input.signalType().isBlank()) throw new IllegalArgumentException("Signal type is required");
+        if (input.fingerprint() == null || input.fingerprint().isBlank()) throw new IllegalArgumentException("Signal fingerprint is required");
     }
 
     private String json(Map<String, ?> payload) {
