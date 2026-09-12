@@ -11,7 +11,6 @@ import com.agenticform.node.NodeCommandRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
@@ -21,9 +20,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,7 +56,6 @@ class OperationalIncidentWakeServiceTest {
 
         AgentEntity agent = mock(AgentEntity.class);
         when(agent.getId()).thenReturn(agentId);
-        when(agent.getRole()).thenReturn(AgentRole.OPERATIONAL);
         when(agent.getStatus()).thenReturn(AgentStatus.IDLE);
         when(agent.getCodexThreadId()).thenReturn("thread-1");
         when(agent.getExecutionNodeId()).thenReturn(nodeId);
@@ -68,7 +66,7 @@ class OperationalIncidentWakeServiceTest {
         when(command.getId()).thenReturn(commandId);
         when(command.terminal()).thenReturn(false);
         when(nodeService.enqueue(eq(nodeId), eq(agentId), eq("DELIVER_MESSAGE"),
-                eq("agenticform-incident:" + incidentId + ":g4"), any(Map.class))).thenReturn(command);
+                eq("agenticform-incident:" + incidentId + ":g4:attempt:1"), any(Map.class))).thenReturn(command);
 
         service.deliverPending();
 
@@ -102,15 +100,15 @@ class OperationalIncidentWakeServiceTest {
 
     private OperationalIncidentEntity incident(UUID id, UUID projectId, OperationalIncidentEntity.WakeStatus wakeStatus) {
         OperationalIncidentEntity incident = mock(OperationalIncidentEntity.class);
-        when(incident.getId()).thenReturn(id);
-        when(incident.getProjectId()).thenReturn(projectId);
-        when(incident.getWakeStatus()).thenReturn(wakeStatus);
-        when(incident.getWakeAttempts()).thenReturn(wakeStatus == OperationalIncidentEntity.WakeStatus.PENDING ? 0 : 1);
-        when(incident.terminal()).thenReturn(false);
-        when(incident.getIncidentType()).thenReturn("SERVICE_DEGRADED");
-        when(incident.getSeverity()).thenReturn(OperationalSeverity.HIGH);
-        when(incident.getStatus()).thenReturn(OperationalIncidentEntity.Status.OPEN);
-        when(incident.getSummary()).thenReturn("service degraded");
+        lenient().when(incident.getId()).thenReturn(id);
+        lenient().when(incident.getProjectId()).thenReturn(projectId);
+        lenient().when(incident.getWakeStatus()).thenReturn(wakeStatus);
+        lenient().when(incident.getWakeAttempts()).thenReturn(wakeStatus == OperationalIncidentEntity.WakeStatus.PENDING ? 0 : 1);
+        lenient().when(incident.terminal()).thenReturn(false);
+        lenient().when(incident.getIncidentType()).thenReturn("SERVICE_DEGRADED");
+        lenient().when(incident.getSeverity()).thenReturn(OperationalSeverity.HIGH);
+        lenient().when(incident.getStatus()).thenReturn(OperationalIncidentEntity.Status.OPEN);
+        lenient().when(incident.getSummary()).thenReturn("service degraded");
         return incident;
     }
 }
