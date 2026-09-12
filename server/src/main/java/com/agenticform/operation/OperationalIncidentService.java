@@ -120,6 +120,7 @@ public class OperationalIncidentService {
         if (incident == null) return null;
         incident.observe(incident.getSeverity(), "Service health recovered; verify stability before resolving", null,
                 signal.getLastSeenAt());
+        incident.requestWakeForNewEvidence();
         incident = incidents.save(incident);
         link(incident, signal);
         return incident;
