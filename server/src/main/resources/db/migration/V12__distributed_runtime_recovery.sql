@@ -1,3 +1,10 @@
+ALTER TABLE execution_nodes
+    ADD COLUMN drain_requested BOOLEAN NOT NULL DEFAULT FALSE;
+
+UPDATE execution_nodes
+SET drain_requested = TRUE
+WHERE status = 'DRAINING';
+
 ALTER TABLE agents
     ADD COLUMN runtime_generation BIGINT NOT NULL DEFAULT 0;
 
