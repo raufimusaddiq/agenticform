@@ -116,17 +116,12 @@ public class AgentLifecycleService {
             interrupt.put("turnId", agent.getActiveTurnId());
             interrupt.put("stopLifecycle", true);
             interrupt.put("finalizeStop", !isolated);
+            interrupt.put("cleanupAfterInterrupt", isolated);
+            interrupt.put("defaultBranch", project.getDefaultBranch());
             nodes.enqueue(agent.getExecutionNodeId(), agent.getId(), "INTERRUPT_TURN",
                     "stop-interrupt:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), interrupt);
-        }
-
-        if (isolated) {
-            Map<String, Object> cleanup = new LinkedHashMap<>();
-            cleanup.put("threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId());
-            cleanup.put("defaultBranch", project.getDefaultBranch());
-            cleanup.put("stopLifecycle", true);
-            nodes.enqueue(agent.getExecutionNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
-                    "stop-cleanup:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), cleanup);
+        } else if (isolated) {
+            enqueueStopCleanup(agent, project.getDefaultBranch());
         }
 
         agent.setActiveTaskId(null);
@@ -141,6 +136,15 @@ public class AgentLifecycleService {
         AgentEntity stopping = agents.save(agent);
         events.publish("agent.stopping", stopping.getProjectId(), stopping.getId());
         return stopping;
+    }
+
+    private void enqueueStopCleanup(AgentEntity agent, String defaultBranch) {
+        Map<String, Object> cleanup = new LinkedHashMap<>();
+        cleanup.put("threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId());
+        cleanup.put("defaultBranch", defaultBranch);
+        cleanup.put("stopLifecycle", true);
+        nodes.enqueue(agent.getExecutionNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
+                "stop-cleanup:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), cleanup);
     }
 
     private void cancelNonTerminalTasks(UUID agentId) {
