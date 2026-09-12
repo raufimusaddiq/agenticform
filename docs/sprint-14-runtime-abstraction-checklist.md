@@ -26,6 +26,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Consolidate the pre-deployment schema into one final V1 baseline.
 - [x] Verify fresh-baseline application and idempotent Flyway execution.
 - [x] Pre-deployment reset policy: databases created from the superseded V1–V19 history must be dropped and recreated before using this branch. No deployed environment exists; this baseline is not an in-place upgrade path.
+- [x] External workflow cleanup: `expectedHeadSha` is mandatory; the removed `inputs.sha` fallback was pre-deployment compatibility removal required for deterministic workflow correlation.
 
 ## Node scheduling
 
@@ -46,4 +47,5 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Run `cd node && go test ./...`.
 - [x] Run exact-head CI checks; all server, node, web, and server-image jobs passed on September 12, 2026.
 - [ ] Confirm a second runtime implementation can be added without changing orchestration core; currently only the Codex adapter is implemented.
+- Sprint 15 follow-up: add the second runtime adapter and complete this exit gate; Sprint 14 intentionally ships Codex as the sole node runtime.
 - [x] Update architecture and operations documentation.

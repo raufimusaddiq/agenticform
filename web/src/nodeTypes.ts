@@ -14,7 +14,6 @@ export type ExecutionNode = {
   arch: string | null;
   hostname: string | null;
   nodeVersion: string | null;
-  codexVersion: string | null;
   cpuCores: number | null;
   memoryMb: number | null;
   diskFreeMb: number | null;

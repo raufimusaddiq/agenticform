@@ -40,7 +40,7 @@ CREATE TABLE execution_nodes (
     id UUID PRIMARY KEY, name VARCHAR(128) NOT NULL UNIQUE, status VARCHAR(32) NOT NULL, trust_level VARCHAR(32) NOT NULL,
     public_key_base64 TEXT NOT NULL, fingerprint VARCHAR(128) NOT NULL UNIQUE, labels_json TEXT NOT NULL DEFAULT '{}',
     capabilities_json TEXT NOT NULL DEFAULT '{}', max_agents INTEGER NOT NULL DEFAULT 1, os VARCHAR(64), arch VARCHAR(64),
-    hostname VARCHAR(255), node_version VARCHAR(64), codex_version VARCHAR(64), cpu_cores INTEGER, memory_mb BIGINT,
+    hostname VARCHAR(255), node_version VARCHAR(64), cpu_cores INTEGER, memory_mb BIGINT,
     disk_free_mb BIGINT, drain_requested BOOLEAN NOT NULL DEFAULT FALSE, protocol_version INTEGER NOT NULL DEFAULT 1,
     enrolled_at TIMESTAMPTZ NOT NULL, last_seen_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
 );
@@ -49,7 +49,7 @@ CREATE INDEX idx_execution_nodes_last_seen ON execution_nodes(last_seen_at);
 
 CREATE TABLE agents (
     id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id), name VARCHAR(255) NOT NULL, responsibility TEXT NOT NULL,
-    runtime_type VARCHAR(32) NOT NULL, runtime_session_id VARCHAR(255), workspace_mode VARCHAR(64) NOT NULL,
+    runtime_type VARCHAR(32) NOT NULL, runtime_session_id VARCHAR(255), runtime_profile_id VARCHAR(128), workspace_mode VARCHAR(64) NOT NULL,
     source_directory TEXT, working_directory TEXT, branch VARCHAR(255), status VARCHAR(64) NOT NULL, queue_mode VARCHAR(64) NOT NULL,
     human_control_mode VARCHAR(64) NOT NULL DEFAULT 'ON_THE_LOOP', agent_role VARCHAR(32) NOT NULL DEFAULT 'GENERAL',
     system_managed BOOLEAN NOT NULL DEFAULT FALSE, capability_profile VARCHAR(32) NOT NULL DEFAULT 'IMPLEMENTER',

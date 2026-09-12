@@ -37,6 +37,7 @@ export type Agent = {
   name: string;
   responsibility: string;
   runtimeType: RuntimeType;
+  runtimeProfileId: string | null;
   runtimeSessionId: string;
   workspaceMode: WorkspaceMode;
   sourceDirectory: string | null;

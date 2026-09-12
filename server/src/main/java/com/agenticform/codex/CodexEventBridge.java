@@ -80,6 +80,7 @@ public class CodexEventBridge {
             if (taskId != null) {
                 taskRepository.findById(taskId).ifPresent(task -> {
                     if (!authorizedRuntime(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, task)) return;
+                    if (terminal(task.getStatus()) || !matchesTurn(task.getTurnId(), turnId)) return;
                     task.setTurnId(turnId);
                     task.setStatus(TaskStatus.RUNNING);
                     taskRepository.save(task);
@@ -151,6 +152,7 @@ public class CodexEventBridge {
     private boolean authorizedAgent(UUID executionNodeId, long generation, RuntimeType runtimeType,
                                     String runtimeSessionId, AgentEntity agent) {
         if (agent == null) return false;
+        if (agent.getStatus() == AgentStatus.STOPPED || agent.getStatus() == AgentStatus.STOPPING) return false;
         if (executionNodeId == null) return agent.getExecutionNodeId() == null;
         return agent.ownsRuntime(executionNodeId, generation, runtimeType, runtimeSessionId);
     }
@@ -158,7 +160,9 @@ public class CodexEventBridge {
     private void completeTask(TaskEntity task, JsonNode params, UUID executionNodeId, long generation,
                               RuntimeType runtimeType, String runtimeSessionId) {
         AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-        if (!authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, agent)) return;
+        String turnId = params.path("turn").path("id").asText(null);
+        if (terminal(task.getStatus()) || !matchesTurn(task.getTurnId(), turnId)
+                || !authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, agent)) return;
         String turnStatus = params.path("turn").path("status").asText();
         task.setStatus("completed".equalsIgnoreCase(turnStatus) ? TaskStatus.COMPLETED : TaskStatus.FAILED);
         taskRepository.save(task);
@@ -186,5 +190,13 @@ public class CodexEventBridge {
         if (target != null) {
             events.publish("message.terminal", target.getProjectId(), delivery.getMessageId());
         }
+    }
+
+    private boolean terminal(TaskStatus status) {
+        return status == TaskStatus.COMPLETED || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
+    }
+
+    private boolean matchesTurn(String expected, String actual) {
+        return actual != null && !actual.isBlank() && (expected == null || expected.isBlank() || expected.equals(actual));
     }
 }

@@ -67,7 +67,7 @@ public class ExecutionNodeController {
                         runtime.workingDirectory(), runtime.branch(), runtime.runtimeStatus())).toList();
         return service.heartbeat(nodeId, new ExecutionNodeService.Heartbeat(
                 request.protocolVersion(), request.labelsJson(), request.capabilitiesJson(), request.maxAgents(),
-                request.os(), request.arch(), request.hostname(), request.nodeVersion(), request.codexVersion(),
+                request.os(), request.arch(), request.hostname(), request.nodeVersion(),
                 request.cpuCores(), request.memoryMb(), request.diskFreeMb(), runtimes));
     }
 
@@ -117,7 +117,7 @@ public class ExecutionNodeController {
                                             String runtimeStatus) {}
     public record HeartbeatRequest(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
                                    String os, String arch, String hostname, String nodeVersion,
-                                   String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb,
+                                   Integer cpuCores, Long memoryMb, Long diskFreeMb,
                                    List<RuntimeObservationRequest> runtimes) {}
     public record CompleteCommandRequest(boolean success, String resultJson, String error) {}
     public record UpdateStatusRequest(@NotNull ExecutionNodeStatus status) {}

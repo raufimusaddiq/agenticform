@@ -142,6 +142,7 @@ export const api = {
     name: string;
     responsibility: string;
     runtimeType: RuntimeType;
+    runtimeProfileId?: string;
     workspaceMode: WorkspaceMode;
     baseBranch?: string;
     branch?: string;

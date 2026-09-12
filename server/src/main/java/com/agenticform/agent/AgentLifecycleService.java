@@ -87,6 +87,9 @@ public class AgentLifecycleService {
                 throw new IllegalStateException("Unable to interrupt active local Codex turn before stop", error);
             }
         }
+        if (runtimeSessionId(agent) != null && !runtimeSessionId(agent).isBlank()) {
+            runtimeRegistry.get(agent.getRuntimeType()).stop(new RuntimeSession(runtimeSessionId(agent)));
+        }
         agent.setActiveTaskId(null);
         agent.setActiveTurnId(null);
         agents.save(agent);

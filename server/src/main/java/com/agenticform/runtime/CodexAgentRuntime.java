@@ -40,4 +40,10 @@ public class CodexAgentRuntime implements AgentRuntime {
 
     @Override
     public void interrupt(RuntimeSession session, String turnId) { gateway.interruptTurn(session.id(), turnId); }
+
+    @Override
+    public void stop(RuntimeSession session) {
+        // Codex App Server has no thread-destroy RPC. Agenticform releases ownership after interrupt;
+        // a future provider can terminate process/session resources here.
+    }
 }

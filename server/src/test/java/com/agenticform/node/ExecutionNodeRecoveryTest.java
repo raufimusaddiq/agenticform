@@ -95,7 +95,7 @@ class ExecutionNodeRecoveryTest {
         UUID agentId = UUID.randomUUID();
         ExecutionNodeEntity node = org.mockito.Mockito.mock(ExecutionNodeEntity.class);
         ExecutionNodeService.Heartbeat heartbeat = new ExecutionNodeService.Heartbeat(1, "{}", "{}", 1,
-                "linux", "amd64", "node", "test", "", 1, 1L, 1L,
+                "linux", "amd64", "node", "test", 1, 1L, 1L,
                 java.util.List.of(new ExecutionNodeService.RuntimeObservation(agentId, RuntimeType.CODEX, 4L,
                         "session-4", "/repo", "/work", "agent/work", "IDLE")));
 

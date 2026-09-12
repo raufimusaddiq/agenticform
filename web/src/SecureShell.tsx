@@ -178,7 +178,6 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
             <span><small>Trust</small>{node.trustLevel}</span>
             <span><small>Capacity</small>{node.maxAgents} agents</span>
             <span><small>Disk free</small>{node.diskFreeMb == null ? '—' : `${Math.round(node.diskFreeMb / 1024)} GB`}</span>
-            <span><small>Codex</small>{node.codexVersion || 'not ready'}</span>
           </div>
           <code className="fingerprint">{node.fingerprint}</code>
           <div className="node-actions">

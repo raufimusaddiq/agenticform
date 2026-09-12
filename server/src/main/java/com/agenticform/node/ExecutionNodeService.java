@@ -32,7 +32,7 @@ public class ExecutionNodeService {
                                      String runtimeStatus) {}
     public record Heartbeat(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
                             String os, String arch, String hostname, String nodeVersion,
-                            String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb,
+                            Integer cpuCores, Long memoryMb, Long diskFreeMb,
                             List<RuntimeObservation> runtimes) {}
     public record CommandCompletion(NodeCommandEntity command, boolean newlyCompleted) {}
 
@@ -130,7 +130,7 @@ public class ExecutionNodeService {
         ExecutionNodeEntity node = get(nodeId);
         node.heartbeat(heartbeat.protocolVersion(), heartbeat.labelsJson(), heartbeat.capabilitiesJson(), heartbeat.maxAgents(),
                 heartbeat.os(), heartbeat.arch(), heartbeat.hostname(), heartbeat.nodeVersion(),
-                heartbeat.codexVersion(), heartbeat.cpuCores(), heartbeat.memoryMb(), heartbeat.diskFreeMb());
+                heartbeat.cpuCores(), heartbeat.memoryMb(), heartbeat.diskFreeMb());
         ExecutionNodeEntity saved = nodes.save(node);
         reconcileRuntimeInventory(nodeId, heartbeat.runtimes());
         return saved;

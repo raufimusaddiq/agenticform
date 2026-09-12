@@ -62,8 +62,9 @@ public class NodeCommandCompletionHandler {
     private void completeStart(NodeCommandEntity command, boolean success, String resultJson, String error) throws Exception {
         if (command.getAgentId() == null) return;
         AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
-        if (agent == null || !ownsCommandRuntime(command, agent)) return;
+        if (agent == null || !ownsStartAssignment(command, agent)) return;
         if (!success) {
+            if (agent.getRuntimeSessionId() != null && !agent.getRuntimeSessionId().isBlank()) return;
             agent.setStatus(AgentStatus.FAILED);
             agents.save(agent);
             return;
@@ -73,6 +74,10 @@ public class NodeCommandCompletionHandler {
         RuntimeType runtimeType = RuntimeType.valueOf(required(result, "runtimeType"));
         if (!runtimeType.name().equals(parse(command.getPayloadJson()).path("runtimeType").asText())) {
             throw new IllegalStateException("Node command returned an unexpected runtime type");
+        }
+        if (agent.getRuntimeSessionId() != null && !agent.getRuntimeSessionId().isBlank()
+                && !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration(), runtimeType, runtimeSessionId)) {
+            return;
         }
         String sourceDirectory = required(result, "sourceDirectory");
         String workingDirectory = required(result, "workingDirectory");
@@ -246,6 +251,16 @@ public class NodeCommandCompletionHandler {
             RuntimeType type = RuntimeType.valueOf(required(payload, "runtimeType"));
             String sessionId = payload.path("runtimeSessionId").asText(null);
             return agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration(), type, sessionId);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean ownsStartAssignment(NodeCommandEntity command, AgentEntity agent) {
+        try {
+            RuntimeType type = RuntimeType.valueOf(required(parse(command.getPayloadJson()), "runtimeType"));
+            return agent.ownsRuntimeAssignment(command.getNodeId(), command.getRuntimeGeneration(), type)
+                    && agent.getStatus() != AgentStatus.STOPPED;
         } catch (Exception ignored) {
             return false;
         }

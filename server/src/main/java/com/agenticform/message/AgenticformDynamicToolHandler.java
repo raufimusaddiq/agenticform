@@ -6,6 +6,8 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.approval.HumanApprovalService;
+import com.agenticform.runtime.RuntimeApprovalRequest;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.codex.CodexJsonRpcClient;
 import com.agenticform.operation.OperationRunEntity;
 import com.agenticform.operation.OperationRunService;
@@ -139,7 +141,9 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
                 yield CompletableFuture.completedFuture(updateIncident(source, arguments));
             }
-            case "request_action" -> approvalService.receiveDeclaredAction(request, source, arguments);
+            case "request_action" -> approvalService.receiveDeclaredAction(new RuntimeApprovalRequest(
+                    request.id().isTextual() ? request.id().asText() : request.id().toString(), RuntimeType.CODEX,
+                    threadId, request.method(), params), source, arguments);
             default -> throw new IllegalArgumentException("Unknown Agenticform dynamic tool: " + tool);
         };
     }

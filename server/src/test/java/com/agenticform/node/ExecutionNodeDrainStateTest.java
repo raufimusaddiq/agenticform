@@ -15,7 +15,7 @@ class ExecutionNodeDrainStateTest {
         assertTrue(node.isDrainRequested());
 
         node.setStatus(ExecutionNodeStatus.OFFLINE);
-        node.heartbeat(1, "{}", "{}", 2, "linux", "amd64", "host", "1", "codex", 4, 8192L, 10000L);
+        node.heartbeat(1, "{}", "{}", 2, "linux", "amd64", "host", "1", 4, 8192L, 10000L);
 
         assertEquals(ExecutionNodeStatus.DRAINING, node.getStatus());
         assertTrue(node.isDrainRequested());

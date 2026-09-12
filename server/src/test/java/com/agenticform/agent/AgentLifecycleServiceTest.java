@@ -87,6 +87,7 @@ class AgentLifecycleServiceTest {
         verify(tasks).save(task);
         verify(dependencies).reconcileDependents(taskId);
         verify(runtime).interrupt(new RuntimeSession("session-1"), "turn-1");
+        verify(runtime).stop(new RuntimeSession("session-1"));
         verify(agent).setActiveTaskId(null);
         verify(agent).setActiveTurnId(null);
         verify(agent).setStatus(AgentStatus.STOPPED);

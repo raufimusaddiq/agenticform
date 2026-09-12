@@ -60,9 +60,6 @@ public class ExecutionNodeEntity {
     @Column(name = "node_version")
     private String nodeVersion;
 
-    @Column(name = "codex_version")
-    private String codexVersion;
-
     @Column(name = "cpu_cores")
     private Integer cpuCores;
 
@@ -110,7 +107,7 @@ public class ExecutionNodeEntity {
 
     public void heartbeat(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
                           String os, String arch, String hostname, String nodeVersion,
-                          String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb) {
+                          Integer cpuCores, Long memoryMb, Long diskFreeMb) {
         if (status == ExecutionNodeStatus.REVOKED || status == ExecutionNodeStatus.DISABLED) return;
         if (status == ExecutionNodeStatus.OFFLINE) {
             status = drainRequested ? ExecutionNodeStatus.DRAINING : ExecutionNodeStatus.ONLINE;
@@ -123,7 +120,6 @@ public class ExecutionNodeEntity {
         this.arch = arch;
         this.hostname = hostname;
         this.nodeVersion = nodeVersion;
-        this.codexVersion = codexVersion;
         this.cpuCores = cpuCores;
         this.memoryMb = memoryMb;
         this.diskFreeMb = diskFreeMb;
@@ -159,7 +155,6 @@ public class ExecutionNodeEntity {
     public String getArch() { return arch; }
     public String getHostname() { return hostname; }
     public String getNodeVersion() { return nodeVersion; }
-    public String getCodexVersion() { return codexVersion; }
     public Integer getCpuCores() { return cpuCores; }
     public Long getMemoryMb() { return memoryMb; }
     public Long getDiskFreeMb() { return diskFreeMb; }

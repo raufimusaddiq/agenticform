@@ -41,7 +41,7 @@ public class AgentController {
         return service.spawn(new AgentService.SpawnAgent(
                 request.projectId(), request.name(), request.responsibility(), request.workspaceMode(),
                 request.baseBranch(), request.branch(), request.queueMode(), request.humanControlMode(),
-                request.executionNodeId(), request.minimumTrust(), request.capabilityProfile(), request.runtimeType()));
+                request.executionNodeId(), request.minimumTrust(), request.capabilityProfile(), request.runtimeType(), request.runtimeProfileId()));
     }
 
     @PostMapping("/operational/ensure")
@@ -93,7 +93,8 @@ public class AgentController {
             UUID executionNodeId,
             NodeTrustLevel minimumTrust,
             AgentCapabilityProfile capabilityProfile,
-            @NotNull RuntimeType runtimeType
+            @NotNull RuntimeType runtimeType,
+            String runtimeProfileId
     ) {}
 
     public record EnsureOperationalAgentRequest(@NotNull UUID projectId) {}

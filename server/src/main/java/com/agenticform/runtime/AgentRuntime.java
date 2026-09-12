@@ -17,4 +17,6 @@ public interface AgentRuntime {
     void resume(RuntimeSession session);
 
     void interrupt(RuntimeSession session, String turnId);
+
+    void stop(RuntimeSession session);
 }

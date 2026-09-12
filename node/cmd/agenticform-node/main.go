@@ -304,7 +304,6 @@ func (d *daemonRuntime) heartbeat() error {
 		"arch":             runtime.GOARCH,
 		"hostname":         hostname,
 		"nodeVersion":      version,
-		"codexVersion":     codexVersion,
 		"cpuCores":         runtime.NumCPU(),
 		"memoryMb":         nil,
 		"diskFreeMb":       diskFreeMB(d.stateDir),

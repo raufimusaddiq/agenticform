@@ -40,6 +40,9 @@ public class AgentEntity {
     @Column(name = "runtime_session_id")
     private String runtimeSessionId;
 
+    @Column(name = "runtime_profile_id", length = 128)
+    private String runtimeProfileId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "workspace_mode", nullable = false)
     private WorkspaceMode workspaceMode;
@@ -157,6 +160,7 @@ public class AgentEntity {
     public String getResponsibility() { return responsibility; }
     public RuntimeType getRuntimeType() { return runtimeType; }
     public String getRuntimeSessionId() { return runtimeSessionId; }
+    public String getRuntimeProfileId() { return runtimeProfileId; }
     public WorkspaceMode getWorkspaceMode() { return workspaceMode; }
     public String getSourceDirectory() { return sourceDirectory; }
     public String getWorkingDirectory() { return workingDirectory; }
@@ -180,6 +184,9 @@ public class AgentEntity {
     public void setExecutionNodeId(UUID executionNodeId) { this.executionNodeId = executionNodeId; }
     public void setRuntimeType(RuntimeType runtimeType) {
         this.runtimeType = Objects.requireNonNull(runtimeType, "Runtime type is required");
+    }
+    public void setRuntimeProfileId(String runtimeProfileId) {
+        this.runtimeProfileId = runtimeProfileId == null || runtimeProfileId.isBlank() ? null : runtimeProfileId.trim();
     }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }

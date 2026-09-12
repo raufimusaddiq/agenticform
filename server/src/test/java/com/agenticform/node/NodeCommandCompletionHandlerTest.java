@@ -138,4 +138,24 @@ class NodeCommandCompletionHandlerTest {
         verify(agent).setActiveTurnId(null);
         verify(agents).save(agent);
     }
+
+    @Test
+    void startCompletionAfterHeartbeatFirstBindIsAcceptedIdempotently() {
+        UUID agentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+        when(command.getCommandType()).thenReturn("START_AGENT");
+        when(command.getAgentId()).thenReturn(agentId);
+        when(command.getNodeId()).thenReturn(nodeId);
+        when(command.getRuntimeGeneration()).thenReturn(3L);
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\"}");
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntimeAssignment(nodeId, 3L, RuntimeType.CODEX)).thenReturn(true);
+        when(agent.getRuntimeSessionId()).thenReturn("session-3");
+        when(agent.ownsRuntime(nodeId, 3L, RuntimeType.CODEX, "session-3")).thenReturn(true);
+
+        handler.handle(command, true, "{\"runtimeType\":\"CODEX\",\"runtimeSessionId\":\"session-3\",\"sourceDirectory\":\"/repo\",\"workingDirectory\":\"/work\"}", null);
+
+        verify(agent).bindRuntime(3L, RuntimeType.CODEX, "session-3", "/repo", "/work", null);
+        verify(agents).save(agent);
+    }
 }
