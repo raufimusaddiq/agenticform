@@ -33,7 +33,7 @@ public class SecurityConfig {
                                 .maxAgeInSeconds(31536000)))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                        .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/webhooks/github").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/nodes/enroll").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/nodes/*/heartbeat").permitAll()
