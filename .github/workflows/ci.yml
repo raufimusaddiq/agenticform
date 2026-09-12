@@ -21,6 +21,26 @@ jobs:
       - name: Test server
         run: mvn -B test
 
+  node:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: node/go.mod
+      - name: Vet node daemon
+        run: go vet ./...
+      - name: Test node daemon
+        run: go test ./...
+      - name: Build node daemon
+        run: go build ./cmd/agenticform-node
+      - name: Build node container
+        run: docker build -f Dockerfile ..
+
   web:
     runs-on: ubuntu-latest
     defaults:

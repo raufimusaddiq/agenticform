@@ -24,20 +24,22 @@ import java.util.function.Consumer;
 public class CodexJsonRpcClient implements WebSocket.Listener {
     private final AgenticformProperties properties;
     private final ObjectMapper mapper;
+    private final CodexServerRequestRouter serverRequestRouter;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final AtomicLong requestSequence = new AtomicLong();
     private final Map<Long, CompletableFuture<JsonNode>> pending = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Consumer<Notification>> listeners = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<ServerRequestHandler> serverRequestHandlers = new CopyOnWriteArrayList<>();
     private final StringBuilder incoming = new StringBuilder();
     private final Object connectionLock = new Object();
 
     private volatile WebSocket socket;
     private volatile boolean initialized;
 
-    public CodexJsonRpcClient(AgenticformProperties properties, ObjectMapper mapper) {
+    public CodexJsonRpcClient(AgenticformProperties properties, ObjectMapper mapper,
+                              CodexServerRequestRouter serverRequestRouter) {
         this.properties = properties;
         this.mapper = mapper;
+        this.serverRequestRouter = serverRequestRouter;
     }
 
     public JsonNode request(String method, ObjectNode params) {
@@ -50,17 +52,13 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
     }
 
     public void addServerRequestHandler(ServerRequestHandler handler) {
-        serverRequestHandlers.add(handler);
+        serverRequestRouter.register(handler);
     }
 
     private void ensureConnected() {
-        if (initialized && socket != null) {
-            return;
-        }
+        if (initialized && socket != null) return;
         synchronized (connectionLock) {
-            if (initialized && socket != null) {
-                return;
-            }
+            if (initialized && socket != null) return;
             socket = httpClient.newWebSocketBuilder()
                     .buildAsync(properties.getCodex().getEndpoint(), this)
                     .join();
@@ -141,9 +139,7 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
                 incoming.setLength(0);
             }
         }
-        if (complete != null) {
-            handleMessage(complete);
-        }
+        if (complete != null) handleMessage(complete);
         webSocket.request(1);
         return CompletableFuture.completedFuture(null);
     }
@@ -151,60 +147,40 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
     private void handleMessage(String raw) {
         try {
             JsonNode message = mapper.readTree(raw);
-
             if (message.has("id") && message.has("method")) {
                 ServerRequest request = new ServerRequest(
                         message.get("id"), message.get("method").asText(), message.get("params"));
                 CompletableFuture.runAsync(() -> handleServerRequest(request));
                 return;
             }
-
             if (message.has("id")) {
                 long id = message.get("id").asLong();
                 CompletableFuture<JsonNode> future = pending.remove(id);
                 if (future != null) {
-                    if (message.has("error")) {
-                        future.completeExceptionally(new CodexRpcException(message.get("error").toString()));
-                    } else {
-                        future.complete(message.get("result"));
-                    }
+                    if (message.has("error")) future.completeExceptionally(new CodexRpcException(message.get("error").toString()));
+                    else future.complete(message.get("result"));
                 }
                 return;
             }
-
             if (message.has("method")) {
-                Notification notification = new Notification(
-                        message.get("method").asText(), message.get("params"));
+                Notification notification = new Notification(message.get("method").asText(), message.get("params"));
                 listeners.forEach(listener -> listener.accept(notification));
             }
         } catch (Exception ignored) {
-            // Malformed transport messages are isolated from the reader loop; diagnostics will be added in observability work.
+            // Malformed transport messages are isolated from the reader loop.
         }
     }
 
     private void handleServerRequest(ServerRequest request) {
-        for (ServerRequestHandler handler : serverRequestHandlers) {
-            if (!handler.supports(request.method())) {
-                continue;
-            }
-            try {
-                CompletionStage<JsonNode> response = handler.handle(request);
-                response.whenComplete((result, error) -> {
-                    if (error != null) {
-                        Throwable cause = error.getCause() == null ? error : error.getCause();
-                        sendServerError(request.id(), -32000,
-                                cause.getMessage() == null ? "Agenticform server request failed" : cause.getMessage());
-                    } else {
-                        sendServerResult(request.id(), result);
-                    }
-                });
-            } catch (Exception error) {
+        serverRequestRouter.route(request).whenComplete((result, error) -> {
+            if (error != null) {
+                Throwable cause = error.getCause() == null ? error : error.getCause();
                 sendServerError(request.id(), -32000,
-                        error.getMessage() == null ? "Agenticform server request failed" : error.getMessage());
+                        cause.getMessage() == null ? "Agenticform server request failed" : cause.getMessage());
+            } else {
+                sendServerResult(request.id(), result);
             }
-            return;
-        }
-        sendServerError(request.id(), -32601, "Unsupported server request: " + request.method());
+        });
     }
 
     @Override
@@ -236,9 +212,7 @@ public class CodexJsonRpcClient implements WebSocket.Listener {
     @PreDestroy
     void close() {
         WebSocket current = socket;
-        if (current != null) {
-            current.sendClose(WebSocket.NORMAL_CLOSURE, "shutdown");
-        }
+        if (current != null) current.sendClose(WebSocket.NORMAL_CLOSURE, "shutdown");
     }
 
     public record Notification(String method, JsonNode params) {}

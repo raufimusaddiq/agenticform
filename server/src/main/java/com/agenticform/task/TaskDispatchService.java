@@ -6,10 +6,12 @@ import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.codex.CodexGateway;
+import com.agenticform.node.ExecutionNodeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -18,11 +20,14 @@ public class TaskDispatchService {
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
     private final CodexGateway codexGateway;
+    private final ExecutionNodeService nodeService;
 
-    public TaskDispatchService(TaskRepository taskRepository, AgentRepository agentRepository, CodexGateway codexGateway) {
+    public TaskDispatchService(TaskRepository taskRepository, AgentRepository agentRepository,
+                               CodexGateway codexGateway, ExecutionNodeService nodeService) {
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
         this.codexGateway = codexGateway;
+        this.nodeService = nodeService;
     }
 
     public List<TaskEntity> list(UUID projectId) {
@@ -43,9 +48,7 @@ public class TaskDispatchService {
         for (TaskEntity task : taskRepository.findTop20ByStatusOrderByPriorityDescCreatedAtAsc(TaskStatus.READY)) {
             AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
             if (agent == null || agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()
-                    || agent.getQueueMode() != AgentQueueMode.AUTO || agent.getStatus() != AgentStatus.IDLE) {
-                continue;
-            }
+                    || agent.getQueueMode() != AgentQueueMode.AUTO || agent.getStatus() != AgentStatus.IDLE) continue;
             dispatch(task, agent);
         }
     }
@@ -59,9 +62,7 @@ public class TaskDispatchService {
         if (agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()) {
             throw new IllegalStateException("System-managed Operational Agent does not accept normal task dispatch");
         }
-        if (agent.getStatus() != AgentStatus.IDLE) {
-            throw new IllegalStateException("Agent is not idle");
-        }
+        if (agent.getStatus() != AgentStatus.IDLE) throw new IllegalStateException("Agent is not idle");
         if (task.getStatus() != TaskStatus.READY && task.getStatus() != TaskStatus.BLOCKED) {
             throw new IllegalStateException("Task is not dispatchable from status " + task.getStatus());
         }
@@ -74,16 +75,33 @@ public class TaskDispatchService {
             task.setStatus(TaskStatus.DISPATCHING);
             task.setLastError(null);
             taskRepository.save(task);
-
             String clientMessageId = "agenticform-task:" + task.getId();
+
+            if (agent.getExecutionNodeId() != null) {
+                if (agent.getCodexThreadId() == null || agent.getCodexThreadId().isBlank()) {
+                    throw new IllegalStateException("Remote agent runtime is not ready");
+                }
+                var command = nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "DISPATCH_TASK",
+                        "dispatch-task:" + task.getId(), Map.of(
+                                "taskId", task.getId().toString(),
+                                "threadId", agent.getCodexThreadId(),
+                                "clientMessageId", clientMessageId,
+                                "prompt", task.getPrompt()));
+                task.setCodexQueuedSubmissionId("node-command:" + command.getId());
+                task.setStatus(TaskStatus.DISPATCHED);
+                taskRepository.save(task);
+                agent.setStatus(AgentStatus.WORKING);
+                agent.setActiveTaskId(task.getId());
+                agent.setActiveTurnId(null);
+                agentRepository.save(agent);
+                return;
+            }
+
             CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
                     agent.getCodexThreadId(), clientMessageId, task.getPrompt());
-
             TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
             currentTask.setCodexQueuedSubmissionId(receipt.queuedSubmissionId());
-            if (receipt.turnId() != null) {
-                currentTask.setCodexTurnId(receipt.turnId());
-            }
+            if (receipt.turnId() != null) currentTask.setCodexTurnId(receipt.turnId());
             if (currentTask.getStatus() == TaskStatus.DISPATCHING) {
                 currentTask.setStatus(receipt.turnId() == null ? TaskStatus.DISPATCHED : TaskStatus.RUNNING);
             }
@@ -101,7 +119,6 @@ public class TaskDispatchService {
             currentTask.setStatus(TaskStatus.BLOCKED);
             currentTask.setLastError(e.getMessage());
             taskRepository.save(currentTask);
-
             AgentEntity currentAgent = agentRepository.findById(agent.getId()).orElse(agent);
             currentAgent.setStatus(AgentStatus.DISCONNECTED);
             agentRepository.save(currentAgent);

@@ -19,6 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +84,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         return switch (tool) {
             case "list_agents" -> CompletableFuture.completedFuture(listAgents(source));
             case "send_message" -> CompletableFuture.completedFuture(sendMessage(source, arguments));
+            case "broadcast_message" -> CompletableFuture.completedFuture(broadcastMessage(source, arguments));
             case "handoff_to_operations" -> CompletableFuture.completedFuture(handoffToOperations(source, arguments));
             case "list_policy_rules" -> CompletableFuture.completedFuture(listPolicyRules(source));
             case "list_runbooks" -> CompletableFuture.completedFuture(listRunbooks(source));
@@ -107,12 +109,14 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             row.put("status", agent.getStatus().name());
             row.put("queueMode", agent.getQueueMode().name());
             row.put("humanControlMode", agent.getHumanControlMode().name());
+            if (agent.getExecutionNodeId() != null) row.put("executionNodeId", agent.getExecutionNodeId().toString());
             row.put("self", agent.getId().equals(source.getId()));
             rows.add(row);
         }
 
         ObjectNode payload = mapper.createObjectNode();
         payload.put("projectId", source.getProjectId().toString());
+        payload.put("fanoutLimit", AgentMessageService.MAX_FANOUT);
         payload.set("agents", rows);
         return success(payload.toString());
     }
@@ -232,30 +236,59 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
 
     private JsonNode sendMessage(AgentEntity source, JsonNode arguments) {
         UUID targetAgentId = UUID.fromString(requiredText(arguments, "targetAgentId"));
-        AgentMessageType type = arguments.hasNonNull("type")
-                ? AgentMessageType.valueOf(arguments.get("type").asText().toUpperCase())
-                : AgentMessageType.INFORMATION;
+        AgentMessageType type = messageType(arguments);
         String subject = requiredText(arguments, "subject");
         String content = requiredText(arguments, "content");
         UUID replyTo = arguments.hasNonNull("replyToMessageId")
-                ? UUID.fromString(arguments.get("replyToMessageId").asText())
-                : null;
+                ? UUID.fromString(arguments.get("replyToMessageId").asText()) : null;
 
         AgentMessageEntity message = messageService.send(
                 source.getId(), targetAgentId, type, subject, content, replyTo);
+        return success(messagePayload(message, messageService.deliveries(message.getId())).toString());
+    }
 
+    private JsonNode broadcastMessage(AgentEntity source, JsonNode arguments) {
+        AgentMessageAudienceType audienceType = AgentMessageAudienceType.valueOf(
+                requiredText(arguments, "audienceType").toUpperCase());
+        if (audienceType == AgentMessageAudienceType.DIRECT) {
+            throw new IllegalArgumentException("broadcast_message requires MULTICAST, ROLE, GROUP, or PROJECT_BROADCAST");
+        }
+        List<UUID> agentIds = new ArrayList<>();
+        JsonNode ids = arguments.path("agentIds");
+        if (ids.isArray()) ids.forEach(id -> agentIds.add(UUID.fromString(id.asText())));
+        AgentRole role = arguments.hasNonNull("role")
+                ? AgentRole.valueOf(arguments.get("role").asText().toUpperCase()) : null;
+        UUID groupId = arguments.hasNonNull("groupId")
+                ? UUID.fromString(arguments.get("groupId").asText()) : null;
+
+        AgentMessageService.SendResult result = messageService.sendAudience(
+                source.getId(), new AgentMessageService.AudienceRequest(audienceType, agentIds, role, groupId),
+                messageType(arguments), requiredText(arguments, "subject"), requiredText(arguments, "content"), null);
+        return success(messagePayload(result.message(), result.deliveries()).toString());
+    }
+
+    private ObjectNode messagePayload(AgentMessageEntity message, List<AgentMessageDeliveryEntity> deliveries) {
         ObjectNode payload = mapper.createObjectNode();
         payload.put("messageId", message.getId().toString());
         payload.put("conversationId", message.getConversationId().toString());
+        payload.put("audienceType", message.getAudienceType().name());
         payload.put("status", message.getStatus().name());
         payload.put("hopCount", message.getHopCount());
-        if (message.getCodexQueuedSubmissionId() != null) {
-            payload.put("queuedSubmissionId", message.getCodexQueuedSubmissionId());
+        ArrayNode rows = payload.putArray("deliveries");
+        for (AgentMessageDeliveryEntity delivery : deliveries) {
+            ObjectNode row = rows.addObject();
+            row.put("agentId", delivery.getToAgentId().toString());
+            row.put("status", delivery.getStatus().name());
+            row.put("attemptCount", delivery.getAttemptCount());
+            if (delivery.getLastError() != null) row.put("lastError", delivery.getLastError());
         }
-        if (message.getCodexTurnId() != null) {
-            payload.put("turnId", message.getCodexTurnId());
-        }
-        return success(payload.toString());
+        return payload;
+    }
+
+    private AgentMessageType messageType(JsonNode arguments) {
+        return arguments.hasNonNull("type")
+                ? AgentMessageType.valueOf(arguments.get("type").asText().toUpperCase())
+                : AgentMessageType.INFORMATION;
     }
 
     private void requireOperationalAgent(AgentEntity source) {

@@ -26,12 +26,15 @@ public class ProjectController {
 
     @PostMapping
     public ProjectEntity register(@Valid @RequestBody RegisterProjectRequest request) {
-        return service.register(request.name(), request.path(), request.defaultBranch());
+        return service.register(request.name(), request.sourceType(), request.path(),
+                request.repositoryUrl(), request.defaultBranch());
     }
 
     public record RegisterProjectRequest(
             @NotBlank String name,
-            @NotBlank String path,
+            ProjectSourceType sourceType,
+            String path,
+            String repositoryUrl,
             @NotBlank String defaultBranch
     ) {}
 }

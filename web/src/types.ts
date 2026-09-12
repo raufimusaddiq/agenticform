@@ -1,8 +1,12 @@
+export type ProjectSourceType = 'LOCAL_PATH' | 'GIT';
+
 export type Project = {
   id: string;
   name: string;
   slug: string;
-  rootDirectory: string;
+  sourceType: ProjectSourceType;
+  rootDirectory: string | null;
+  repositoryUrl: string | null;
   defaultBranch: string;
   enabled: boolean;
   createdAt: string;
@@ -31,14 +35,15 @@ export type Agent = {
   responsibility: string;
   codexThreadId: string;
   workspaceMode: WorkspaceMode;
-  sourceDirectory: string;
-  workingDirectory: string;
+  sourceDirectory: string | null;
+  workingDirectory: string | null;
   branch: string | null;
   status: AgentStatus;
   queueMode: AgentQueueMode;
   humanControlMode: HumanControlMode;
   role: AgentRole;
   systemManaged: boolean;
+  executionNodeId: string | null;
   activeTaskId: string | null;
   activeTurnId: string | null;
   createdAt: string;
@@ -85,12 +90,15 @@ export type AgentMessageType =
   | 'BLOCKER';
 
 export type AgentMessageStatus = 'CREATED' | 'DISPATCHED' | 'FAILED';
+export type AgentMessageAudienceType = 'DIRECT' | 'MULTICAST' | 'ROLE' | 'GROUP' | 'PROJECT_BROADCAST';
 
 export type AgentMessage = {
   id: string;
   projectId: string;
   fromAgentId: string;
-  toAgentId: string;
+  toAgentId: string | null;
+  audienceType: AgentMessageAudienceType;
+  audienceSpec: string | null;
   conversationId: string;
   replyToMessageId: string | null;
   type: AgentMessageType;

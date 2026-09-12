@@ -31,17 +31,17 @@ public class AgentEntity {
     @Column(nullable = false, columnDefinition = "text")
     private String responsibility;
 
-    @Column(name = "codex_thread_id", nullable = false, unique = true)
+    @Column(name = "codex_thread_id", unique = true)
     private String codexThreadId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "workspace_mode", nullable = false)
     private WorkspaceMode workspaceMode;
 
-    @Column(name = "source_directory", nullable = false)
+    @Column(name = "source_directory")
     private String sourceDirectory;
 
-    @Column(name = "working_directory", nullable = false)
+    @Column(name = "working_directory")
     private String workingDirectory;
 
     private String branch;
@@ -65,6 +65,9 @@ public class AgentEntity {
     @Column(name = "system_managed", nullable = false)
     private boolean systemManaged;
 
+    @Column(name = "execution_node_id")
+    private UUID executionNodeId;
+
     @Column(name = "active_task_id")
     private UUID activeTaskId;
 
@@ -83,13 +86,21 @@ public class AgentEntity {
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode) {
         this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
-                branch, queueMode, humanControlMode, AgentRole.GENERAL, false);
+                branch, queueMode, humanControlMode, AgentRole.GENERAL, false, null);
     }
 
     public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
                        AgentRole role, boolean systemManaged) {
+        this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
+                branch, queueMode, humanControlMode, role, systemManaged, null);
+    }
+
+    public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
+                       WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
+                       String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
+                       AgentRole role, boolean systemManaged, UUID executionNodeId) {
         this.projectId = projectId;
         this.name = name;
         this.responsibility = responsibility;
@@ -102,7 +113,8 @@ public class AgentEntity {
         this.humanControlMode = humanControlMode;
         this.role = role == null ? AgentRole.GENERAL : role;
         this.systemManaged = systemManaged;
-        this.status = AgentStatus.IDLE;
+        this.executionNodeId = executionNodeId;
+        this.status = codexThreadId == null ? AgentStatus.STARTING : AgentStatus.IDLE;
     }
 
     @PrePersist
@@ -125,6 +137,7 @@ public class AgentEntity {
     public HumanControlMode getHumanControlMode() { return humanControlMode; }
     public AgentRole getRole() { return role; }
     public boolean isSystemManaged() { return systemManaged; }
+    public UUID getExecutionNodeId() { return executionNodeId; }
     public UUID getActiveTaskId() { return activeTaskId; }
     public String getActiveTurnId() { return activeTurnId; }
     public Instant getCreatedAt() { return createdAt; }
@@ -133,6 +146,15 @@ public class AgentEntity {
     public void setStatus(AgentStatus status) { this.status = status; }
     public void setQueueMode(AgentQueueMode queueMode) { this.queueMode = queueMode; }
     public void setHumanControlMode(HumanControlMode humanControlMode) { this.humanControlMode = humanControlMode; }
+    public void setExecutionNodeId(UUID executionNodeId) { this.executionNodeId = executionNodeId; }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
+
+    public void bindRuntime(String codexThreadId, String sourceDirectory, String workingDirectory, String branch) {
+        this.codexThreadId = codexThreadId;
+        this.sourceDirectory = sourceDirectory;
+        this.workingDirectory = workingDirectory;
+        this.branch = branch;
+        this.status = AgentStatus.IDLE;
+    }
 }

@@ -27,7 +27,7 @@ public class AgentMessageEntity {
     @Column(name = "from_agent_id", nullable = false)
     private UUID fromAgentId;
 
-    @Column(name = "to_agent_id", nullable = false)
+    @Column(name = "to_agent_id")
     private UUID toAgentId;
 
     @Column(name = "conversation_id", nullable = false)
@@ -39,6 +39,13 @@ public class AgentMessageEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private AgentMessageType type;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "audience_type", nullable = false, length = 32)
+    private AgentMessageAudienceType audienceType = AgentMessageAudienceType.DIRECT;
+
+    @Column(name = "audience_spec_json", nullable = false, columnDefinition = "text")
+    private String audienceSpecJson = "{}";
 
     @Column(nullable = false)
     private String subject;
@@ -73,12 +80,22 @@ public class AgentMessageEntity {
     public AgentMessageEntity(UUID projectId, UUID fromAgentId, UUID toAgentId, UUID conversationId,
                               UUID replyToMessageId, AgentMessageType type, String subject,
                               String content, int hopCount) {
+        this(projectId, fromAgentId, toAgentId, conversationId, replyToMessageId, type,
+                AgentMessageAudienceType.DIRECT, "{}", subject, content, hopCount);
+    }
+
+    public AgentMessageEntity(UUID projectId, UUID fromAgentId, UUID toAgentId, UUID conversationId,
+                              UUID replyToMessageId, AgentMessageType type,
+                              AgentMessageAudienceType audienceType, String audienceSpecJson,
+                              String subject, String content, int hopCount) {
         this.projectId = projectId;
         this.fromAgentId = fromAgentId;
         this.toAgentId = toAgentId;
         this.conversationId = conversationId;
         this.replyToMessageId = replyToMessageId;
         this.type = type;
+        this.audienceType = audienceType == null ? AgentMessageAudienceType.DIRECT : audienceType;
+        this.audienceSpecJson = audienceSpecJson == null ? "{}" : audienceSpecJson;
         this.subject = subject;
         this.content = content;
         this.hopCount = hopCount;
@@ -98,6 +115,8 @@ public class AgentMessageEntity {
     public UUID getConversationId() { return conversationId; }
     public UUID getReplyToMessageId() { return replyToMessageId; }
     public AgentMessageType getType() { return type; }
+    public AgentMessageAudienceType getAudienceType() { return audienceType; }
+    public String getAudienceSpecJson() { return audienceSpecJson; }
     public String getSubject() { return subject; }
     public String getContent() { return content; }
     public int getHopCount() { return hopCount; }
@@ -118,5 +137,10 @@ public class AgentMessageEntity {
     public void markFailed(String error) {
         this.status = AgentMessageStatus.FAILED;
         this.lastError = error;
+    }
+
+    public void markCreated() {
+        this.status = AgentMessageStatus.CREATED;
+        this.lastError = null;
     }
 }
