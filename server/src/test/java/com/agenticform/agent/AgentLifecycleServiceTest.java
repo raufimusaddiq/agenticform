@@ -55,7 +55,7 @@ class AgentLifecycleServiceTest {
     void setUp() {
         lifecycle = new AgentLifecycleService(agents, tasks, dependencies, approvals, projects,
                 runtimeRegistry, nodes, workspaces, events);
-        when(runtimeRegistry.get(any())).thenReturn(runtime);
+        lenient().when(runtimeRegistry.get(any())).thenReturn(runtime);
     }
 
     @Test

@@ -118,7 +118,7 @@ public class TaskDispatchService {
                 var command = nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "DISPATCH_TASK",
                         "dispatch-task:" + task.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
                                 "taskId", task.getId().toString(),
-                                "runtimeType", agent.getRuntimeType().name(),
+                                "runtimeType", runtimeType(agent).name(),
                                 "runtimeSessionId", runtimeSessionId(agent),
                                 "threadId", runtimeSessionId(agent),
                                 "clientMessageId", clientMessageId,
@@ -164,5 +164,9 @@ public class TaskDispatchService {
     private String runtimeSessionId(AgentEntity agent) {
         String value = agent.getRuntimeSessionId();
         return value == null || value.isBlank() ? agent.getCodexThreadId() : value;
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
     }
 }

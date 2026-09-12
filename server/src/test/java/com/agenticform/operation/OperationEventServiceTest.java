@@ -43,7 +43,7 @@ class OperationEventServiceTest {
     void setUp() {
         service = new OperationEventService(events, agents, runtimeRegistry, signals,
                 nodeService, commands, new ObjectMapper());
-        when(runtimeRegistry.get(any())).thenReturn(runtime);
+        lenient().when(runtimeRegistry.get(any())).thenReturn(runtime);
     }
 
     @Test

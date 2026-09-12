@@ -115,7 +115,7 @@ public class AgentLifecycleService {
 
         if (activeTurn) {
             Map<String, Object> interrupt = new LinkedHashMap<>();
-            interrupt.put("runtimeType", agent.getRuntimeType().name());
+            interrupt.put("runtimeType", runtimeType(agent).name());
             interrupt.put("runtimeSessionId", runtimeSessionId(agent));
             interrupt.put("threadId", runtimeSessionId(agent));
             interrupt.put("turnId", agent.getActiveTurnId());
@@ -146,7 +146,7 @@ public class AgentLifecycleService {
     private void enqueueStopCleanup(AgentEntity agent, String defaultBranch) {
         Map<String, Object> cleanup = new LinkedHashMap<>();
         cleanup.put("runtimeSessionId", runtimeSessionId(agent));
-        cleanup.put("runtimeType", agent.getRuntimeType().name());
+        cleanup.put("runtimeType", runtimeType(agent).name());
         cleanup.put("defaultBranch", defaultBranch);
         cleanup.put("stopLifecycle", true);
         nodes.enqueue(agent.getExecutionNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
@@ -175,6 +175,10 @@ public class AgentLifecycleService {
     private String runtimeSessionId(AgentEntity agent) {
         String sessionId = agent.getRuntimeSessionId();
         return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
     }
 
     private AgentEntity agent(UUID id) {

@@ -213,7 +213,7 @@ public class AgentService {
         if (agent.getExecutionNodeId() != null) {
             nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "INTERRUPT_TURN",
                     "interrupt:" + agent.getId() + ":g" + agent.getRuntimeGeneration() + ":" + agent.getActiveTurnId(), Map.of(
-                            "runtimeType", agent.getRuntimeType().name(),
+                            "runtimeType", runtimeType(agent).name(),
                             "runtimeSessionId", runtimeSessionId(agent),
                             "threadId", runtimeSessionId(agent),
                             "turnId", agent.getActiveTurnId()));
@@ -231,6 +231,10 @@ public class AgentService {
     private String runtimeSessionId(AgentEntity agent) {
         String sessionId = agent.getRuntimeSessionId();
         return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
     }
 
     public record SpawnAgent(UUID projectId, String name, String responsibility, WorkspaceMode workspaceMode,

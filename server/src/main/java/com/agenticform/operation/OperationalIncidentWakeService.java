@@ -126,7 +126,7 @@ public class OperationalIncidentWakeService {
                     target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
                     commandKey, Map.of(
                             "incidentId", incident.getId().toString(),
-                            "runtimeType", target.getRuntimeType().name(),
+                            "runtimeType", runtimeType(target).name(),
                             "runtimeSessionId", runtimeSessionId(target),
                             "threadId", runtimeSessionId(target),
                             "clientMessageId", clientMessageId,
@@ -149,6 +149,10 @@ public class OperationalIncidentWakeService {
     private String runtimeSessionId(AgentEntity agent) {
         String sessionId = agent.getRuntimeSessionId();
         return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
     }
 
     private AgentEntity resolveOperationalAgent(OperationalIncidentEntity incident) {

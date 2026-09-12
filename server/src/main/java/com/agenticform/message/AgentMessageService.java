@@ -227,7 +227,7 @@ public class AgentMessageService {
                         "message:" + message.getId() + ":" + target.getId() + ":g" + target.getRuntimeGeneration(), Map.of(
                                 "messageId", message.getId().toString(),
                                 "conversationId", message.getConversationId().toString(),
-                                "runtimeType", target.getRuntimeType().name(),
+                                "runtimeType", runtimeType(target).name(),
                                 "runtimeSessionId", runtimeSessionId(target),
                                 "threadId", runtimeSessionId(target),
                                 "clientMessageId", "agenticform-message:" + message.getId() + ":" + delivery.getId()
@@ -254,6 +254,10 @@ public class AgentMessageService {
     private String runtimeSessionId(AgentEntity agent) {
         String sessionId = agent.getRuntimeSessionId();
         return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
     }
 
     private void updateAggregate(AgentMessageEntity message, List<AgentMessageDeliveryEntity> deliveries) {

@@ -174,7 +174,7 @@ public class NodeCommandCompletionHandler {
         if (payload.path("cleanupAfterInterrupt").asBoolean(false)) {
             Map<String, Object> cleanup = new LinkedHashMap<>();
             cleanup.put("runtimeSessionId", runtimeSessionId(agent));
-            cleanup.put("runtimeType", agent.getRuntimeType().name());
+            cleanup.put("runtimeType", runtimeType(agent).name());
             cleanup.put("defaultBranch", payload.path("defaultBranch").asText(""));
             cleanup.put("stopLifecycle", true);
             nodes.enqueue(command.getNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
@@ -235,5 +235,9 @@ public class NodeCommandCompletionHandler {
     private String runtimeSessionId(AgentEntity agent) {
         String value = agent.getRuntimeSessionId();
         return value == null || value.isBlank() ? agent.getCodexThreadId() : value;
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
     }
 }

@@ -43,7 +43,7 @@ class OperationalIncidentWakeServiceTest {
     void setUp() {
         service = new OperationalIncidentWakeService(
                 incidents, agents, runtimeRegistry, nodeService, commands, new ObjectMapper());
-        when(runtimeRegistry.get(any())).thenReturn(runtime);
+        lenient().when(runtimeRegistry.get(any())).thenReturn(runtime);
     }
 
     @Test

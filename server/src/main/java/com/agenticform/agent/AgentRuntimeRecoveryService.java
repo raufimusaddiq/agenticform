@@ -148,7 +148,7 @@ public class AgentRuntimeRecoveryService {
         }
         nodeService.enqueue(node.getId(), agent.getId(), "CLEANUP_WORKSPACE",
                 "cleanup-runtime:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
-                        "runtimeType", agent.getRuntimeType().name(),
+                        "runtimeType", runtimeType(agent).name(),
                         "runtimeSessionId", runtimeSessionId(agent),
                         "threadId", runtimeSessionId(agent)));
         agent.setQueueMode(AgentQueueMode.PAUSED);
@@ -169,5 +169,9 @@ public class AgentRuntimeRecoveryService {
     private String runtimeSessionId(AgentEntity agent) {
         String value = agent.getRuntimeSessionId();
         return value == null || value.isBlank() ? agent.getCodexThreadId() : value;
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
     }
 }

@@ -119,7 +119,7 @@ public class OperationEventService {
                     target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE", clientMessageId,
                     Map.of(
                             "operationEventId", event.getId().toString(),
-                            "runtimeType", target.getRuntimeType().name(),
+                            "runtimeType", runtimeType(target).name(),
                             "runtimeSessionId", runtimeSessionId(target),
                             "threadId", runtimeSessionId(target),
                             "clientMessageId", clientMessageId,
@@ -139,6 +139,10 @@ public class OperationEventService {
     private String runtimeSessionId(AgentEntity agent) {
         String sessionId = agent.getRuntimeSessionId();
         return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType() == null ? RuntimeType.CODEX : agent.getRuntimeType();
     }
 
     private void reconcileQueued(OperationEventEntity event) {
