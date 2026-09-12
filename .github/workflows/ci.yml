@@ -38,6 +38,8 @@ jobs:
         run: go test ./...
       - name: Build node daemon
         run: go build ./cmd/agenticform-node
+      - name: Build node container
+        run: docker build -f Dockerfile ..
 
   web:
     runs-on: ubuntu-latest
