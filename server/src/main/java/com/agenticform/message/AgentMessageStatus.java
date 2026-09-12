@@ -6,5 +6,6 @@ public enum AgentMessageStatus {
     DISPATCHED,
     PROCESSING,
     COMPLETED,
+    PARTIAL,
     FAILED
 }
