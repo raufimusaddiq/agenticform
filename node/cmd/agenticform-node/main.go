@@ -77,6 +77,7 @@ type commandLedger struct {
 
 type runtimeRecord struct {
 	AgentID           string `json:"agentId"`
+	RuntimeType       string `json:"runtimeType"`
 	RuntimeGeneration int64  `json:"runtimeGeneration"`
 	ThreadID          string `json:"threadId"`
 	SourceDirectory   string `json:"sourceDirectory"`
@@ -518,7 +519,7 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		return nil, errors.New("Codex thread/start returned no thread id")
 	}
 	record := runtimeRecord{
-		AgentID: agentID, RuntimeGeneration: command.RuntimeGeneration, ThreadID: threadID,
+		AgentID: agentID, RuntimeType: "CODEX", RuntimeGeneration: command.RuntimeGeneration, ThreadID: threadID,
 		SourceDirectory: repoRoot, WorkingDirectory: workingDirectory, Branch: branch, RuntimeStatus: "IDLE",
 	}
 	if err := d.putRuntime(record); err != nil {
@@ -527,7 +528,7 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 	return map[string]any{
 		"threadId": threadID, "sourceDirectory": repoRoot,
 		"workingDirectory": workingDirectory, "branch": branch,
-		"runtimeGeneration": command.RuntimeGeneration,
+		"runtimeGeneration": command.RuntimeGeneration, "runtimeType": "CODEX",
 	}, nil
 }
 

@@ -1,7 +1,10 @@
 package com.agenticform.node;
 
+import com.agenticform.runtime.RuntimeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -27,6 +30,10 @@ public class NodeRuntimeSnapshotEntity {
 
     @Column(name = "runtime_generation", nullable = false)
     private long runtimeGeneration;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "runtime_type", nullable = false, length = 32)
+    private RuntimeType runtimeType = RuntimeType.CODEX;
 
     @Column(name = "thread_id")
     private String threadId;
@@ -58,8 +65,9 @@ public class NodeRuntimeSnapshotEntity {
         if (observedAt == null) observedAt = Instant.now();
     }
 
-    public void observe(long runtimeGeneration, String threadId, String sourceDirectory,
+    public void observe(RuntimeType runtimeType, long runtimeGeneration, String threadId, String sourceDirectory,
                         String workingDirectory, String branch, String runtimeStatus) {
+        this.runtimeType = runtimeType == null ? RuntimeType.CODEX : runtimeType;
         this.runtimeGeneration = runtimeGeneration;
         this.threadId = threadId;
         this.sourceDirectory = sourceDirectory;
@@ -73,6 +81,7 @@ public class NodeRuntimeSnapshotEntity {
     public UUID getNodeId() { return nodeId; }
     public UUID getAgentId() { return agentId; }
     public long getRuntimeGeneration() { return runtimeGeneration; }
+    public RuntimeType getRuntimeType() { return runtimeType; }
     public String getThreadId() { return threadId; }
     public String getSourceDirectory() { return sourceDirectory; }
     public String getWorkingDirectory() { return workingDirectory; }

@@ -36,6 +36,8 @@ class AgentRuntimeGenerationTest {
 
         agent.bindRuntime(2, "thread-2", "/src", "/work", "recovery/coder-g2");
         assertEquals("thread-2", agent.getCodexThreadId());
+        assertEquals("thread-2", agent.getRuntimeSessionId());
+        assertEquals(com.agenticform.runtime.RuntimeType.CODEX, agent.getRuntimeType());
         assertEquals(AgentStatus.IDLE, agent.getStatus());
     }
 

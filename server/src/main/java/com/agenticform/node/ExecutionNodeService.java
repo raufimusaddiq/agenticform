@@ -3,6 +3,7 @@ package com.agenticform.node;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.config.AgenticformProperties;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -25,7 +26,7 @@ import java.util.UUID;
 public class ExecutionNodeService {
     public record Enrollment(String token, Instant expiresAt, String setupCommand) {}
     public record EnrollmentResult(UUID nodeId, String name, String fingerprint, NodeTrustLevel trustLevel) {}
-    public record RuntimeObservation(UUID agentId, long runtimeGeneration, String threadId,
+    public record RuntimeObservation(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String threadId,
                                      String sourceDirectory, String workingDirectory, String branch,
                                      String runtimeStatus) {}
     public record Heartbeat(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
@@ -145,7 +146,7 @@ public class ExecutionNodeService {
                     .findByNodeIdAndAgentId(nodeId, observation.agentId())
                     .orElseGet(() -> new NodeRuntimeSnapshotEntity(nodeId, observation.agentId()));
             String status = agent.ownsRuntime(nodeId, observation.runtimeGeneration()) ? observation.runtimeStatus() : "STALE";
-            snapshot.observe(observation.runtimeGeneration(), observation.threadId(), observation.sourceDirectory(),
+            snapshot.observe(observation.runtimeType(), observation.runtimeGeneration(), observation.threadId(), observation.sourceDirectory(),
                     observation.workingDirectory(), observation.branch(), status);
             runtimeSnapshots.save(snapshot);
 

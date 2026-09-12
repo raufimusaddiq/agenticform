@@ -29,6 +29,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 ## Node scheduling
 
 - [x] Advertise structured runtime inventory while retaining the legacy Codex capability alias.
+- [x] Persist runtime type on node observations and include it in node heartbeats/commands.
 - [ ] Replace all hard-coded Codex requirements with runtime requirements.
 - [ ] Validate runtime requirements during placement and command dispatch.
 - [ ] Preserve node identity, capability sandbox, and tenant/security checks.
