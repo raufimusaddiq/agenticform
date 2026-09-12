@@ -17,7 +17,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "operation_events")
 public class OperationEventEntity {
-    public enum Status { PENDING, DISPATCHED, FAILED }
+    public enum Status { PENDING, QUEUED, DISPATCHED, FAILED }
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -78,21 +78,45 @@ public class OperationEventEntity {
     @PreUpdate
     void onUpdate() { updatedAt = Instant.now(); }
 
-    public void delivered(String queuedSubmissionId, String turnId) {
-        this.status = Status.DISPATCHED;
-        this.codexQueuedSubmissionId = queuedSubmissionId;
-        this.codexTurnId = turnId;
+    public void queued(UUID commandId) {
+        this.status = Status.QUEUED;
+        this.codexQueuedSubmissionId = "node-command:" + commandId;
+        this.codexTurnId = null;
         this.lastError = null;
         this.attempts++;
     }
 
-    public void failed(String error) {
-        this.status = Status.FAILED;
-        this.lastError = error;
-        this.attempts++;
+    public void delivered(String queuedSubmissionId, String turnId) {
+        boolean alreadyAttempted = this.status == Status.QUEUED;
+        this.status = Status.DISPATCHED;
+        this.codexQueuedSubmissionId = queuedSubmissionId;
+        this.codexTurnId = turnId;
+        this.lastError = null;
+        if (!alreadyAttempted) this.attempts++;
     }
 
-    public void retry() { this.status = Status.PENDING; }
+    public void failed(String error) {
+        boolean alreadyAttempted = this.status == Status.QUEUED;
+        this.status = Status.FAILED;
+        this.lastError = error;
+        if (!alreadyAttempted) this.attempts++;
+    }
+
+    public void retry() {
+        this.status = Status.PENDING;
+        this.lastError = null;
+    }
+
+    public UUID queuedNodeCommandId() {
+        if (status != Status.QUEUED || codexQueuedSubmissionId == null
+                || !codexQueuedSubmissionId.startsWith("node-command:")) return null;
+        try {
+            return UUID.fromString(codexQueuedSubmissionId.substring("node-command:".length()));
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
     public void setTargetAgentId(UUID targetAgentId) { this.targetAgentId = targetAgentId; }
 
     public UUID getId() { return id; }

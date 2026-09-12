@@ -5,10 +5,17 @@ import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.codex.CodexGateway;
+import com.agenticform.node.ExecutionNodeService;
+import com.agenticform.node.NodeCommandEntity;
+import com.agenticform.node.NodeCommandRepository;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -18,13 +25,25 @@ public class OperationEventService {
     private final OperationEventRepository repository;
     private final AgentRepository agentRepository;
     private final CodexGateway codexGateway;
+    private final OperationalSignalService signals;
+    private final ExecutionNodeService nodeService;
+    private final NodeCommandRepository nodeCommands;
+    private final ObjectMapper mapper;
 
     public OperationEventService(OperationEventRepository repository,
                                  AgentRepository agentRepository,
-                                 CodexGateway codexGateway) {
+                                 CodexGateway codexGateway,
+                                 OperationalSignalService signals,
+                                 ExecutionNodeService nodeService,
+                                 NodeCommandRepository nodeCommands,
+                                 ObjectMapper mapper) {
         this.repository = repository;
         this.agentRepository = agentRepository;
         this.codexGateway = codexGateway;
+        this.signals = signals;
+        this.nodeService = nodeService;
+        this.nodeCommands = nodeCommands;
+        this.mapper = mapper;
     }
 
     public synchronized void publishTerminal(OperationRunEntity run) {
@@ -36,29 +55,107 @@ public class OperationEventService {
                 run.getId(), run.getStatus(), run.getAction(), run.getEnvironmentKey(),
                 run.getLastError() == null ? "" : " error=" + bounded(run.getLastError()));
         repository.save(new OperationEventEntity(run.getId(), run.getProjectId(), targetAgentId, eventType, payload));
+
+        boolean failed = run.getStatus() == OperationRunEntity.Status.FAILED
+                || run.getStatus() == OperationRunEntity.Status.INTERRUPTED;
+        signals.record(new OperationalSignalService.SignalInput(
+                run.getProjectId(), OperationalSignalSource.OPERATION,
+                failed ? "OPERATION_FAILED" : "OPERATION_" + run.getStatus().name(),
+                failed ? OperationalSeverity.HIGH : OperationalSeverity.INFO,
+                "operation:" + run.getId() + ":" + run.getStatus(),
+                "operation:" + run.getAction() + ":" + run.getEnvironmentKey(),
+                Map.of(
+                        "runId", run.getId().toString(),
+                        "action", run.getAction(),
+                        "environment", run.getEnvironmentKey(),
+                        "status", run.getStatus().name(),
+                        "error", run.getLastError() == null ? "" : bounded(run.getLastError())),
+                Instant.now()));
     }
 
     @Scheduled(fixedDelayString = "${agenticform.scheduler.operation-event-delay-ms:2000}")
     public synchronized void deliverPending() {
-        var deliverable = repository.findTop50ByStatusInOrderByCreatedAtAsc(
-                List.of(OperationEventEntity.Status.PENDING, OperationEventEntity.Status.FAILED));
+        var deliverable = repository.findTop50ByStatusInOrderByCreatedAtAsc(List.of(
+                OperationEventEntity.Status.PENDING,
+                OperationEventEntity.Status.FAILED,
+                OperationEventEntity.Status.QUEUED));
         for (OperationEventEntity event : deliverable) {
             if (event.getAttempts() >= MAX_ATTEMPTS) continue;
+            if (event.getStatus() == OperationEventEntity.Status.FAILED
+                    && event.getCodexQueuedSubmissionId() != null
+                    && event.getCodexQueuedSubmissionId().startsWith("node-command:")) {
+                // A terminal remote command failure may be ambiguous after node crash. Fail closed instead of
+                // creating another command that could duplicate a Codex turn.
+                continue;
+            }
             try {
-                AgentEntity target = resolveTarget(event);
-                if (target.getStatus() == AgentStatus.STOPPED) {
-                    throw new IllegalStateException("Operational Agent is stopped");
+                if (event.getStatus() == OperationEventEntity.Status.QUEUED) {
+                    reconcileQueued(event);
+                    continue;
                 }
-                CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                        target.getCodexThreadId(),
-                        "agenticform-operation-event:" + event.getId(),
-                        deliveryPrompt(event));
-                event.delivered(receipt.queuedSubmissionId(), receipt.turnId());
+                deliver(event);
             } catch (RuntimeException error) {
                 event.failed(bounded(error.getMessage()));
+                repository.save(event);
             }
-            repository.save(event);
         }
+    }
+
+    private void deliver(OperationEventEntity event) {
+        AgentEntity target = resolveTarget(event);
+        if (target.getStatus() == AgentStatus.STOPPED || target.getStatus() == AgentStatus.FAILED) {
+            throw new IllegalStateException("Operational Agent is unavailable: " + target.getStatus());
+        }
+        if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+            throw new IllegalStateException("Operational Agent runtime is not ready");
+        }
+        String clientMessageId = "agenticform-operation-event:" + event.getId() + ":g" + target.getRuntimeGeneration();
+        if (target.getExecutionNodeId() != null) {
+            NodeCommandEntity command = nodeService.enqueue(
+                    target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE", clientMessageId,
+                    Map.of(
+                            "operationEventId", event.getId().toString(),
+                            "threadId", target.getCodexThreadId(),
+                            "clientMessageId", clientMessageId,
+                            "prompt", deliveryPrompt(event)));
+            event.queued(command.getId());
+            repository.save(event);
+            if (command.terminal()) reconcileCommand(event, command);
+            return;
+        }
+
+        CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
+                target.getCodexThreadId(), clientMessageId, deliveryPrompt(event));
+        event.delivered(receipt.queuedSubmissionId(), receipt.turnId());
+        repository.save(event);
+    }
+
+    private void reconcileQueued(OperationEventEntity event) {
+        UUID commandId = event.queuedNodeCommandId();
+        if (commandId == null) {
+            event.failed("Operation event has invalid queued node command reference");
+            repository.save(event);
+            return;
+        }
+        NodeCommandEntity command = nodeCommands.findById(commandId).orElse(null);
+        if (command == null) {
+            event.failed("Operation event node command no longer exists");
+            repository.save(event);
+            return;
+        }
+        if (!command.terminal()) return;
+        reconcileCommand(event, command);
+    }
+
+    private void reconcileCommand(OperationEventEntity event, NodeCommandEntity command) {
+        if (command.getStatus() != NodeCommandEntity.Status.SUCCEEDED) {
+            event.failed(bounded(command.getLastError()));
+            repository.save(event);
+            return;
+        }
+        JsonNode result = read(command.getResultJson());
+        event.delivered(result.path("queuedSubmissionId").asText(null), result.path("turnId").asText(null));
+        repository.save(event);
     }
 
     private java.util.Optional<AgentEntity> resolveOperationalAgent(OperationRunEntity run) {
@@ -93,6 +190,14 @@ public class OperationEventService {
                 or hand source-code work back to a coding agent when appropriate. Do not rerun a successful operation merely
                 because this notification was retried.
                 """.formatted(event.getEventType(), event.getOperationRunId(), event.getPayload(), event.getOperationRunId());
+    }
+
+    private JsonNode read(String json) {
+        try {
+            return mapper.readTree(json == null || json.isBlank() ? "{}" : json);
+        } catch (Exception error) {
+            throw new IllegalStateException("Unable to parse durable operation event delivery result", error);
+        }
     }
 
     private String bounded(String value) {
