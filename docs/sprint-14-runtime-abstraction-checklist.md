@@ -44,6 +44,6 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Run `cd server && mvn test` (Docker Maven image; passed September 12, 2026).
 - [x] Run `cd web && npm run build` (Docker Node image with `npm install --package-lock=false`; passed September 12, 2026).
 - [x] Run `cd node && go test ./...` (Docker Go image; passed September 12, 2026).
-- [ ] Run Flyway/database smoke validation and exact-head CI checks.
+- [x] Run Flyway/database smoke validation and exact-head CI checks (PR #16 CI passed September 12, 2026).
 - [ ] Confirm a second runtime can be added without an `Agent`/`Task` schema redesign.
 - [ ] Update architecture and operations documentation; mark this checklist complete only after all exit criteria pass.
