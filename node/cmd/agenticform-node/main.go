@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +29,7 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 type identity struct {
 	NodeID       string `json:"nodeId"`
@@ -46,12 +47,13 @@ type enrollmentResult struct {
 }
 
 type nodeCommand struct {
-	ID             string `json:"id"`
-	NodeID         string `json:"nodeId"`
-	AgentID        string `json:"agentId"`
-	CommandType    string `json:"commandType"`
-	IdempotencyKey string `json:"idempotencyKey"`
-	PayloadJSON    string `json:"payloadJson"`
+	ID                string `json:"id"`
+	NodeID            string `json:"nodeId"`
+	AgentID           string `json:"agentId"`
+	RuntimeGeneration int64  `json:"runtimeGeneration"`
+	CommandType       string `json:"commandType"`
+	IdempotencyKey    string `json:"idempotencyKey"`
+	PayloadJSON       string `json:"payloadJson"`
 }
 
 type completeRequest struct {
@@ -60,20 +62,56 @@ type completeRequest struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type commandLedgerEntry struct {
+	CommandID   string    `json:"commandId"`
+	Fingerprint string    `json:"fingerprint"`
+	State       string    `json:"state"`
+	ResultJSON  string    `json:"resultJson,omitempty"`
+	Error       string    `json:"error,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type commandLedger struct {
+	Entries map[string]commandLedgerEntry `json:"entries"`
+}
+
+type runtimeRecord struct {
+	AgentID           string `json:"agentId"`
+	RuntimeGeneration int64  `json:"runtimeGeneration"`
+	ThreadID          string `json:"threadId"`
+	SourceDirectory   string `json:"sourceDirectory"`
+	WorkingDirectory  string `json:"workingDirectory"`
+	Branch            string `json:"branch"`
+	RuntimeStatus     string `json:"runtimeStatus"`
+}
+
+type runtimeState struct {
+	Runtimes map[string]runtimeRecord `json:"runtimes"`
+}
+
+type interactionView struct {
+	ID           string `json:"id"`
+	Status       string `json:"status"`
+	ResponseJSON string `json:"responseJson"`
+	Error        string `json:"error"`
+}
+
 type rpcMessage map[string]any
 
 type rpcClient struct {
-	server    string
-	nodeID    string
-	private   ed25519.PrivateKey
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	stdout    io.ReadCloser
-	writeMu   sync.Mutex
-	pendingMu sync.Mutex
-	pending   map[string]chan rpcMessage
-	seq       uint64
-	http      *http.Client
+	server               string
+	nodeID               string
+	private              ed25519.PrivateKey
+	cmd                  *exec.Cmd
+	stdin                io.WriteCloser
+	stdout               io.ReadCloser
+	writeMu              sync.Mutex
+	pendingMu            sync.Mutex
+	pending              map[string]chan rpcMessage
+	seq                  uint64
+	http                 *http.Client
+	runtimeGenerationFor func(any) int64
+	notificationObserver func(string, any)
 }
 
 func main() {
@@ -169,12 +207,22 @@ func daemon(stateDir, server string) error {
 	if err != nil {
 		return err
 	}
+	ledger, err := loadCommandLedger(filepath.Join(stateDir, "command-ledger.json"))
+	if err != nil {
+		return err
+	}
+	runtimes, err := loadRuntimeState(filepath.Join(stateDir, "runtime-state.json"))
+	if err != nil {
+		return err
+	}
 	d := &daemonRuntime{
 		stateDir: stateDir,
 		server:   server,
 		id:       id,
 		private:  private,
-		http: &http.Client{Timeout: 45 * time.Second},
+		http:     &http.Client{Timeout: 45 * time.Second},
+		ledger:   ledger,
+		runtimes: runtimes,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -192,6 +240,9 @@ type daemonRuntime struct {
 	http     *http.Client
 	codexMu  sync.Mutex
 	codex    *rpcClient
+	stateMu  sync.Mutex
+	ledger   commandLedger
+	runtimes runtimeState
 }
 
 func (d *daemonRuntime) heartbeatLoop(ctx context.Context) {
@@ -214,6 +265,13 @@ func (d *daemonRuntime) heartbeat() error {
 	codexVersion, codexOK := detectCodex()
 	capabilities, _ := json.Marshal(map[string]bool{"git": commandExists("git"), "codex": codexOK})
 	labels, _ := json.Marshal(map[string]string{"runtime": "agenticform-node"})
+	d.stateMu.Lock()
+	runtimes := make([]runtimeRecord, 0, len(d.runtimes.Runtimes))
+	for _, record := range d.runtimes.Runtimes {
+		runtimes = append(runtimes, record)
+	}
+	d.stateMu.Unlock()
+	sort.Slice(runtimes, func(i, j int) bool { return runtimes[i].AgentID < runtimes[j].AgentID })
 	body, _ := json.Marshal(map[string]any{
 		"labelsJson":       string(labels),
 		"capabilitiesJson": string(capabilities),
@@ -226,10 +284,19 @@ func (d *daemonRuntime) heartbeat() error {
 		"cpuCores":         runtime.NumCPU(),
 		"memoryMb":         nil,
 		"diskFreeMb":       diskFreeMB(d.stateDir),
+		"runtimes":         runtimes,
 	})
 	path := "/api/nodes/" + d.id.NodeID + "/heartbeat"
-	_, err := d.signedRequest(http.MethodPost, path, body)
-	return err
+	resp, err := d.signedRequest(http.MethodPost, path, body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("heartbeat rejected (%d): %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	return nil
 }
 
 func (d *daemonRuntime) commandLoop(ctx context.Context) error {
@@ -265,7 +332,7 @@ func (d *daemonRuntime) commandLoop(ctx context.Context) error {
 			log.Printf("decode command: %v", err)
 			continue
 		}
-		result, commandErr := d.execute(command)
+		result, commandErr := d.executeDurable(command)
 		complete := completeRequest{Success: commandErr == nil}
 		if commandErr != nil {
 			complete.Error = safeError(commandErr)
@@ -278,10 +345,65 @@ func (d *daemonRuntime) commandLoop(ctx context.Context) error {
 		if response, err := d.signedRequest(http.MethodPost, completePath, body); err != nil {
 			log.Printf("command completion failed for %s: %v", command.ID, err)
 		} else {
-			io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+			data, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 			response.Body.Close()
+			if response.StatusCode/100 != 2 {
+				log.Printf("command completion rejected for %s (%d): %s", command.ID, response.StatusCode, strings.TrimSpace(string(data)))
+			}
 		}
 	}
+}
+
+func (d *daemonRuntime) executeDurable(command nodeCommand) (map[string]any, error) {
+	fingerprint := commandFingerprint(command)
+	d.stateMu.Lock()
+	if existing, ok := d.ledger.Entries[command.ID]; ok {
+		d.stateMu.Unlock()
+		if existing.Fingerprint != fingerprint {
+			return nil, errors.New("command id was reused with a different payload")
+		}
+		switch existing.State {
+		case "SUCCEEDED":
+			var result map[string]any
+			if err := json.Unmarshal([]byte(defaultJSON(existing.ResultJSON)), &result); err != nil {
+				return nil, fmt.Errorf("decode cached command result: %w", err)
+			}
+			return result, nil
+		case "FAILED":
+			return nil, errors.New(existing.Error)
+		default:
+			return nil, errors.New("previous command execution was interrupted; refusing unsafe replay")
+		}
+	}
+	d.ledger.Entries[command.ID] = commandLedgerEntry{
+		CommandID: command.ID, Fingerprint: fingerprint, State: "STARTED", UpdatedAt: time.Now().UTC(),
+	}
+	if err := d.saveLedgerLocked(); err != nil {
+		delete(d.ledger.Entries, command.ID)
+		d.stateMu.Unlock()
+		return nil, fmt.Errorf("persist command start fence: %w", err)
+	}
+	d.stateMu.Unlock()
+
+	result, execErr := d.execute(command)
+	entry := commandLedgerEntry{CommandID: command.ID, Fingerprint: fingerprint, UpdatedAt: time.Now().UTC()}
+	if execErr != nil {
+		entry.State = "FAILED"
+		entry.Error = safeError(execErr)
+	} else {
+		entry.State = "SUCCEEDED"
+		encoded, _ := json.Marshal(result)
+		entry.ResultJSON = string(encoded)
+	}
+
+	d.stateMu.Lock()
+	d.ledger.Entries[command.ID] = entry
+	persistErr := d.saveLedgerLocked()
+	d.stateMu.Unlock()
+	if persistErr != nil {
+		return nil, fmt.Errorf("command effect completed but terminal ledger write failed; command is fenced from replay: %w", persistErr)
+	}
+	return result, execErr
 }
 
 func (d *daemonRuntime) execute(command nodeCommand) (map[string]any, error) {
@@ -289,19 +411,25 @@ func (d *daemonRuntime) execute(command nodeCommand) (map[string]any, error) {
 	if err := json.Unmarshal([]byte(command.PayloadJSON), &payload); err != nil {
 		return nil, fmt.Errorf("invalid command payload: %w", err)
 	}
+	generation := int64Value(payload, "runtimeGeneration")
+	if generation != command.RuntimeGeneration {
+		return nil, errors.New("command runtime generation does not match signed command payload")
+	}
 	switch command.CommandType {
 	case "START_AGENT":
-		return d.startAgent(payload)
+		return d.startAgent(command, payload)
 	case "DISPATCH_TASK", "DELIVER_MESSAGE":
-		return d.dispatch(payload, command.CommandType)
+		return d.dispatch(command, payload)
 	case "INTERRUPT_TURN":
-		return d.interrupt(payload)
+		return d.interrupt(command, payload)
+	case "CLEANUP_WORKSPACE":
+		return d.cleanupWorkspace(command, payload)
 	default:
 		return nil, fmt.Errorf("unsupported node command: %s", command.CommandType)
 	}
 }
 
-func (d *daemonRuntime) startAgent(payload map[string]any) (map[string]any, error) {
+func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	repositoryURL := stringValue(payload, "repositoryUrl")
 	projectSlug := safeSegment(stringValue(payload, "projectSlug"))
 	agentID := safeSegment(stringValue(payload, "agentId"))
@@ -309,8 +437,11 @@ func (d *daemonRuntime) startAgent(payload map[string]any) (map[string]any, erro
 	workspaceMode := stringValue(payload, "workspaceMode")
 	agentName := stringValue(payload, "agentName")
 	requestedBranch := optionalString(payload, "requestedBranch")
-	if repositoryURL == "" || projectSlug == "" || agentID == "" || baseBranch == "" {
-		return nil, errors.New("START_AGENT missing repository/project/agent/base branch")
+	if repositoryURL == "" || projectSlug == "" || agentID == "" || baseBranch == "" || command.RuntimeGeneration <= 0 {
+		return nil, errors.New("START_AGENT missing repository/project/agent/base branch or runtime generation")
+	}
+	if command.AgentID != "" && command.AgentID != agentID {
+		return nil, errors.New("START_AGENT agent id mismatch")
 	}
 	if err := validateRepositoryURL(repositoryURL); err != nil {
 		return nil, err
@@ -331,7 +462,7 @@ func (d *daemonRuntime) startAgent(payload map[string]any) (map[string]any, erro
 		if branch == "" {
 			branch = "agent/" + safeSegment(strings.ToLower(agentName)) + "-" + agentID[:min(8, len(agentID))]
 		}
-		workingDirectory = filepath.Join(d.stateDir, "worktrees", projectSlug, agentID)
+		workingDirectory = filepath.Join(d.stateDir, "worktrees", projectSlug, agentID, "g"+strconv.FormatInt(command.RuntimeGeneration, 10))
 		if err := os.MkdirAll(filepath.Dir(workingDirectory), 0700); err != nil {
 			return nil, err
 		}
@@ -369,24 +500,33 @@ func (d *daemonRuntime) startAgent(payload map[string]any) (map[string]any, erro
 	if threadID == "" {
 		return nil, errors.New("Codex thread/start returned no thread id")
 	}
+	record := runtimeRecord{
+		AgentID: agentID, RuntimeGeneration: command.RuntimeGeneration, ThreadID: threadID,
+		SourceDirectory: repoRoot, WorkingDirectory: workingDirectory, Branch: branch, RuntimeStatus: "IDLE",
+	}
+	if err := d.putRuntime(record); err != nil {
+		return nil, fmt.Errorf("persist runtime state: %w", err)
+	}
 	return map[string]any{
-		"threadId":         threadID,
-		"sourceDirectory":  repoRoot,
-		"workingDirectory": workingDirectory,
-		"branch":           branch,
+		"threadId": threadID, "sourceDirectory": repoRoot,
+		"workingDirectory": workingDirectory, "branch": branch,
+		"runtimeGeneration": command.RuntimeGeneration,
 	}, nil
 }
 
-func (d *daemonRuntime) dispatch(payload map[string]any, commandType string) (map[string]any, error) {
+func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	threadID := stringValue(payload, "threadId")
 	prompt := stringValue(payload, "prompt")
 	if threadID == "" || prompt == "" {
-		return nil, errors.New(commandType + " missing threadId or prompt")
+		return nil, errors.New(command.CommandType + " missing threadId or prompt")
+	}
+	if err := d.requireRuntime(command.AgentID, command.RuntimeGeneration, threadID); err != nil {
+		return nil, err
 	}
 	clientMessageID := optionalString(payload, "clientMessageId")
 	if clientMessageID == "" {
 		if messageID := optionalString(payload, "messageId"); messageID != "" {
-			clientMessageID = "agenticform-message:" + messageID
+			clientMessageID = "agenticform-message:" + messageID + ":g" + strconv.FormatInt(command.RuntimeGeneration, 10)
 		}
 	}
 	client, err := d.ensureCodex()
@@ -394,7 +534,7 @@ func (d *daemonRuntime) dispatch(payload map[string]any, commandType string) (ma
 		return nil, err
 	}
 	params := map[string]any{
-		"threadId":            threadID,
+		"threadId": threadID,
 		"clientUserMessageId": clientMessageID,
 		"input": []map[string]any{{"type": "text", "text": prompt}},
 	}
@@ -402,6 +542,7 @@ func (d *daemonRuntime) dispatch(payload map[string]any, commandType string) (ma
 	if err == nil {
 		queueID := nestedString(result, "queuedSubmission", "id")
 		_, _ = client.request("thread/resume", map[string]any{"threadId": threadID})
+		_ = d.setRuntimeStatus(command.AgentID, command.RuntimeGeneration, "WORKING")
 		return map[string]any{"queuedSubmissionId": queueID}, nil
 	}
 	result, err = client.request("turn/start", map[string]any{
@@ -411,21 +552,71 @@ func (d *daemonRuntime) dispatch(payload map[string]any, commandType string) (ma
 	if err != nil {
 		return nil, err
 	}
+	_ = d.setRuntimeStatus(command.AgentID, command.RuntimeGeneration, "WORKING")
 	return map[string]any{"turnId": nestedString(result, "turn", "id")}, nil
 }
 
-func (d *daemonRuntime) interrupt(payload map[string]any) (map[string]any, error) {
+func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	threadID := stringValue(payload, "threadId")
 	turnID := stringValue(payload, "turnId")
 	if threadID == "" || turnID == "" {
 		return nil, errors.New("INTERRUPT_TURN missing threadId or turnId")
+	}
+	if err := d.requireRuntime(command.AgentID, command.RuntimeGeneration, threadID); err != nil {
+		return nil, err
 	}
 	client, err := d.ensureCodex()
 	if err != nil {
 		return nil, err
 	}
 	_, err = client.request("turn/interrupt", map[string]any{"threadId": threadID, "turnId": turnID})
+	if err == nil {
+		_ = d.setRuntimeStatus(command.AgentID, command.RuntimeGeneration, "IDLE")
+	}
 	return map[string]any{"interrupted": err == nil}, err
+}
+
+func (d *daemonRuntime) cleanupWorkspace(command nodeCommand, payload map[string]any) (map[string]any, error) {
+	threadID := optionalString(payload, "threadId")
+	d.stateMu.Lock()
+	record, ok := d.runtimes.Runtimes[command.AgentID]
+	d.stateMu.Unlock()
+	if !ok || record.RuntimeGeneration != command.RuntimeGeneration {
+		return nil, errors.New("runtime is not owned by this generation")
+	}
+	if threadID != "" && record.ThreadID != threadID {
+		return nil, errors.New("cleanup thread id does not match runtime")
+	}
+	if record.WorkingDirectory == "" || record.WorkingDirectory == record.SourceDirectory {
+		return nil, errors.New("shared project workspace is not eligible for automatic cleanup")
+	}
+	root := filepath.Join(d.stateDir, "worktrees")
+	if !withinRoot(root, record.WorkingDirectory) {
+		return nil, errors.New("workspace is outside the managed worktree root")
+	}
+	status, err := exec.Command("git", "-C", record.WorkingDirectory, "status", "--porcelain").Output()
+	if err != nil {
+		return nil, fmt.Errorf("inspect worktree: %w", err)
+	}
+	if strings.TrimSpace(string(status)) != "" {
+		return nil, errors.New("worktree is dirty; cleanup refused")
+	}
+	if record.Branch != "" {
+		cmd := exec.Command("git", "-C", record.SourceDirectory, "merge-base", "--is-ancestor", record.Branch, "origin/HEAD")
+		if err := cmd.Run(); err != nil {
+			return nil, errors.New("worktree branch is not proven merged into origin/HEAD")
+		}
+	}
+	if err := runGit(record.SourceDirectory, "worktree", "remove", record.WorkingDirectory); err != nil {
+		return nil, err
+	}
+	if record.Branch != "" {
+		_ = runGit(record.SourceDirectory, "branch", "-d", record.Branch)
+	}
+	if err := d.deleteRuntime(command.AgentID, command.RuntimeGeneration); err != nil {
+		return nil, err
+	}
+	return map[string]any{"cleaned": true, "workingDirectory": record.WorkingDirectory}, nil
 }
 
 func (d *daemonRuntime) ensureCodex() (*rpcClient, error) {
@@ -434,7 +625,8 @@ func (d *daemonRuntime) ensureCodex() (*rpcClient, error) {
 	if d.codex != nil && d.codex.cmd != nil && d.codex.cmd.Process != nil {
 		return d.codex, nil
 	}
-	client, err := startCodex(d.server, d.id.NodeID, d.private, d.http)
+	client, err := startCodex(d.server, d.id.NodeID, d.private, d.http,
+		d.generationForParams, d.observeNotification)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +634,8 @@ func (d *daemonRuntime) ensureCodex() (*rpcClient, error) {
 	return client, nil
 }
 
-func startCodex(server, nodeID string, private ed25519.PrivateKey, httpClient *http.Client) (*rpcClient, error) {
+func startCodex(server, nodeID string, private ed25519.PrivateKey, httpClient *http.Client,
+	generationFor func(any) int64, notificationObserver func(string, any)) (*rpcClient, error) {
 	cmd := exec.Command("codex", "app-server", "--stdio")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -457,7 +650,8 @@ func startCodex(server, nodeID string, private ed25519.PrivateKey, httpClient *h
 		return nil, fmt.Errorf("start codex app-server: %w", err)
 	}
 	client := &rpcClient{server: server, nodeID: nodeID, private: private, cmd: cmd,
-		stdin: stdin, stdout: stdout, pending: make(map[string]chan rpcMessage), http: httpClient}
+		stdin: stdin, stdout: stdout, pending: make(map[string]chan rpcMessage), http: httpClient,
+		runtimeGenerationFor: generationFor, notificationObserver: notificationObserver}
 	go client.readLoop()
 	if _, err := client.request("initialize", map[string]any{
 		"clientInfo":   map[string]any{"name": "agenticform-node", "version": version},
@@ -547,16 +741,26 @@ func (c *rpcClient) readLoop() {
 			continue
 		}
 		if method, ok := message["method"].(string); ok && shouldForwardNotification(method) {
+			if c.notificationObserver != nil {
+				c.notificationObserver(method, message["params"])
+			}
 			go c.forwardNotification(method, message["params"])
 		}
 	}
 }
 
 func (c *rpcClient) forwardServerRequest(id any, message rpcMessage) {
+	generation := int64(0)
+	if c.runtimeGenerationFor != nil {
+		generation = c.runtimeGenerationFor(message["params"])
+	}
+	if generation <= 0 {
+		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": "runtime generation is unavailable"}})
+		return
+	}
 	body, _ := json.Marshal(map[string]any{
-		"requestId": id,
-		"method":    message["method"],
-		"params":    message["params"],
+		"requestId": id, "method": message["method"], "params": message["params"],
+		"runtimeGeneration": generation,
 	})
 	path := "/api/nodes/" + c.nodeID + "/codex/server-request"
 	resp, err := signedHTTP(c.http, c.server, c.nodeID, c.private, http.MethodPost, path, body)
@@ -564,22 +768,79 @@ func (c *rpcClient) forwardServerRequest(id any, message rpcMessage) {
 		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": safeError(err)}})
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": strings.TrimSpace(string(data))}})
+	view, err := decodeInteractionResponse(resp)
+	if err != nil {
+		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": safeError(err)}})
+		return
+	}
+
+	for view.Status == "PENDING" {
+		time.Sleep(1500 * time.Millisecond)
+		pollPath := "/api/nodes/" + c.nodeID + "/codex/server-request/" + view.ID
+		resp, err = signedHTTP(c.http, c.server, c.nodeID, c.private, http.MethodGet, pollPath, nil)
+		if err != nil {
+			log.Printf("remote Codex interaction poll failed %s: %v", view.ID, err)
+			continue
+		}
+		view, err = decodeInteractionResponse(resp)
+		if err != nil {
+			log.Printf("remote Codex interaction poll decode failed %s: %v", view.ID, err)
+			continue
+		}
+	}
+	if view.Status == "FAILED" {
+		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": defaultString(view.Error, "remote interaction failed")}})
+		return
+	}
+	if view.Status != "READY" && view.Status != "CONSUMED" {
+		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": "unexpected remote interaction state: " + view.Status}})
 		return
 	}
 	var result any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": "invalid control-plane response"}})
+	if err := json.Unmarshal([]byte(defaultJSON(view.ResponseJSON)), &result); err != nil {
+		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": "invalid durable control-plane response"}})
 		return
 	}
-	_ = c.write(rpcMessage{"id": id, "result": result})
+	if err := c.write(rpcMessage{"id": id, "result": result}); err != nil {
+		return
+	}
+	if view.Status == "READY" {
+		ackPath := "/api/nodes/" + c.nodeID + "/codex/server-request/" + view.ID + "/ack"
+		if ack, err := signedHTTP(c.http, c.server, c.nodeID, c.private, http.MethodPost, ackPath, nil); err == nil {
+			io.Copy(io.Discard, io.LimitReader(ack.Body, 1024))
+			ack.Body.Close()
+		}
+	}
+}
+
+func decodeInteractionResponse(resp *http.Response) (interactionView, error) {
+	if resp == nil {
+		return interactionView{}, errors.New("empty control-plane response")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return interactionView{}, fmt.Errorf("control plane rejected interaction (%d): %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	var view interactionView
+	if err := json.NewDecoder(resp.Body).Decode(&view); err != nil {
+		return interactionView{}, err
+	}
+	return view, nil
 }
 
 func (c *rpcClient) forwardNotification(method string, params any) {
-	body, _ := json.Marshal(map[string]any{"method": method, "params": params})
+	generation := int64(0)
+	if c.runtimeGenerationFor != nil {
+		generation = c.runtimeGenerationFor(params)
+	}
+	if generation <= 0 {
+		log.Printf("dropping %s notification without current runtime generation", method)
+		return
+	}
+	body, _ := json.Marshal(map[string]any{
+		"method": method, "params": params, "runtimeGeneration": generation,
+	})
 	path := "/api/nodes/" + c.nodeID + "/codex/notification"
 	resp, err := signedHTTP(c.http, c.server, c.nodeID, c.private, http.MethodPost, path, body)
 	if err == nil && resp != nil {
@@ -590,6 +851,112 @@ func (c *rpcClient) forwardNotification(method string, params any) {
 
 func shouldForwardNotification(method string) bool {
 	return method == "item/started" || method == "turn/completed"
+}
+
+func (d *daemonRuntime) generationForParams(params any) int64 {
+	threadID := threadIDFromParams(params)
+	if threadID == "" {
+		return 0
+	}
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	for _, record := range d.runtimes.Runtimes {
+		if record.ThreadID == threadID {
+			return record.RuntimeGeneration
+		}
+	}
+	return 0
+}
+
+func (d *daemonRuntime) observeNotification(method string, params any) {
+	threadID := threadIDFromParams(params)
+	if threadID == "" {
+		return
+	}
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	changed := false
+	for key, record := range d.runtimes.Runtimes {
+		if record.ThreadID != threadID {
+			continue
+		}
+		switch method {
+		case "item/started":
+			record.RuntimeStatus = "WORKING"
+		case "turn/completed":
+			record.RuntimeStatus = "IDLE"
+		}
+		d.runtimes.Runtimes[key] = record
+		changed = true
+	}
+	if changed {
+		_ = d.saveRuntimeStateLocked()
+	}
+}
+
+func threadIDFromParams(params any) string {
+	object, ok := params.(map[string]any)
+	if !ok {
+		return ""
+	}
+	if value, ok := object["threadId"].(string); ok && value != "" {
+		return value
+	}
+	if thread, ok := object["thread"].(map[string]any); ok {
+		if value, ok := thread["id"].(string); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func (d *daemonRuntime) requireRuntime(agentID string, generation int64, threadID string) error {
+	if agentID == "" || generation <= 0 {
+		return errors.New("remote command is missing agent runtime identity")
+	}
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	record, ok := d.runtimes.Runtimes[agentID]
+	if !ok || record.RuntimeGeneration != generation || record.ThreadID != threadID {
+		return errors.New("remote command targets a stale or unknown runtime")
+	}
+	return nil
+}
+
+func (d *daemonRuntime) putRuntime(record runtimeRecord) error {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	if d.runtimes.Runtimes == nil {
+		d.runtimes.Runtimes = map[string]runtimeRecord{}
+	}
+	if current, ok := d.runtimes.Runtimes[record.AgentID]; ok && current.RuntimeGeneration > record.RuntimeGeneration {
+		return errors.New("refusing to replace a newer runtime generation")
+	}
+	d.runtimes.Runtimes[record.AgentID] = record
+	return d.saveRuntimeStateLocked()
+}
+
+func (d *daemonRuntime) setRuntimeStatus(agentID string, generation int64, status string) error {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	record, ok := d.runtimes.Runtimes[agentID]
+	if !ok || record.RuntimeGeneration != generation {
+		return errors.New("runtime generation is not current")
+	}
+	record.RuntimeStatus = status
+	d.runtimes.Runtimes[agentID] = record
+	return d.saveRuntimeStateLocked()
+}
+
+func (d *daemonRuntime) deleteRuntime(agentID string, generation int64) error {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	record, ok := d.runtimes.Runtimes[agentID]
+	if !ok || record.RuntimeGeneration != generation {
+		return errors.New("runtime generation is not current")
+	}
+	delete(d.runtimes.Runtimes, agentID)
+	return d.saveRuntimeStateLocked()
 }
 
 func (d *daemonRuntime) signedRequest(method, path string, body []byte) (*http.Response, error) {
@@ -645,6 +1012,93 @@ func loadIdentity(path string) (identity, ed25519.PrivateKey, error) {
 		return identity{}, nil, errors.New("stored node key is not Ed25519")
 	}
 	return id, private, nil
+}
+
+func loadCommandLedger(path string) (commandLedger, error) {
+	ledger := commandLedger{Entries: map[string]commandLedgerEntry{}}
+	if err := loadOptionalJSON(path, &ledger); err != nil {
+		return commandLedger{}, fmt.Errorf("load command ledger: %w", err)
+	}
+	if ledger.Entries == nil {
+		ledger.Entries = map[string]commandLedgerEntry{}
+	}
+	return ledger, nil
+}
+
+func loadRuntimeState(path string) (runtimeState, error) {
+	state := runtimeState{Runtimes: map[string]runtimeRecord{}}
+	if err := loadOptionalJSON(path, &state); err != nil {
+		return runtimeState{}, fmt.Errorf("load runtime state: %w", err)
+	}
+	if state.Runtimes == nil {
+		state.Runtimes = map[string]runtimeRecord{}
+	}
+	return state, nil
+}
+
+func loadOptionalJSON(path string, target any) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, target)
+}
+
+func (d *daemonRuntime) saveLedgerLocked() error {
+	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
+	if len(d.ledger.Entries) > 5000 {
+		for key, entry := range d.ledger.Entries {
+			if entry.UpdatedAt.Before(cutoff) && entry.State != "STARTED" {
+				delete(d.ledger.Entries, key)
+			}
+		}
+	}
+	return writeJSONAtomic(filepath.Join(d.stateDir, "command-ledger.json"), d.ledger)
+}
+
+func (d *daemonRuntime) saveRuntimeStateLocked() error {
+	return writeJSONAtomic(filepath.Join(d.stateDir, "runtime-state.json"), d.runtimes)
+}
+
+func writeJSONAtomic(path string, value any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".agenticform-state-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(encoded); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+func commandFingerprint(command nodeCommand) string {
+	digest := sha256.Sum256([]byte(command.CommandType + "\n" + command.IdempotencyKey + "\n" +
+		strconv.FormatInt(command.RuntimeGeneration, 10) + "\n" + command.PayloadJSON))
+	return hex.EncodeToString(digest[:])
 }
 
 func ensureRepository(repoRoot, repositoryURL string) error {
@@ -713,6 +1167,19 @@ func detectCodex() (string, bool) {
 	return versionText, true
 }
 
+func withinRoot(root, path string) bool {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootAbs, pathAbs)
+	return err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
+}
+
 func commandExists(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
@@ -729,6 +1196,23 @@ func diskFreeMB(path string) int64 {
 func stringValue(values map[string]any, key string) string {
 	value, _ := values[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func int64Value(values map[string]any, key string) int64 {
+	switch value := values[key].(type) {
+	case float64:
+		return int64(value)
+	case int64:
+		return value
+	case json.Number:
+		parsed, _ := value.Int64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseInt(value, 10, 64)
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func optionalString(values map[string]any, key string) string { return stringValue(values, key) }
@@ -781,6 +1265,20 @@ func safeError(err error) string {
 		return text[:1000]
 	}
 	return text
+}
+
+func defaultJSON(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "{}"
+	}
+	return value
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func fatal(message string) {
