@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -148,5 +149,46 @@ func TestCredentialHelperCommandIsGenerationScopedAndQuoted(t *testing.T) {
 	}
 	if strings.Contains(got, "x-access-token") || strings.Contains(got, "password=") {
 		t.Fatalf("credential helper command must not embed credentials: %q", got)
+	}
+}
+
+func TestCleanupRefusesSharedProjectWorkspace(t *testing.T) {
+	stateDir := t.TempDir()
+	repo := filepath.Join(stateDir, "repos", "demo")
+	d := daemonRuntime{
+		stateDir: stateDir,
+		runtimes: runtimeState{Runtimes: map[string]runtimeRecord{
+			"agent-1": {
+				AgentID: "agent-1", RuntimeGeneration: 2, ThreadID: "thread-2",
+				SourceDirectory: repo, WorkingDirectory: repo, Branch: "main", RuntimeStatus: "IDLE",
+			},
+		}},
+	}
+	command := nodeCommand{AgentID: "agent-1", RuntimeGeneration: 2}
+
+	_, err := d.cleanupWorkspace(command, map[string]any{"threadId": "thread-2", "defaultBranch": "main"})
+	if err == nil || !strings.Contains(err.Error(), "shared project workspace") {
+		t.Fatalf("expected shared workspace cleanup to be refused, got %v", err)
+	}
+}
+
+func TestCleanupRefusesWorkspaceOutsideManagedRoot(t *testing.T) {
+	stateDir := t.TempDir()
+	d := daemonRuntime{
+		stateDir: stateDir,
+		runtimes: runtimeState{Runtimes: map[string]runtimeRecord{
+			"agent-1": {
+				AgentID: "agent-1", RuntimeGeneration: 5, ThreadID: "thread-5",
+				SourceDirectory: filepath.Join(stateDir, "repos", "demo"),
+				WorkingDirectory: filepath.Join(t.TempDir(), "foreign-worktree"),
+				Branch: "agent/work", RuntimeStatus: "IDLE",
+			},
+		}},
+	}
+	command := nodeCommand{AgentID: "agent-1", RuntimeGeneration: 5}
+
+	_, err := d.cleanupWorkspace(command, map[string]any{"threadId": "thread-5", "defaultBranch": "main"})
+	if err == nil || !strings.Contains(err.Error(), "outside the managed worktree root") {
+		t.Fatalf("expected unmanaged path cleanup to be refused, got %v", err)
 	}
 }
