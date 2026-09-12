@@ -202,6 +202,12 @@ public class AgentEntity {
                 && Objects.equals(this.runtimeSessionId, runtimeSessionId);
     }
 
+    public boolean ownsRuntimeAssignment(UUID nodeId, long generation, RuntimeType runtimeType) {
+        return executionNodeId != null && executionNodeId.equals(nodeId)
+                && runtimeGeneration == generation
+                && this.runtimeType == runtimeType;
+    }
+
     public long reassignRuntime(UUID nodeId, String requestedBranch) {
         if (nodeId == null) throw new IllegalArgumentException("Execution node is required");
         executionNodeId = nodeId;

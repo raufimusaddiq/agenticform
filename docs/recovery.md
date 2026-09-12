@@ -209,11 +209,12 @@ AGENTICFORM_GITHUB_APP_PRIVATE_KEY_PATH=/run/secrets/agenticform-github-app.pem
 
 The private key must be PKCS#8 PEM (`BEGIN PRIVATE KEY`).
 
-For Git operations, the node uses a Git credential helper that requests a short-lived GitHub App installation token on demand. The request is accepted only when all of these match current control-plane state:
+For initial clone, the node uses a bootstrap credential request fenced by authenticated node, agent assignment, generation, runtime type, project, and repository. After runtime start, its Git credential helper switches to a runtime credential request. That request is accepted only when all of these match current control-plane state:
 
 - authenticated execution node;
 - agent ID;
 - current runtime generation;
+- runtime type and exact runtime session ID;
 - project ID;
 - exact registered repository URL.
 

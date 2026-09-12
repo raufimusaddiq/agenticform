@@ -53,9 +53,7 @@ class NodeGitCredentialControllerTest {
         byte[] body = request(agentId, projectId, 4L, repositoryUrl);
 
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
-        when(agent.getRuntimeSessionId()).thenReturn(null);
-        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, null)).thenReturn(true);
+        when(agent.ownsRuntimeAssignment(nodeId, 4L, RuntimeType.CODEX)).thenReturn(true);
         when(agent.getProjectId()).thenReturn(projectId);
         when(projects.get(projectId)).thenReturn(project);
         when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);
@@ -64,14 +62,14 @@ class NodeGitCredentialControllerTest {
         when(broker.issue(repositoryUrl)).thenReturn(
                 new GitHubAppCredentialBroker.Credential("x-access-token", "short-lived-token", expiresAt));
 
-        NodeGitCredentialController.CredentialResponse response = controller.issue(
+        NodeGitCredentialController.CredentialResponse response = controller.issueBootstrap(
                 nodeId, "timestamp", "nonce", "signature", body);
 
         assertEquals("x-access-token", response.username());
         assertEquals("short-lived-token", response.password());
         assertEquals(expiresAt, response.expiresAt());
         verify(signatures).verify(eq(nodeId), eq("timestamp"), eq("nonce"), eq("signature"),
-                eq("POST"), eq("/api/nodes/" + nodeId + "/git-credential"), eq(body));
+                eq("POST"), eq("/api/nodes/" + nodeId + "/git-credential/bootstrap"), eq(body));
     }
 
     @Test
@@ -82,12 +80,10 @@ class NodeGitCredentialControllerTest {
         byte[] body = request(agentId, projectId, 3L, "https://github.com/acme/private-repo.git");
 
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
-        when(agent.getRuntimeSessionId()).thenReturn(null);
-        when(agent.ownsRuntime(nodeId, 3L, RuntimeType.CODEX, null)).thenReturn(false);
+        when(agent.ownsRuntimeAssignment(nodeId, 3L, RuntimeType.CODEX)).thenReturn(false);
 
         assertThrows(IllegalStateException.class,
-                () -> controller.issue(nodeId, "timestamp", "nonce", "signature", body));
+                () -> controller.issueBootstrap(nodeId, "timestamp", "nonce", "signature", body));
         verify(broker, never()).issue(any());
     }
 
@@ -99,22 +95,56 @@ class NodeGitCredentialControllerTest {
         byte[] body = request(agentId, projectId, 2L, "https://github.com/acme/other.git");
 
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
-        when(agent.getRuntimeSessionId()).thenReturn(null);
-        when(agent.ownsRuntime(nodeId, 2L, RuntimeType.CODEX, null)).thenReturn(true);
+        when(agent.ownsRuntimeAssignment(nodeId, 2L, RuntimeType.CODEX)).thenReturn(true);
         when(agent.getProjectId()).thenReturn(projectId);
         when(projects.get(projectId)).thenReturn(project);
         when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);
         when(project.getRepositoryUrl()).thenReturn("https://github.com/acme/registered.git");
 
         assertThrows(IllegalArgumentException.class,
-                () -> controller.issue(nodeId, "timestamp", "nonce", "signature", body));
+                () -> controller.issueBootstrap(nodeId, "timestamp", "nonce", "signature", body));
+        verify(broker, never()).issue(any());
+    }
+
+    @Test
+    void staleRuntimeSessionCannotRequestCredential() throws Exception {
+        UUID nodeId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        byte[] body = request(agentId, projectId, 4L, "session-stale", "https://github.com/acme/private-repo.git");
+
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntimeAssignment(nodeId, 4L, RuntimeType.CODEX)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, "session-stale")).thenReturn(false);
+
+        assertThrows(IllegalStateException.class,
+                () -> controller.issueRuntime(nodeId, "timestamp", "nonce", "signature", body));
+        verify(broker, never()).issue(any());
+    }
+
+    @Test
+    void boundRuntimeCannotReuseBootstrapCredentialPath() throws Exception {
+        UUID nodeId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        byte[] body = request(agentId, projectId, 4L, "https://github.com/acme/private-repo.git");
+
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntimeAssignment(nodeId, 4L, RuntimeType.CODEX)).thenReturn(true);
+        when(agent.getRuntimeSessionId()).thenReturn("session-4");
+
+        assertThrows(IllegalStateException.class,
+                () -> controller.issueBootstrap(nodeId, "timestamp", "nonce", "signature", body));
         verify(broker, never()).issue(any());
     }
 
     private byte[] request(UUID agentId, UUID projectId, long generation, String repositoryUrl) throws Exception {
+        return request(agentId, projectId, generation, null, repositoryUrl);
+    }
+
+    private byte[] request(UUID agentId, UUID projectId, long generation, String runtimeSessionId, String repositoryUrl) throws Exception {
         return mapper.writeValueAsString(new NodeGitCredentialController.CredentialRequest(
-                        agentId, projectId, generation, repositoryUrl))
+                        agentId, projectId, generation, RuntimeType.CODEX, runtimeSessionId, repositoryUrl))
                 .getBytes(StandardCharsets.UTF_8);
     }
 }

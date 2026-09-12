@@ -171,8 +171,8 @@ func TestRuntimeStateRejectsOlderGeneration(t *testing.T) {
 }
 
 func TestCredentialHelperCommandIsGenerationScopedAndQuoted(t *testing.T) {
-	got := credentialHelperCommand("agent';echo bad", 7, "project-1", "https://github.com/acme/private.git")
-	for _, expected := range []string{"git-credential", "'7'", "'project-1'", "'https://github.com/acme/private.git'", "'\\''"} {
+	got := credentialHelperCommand("agent';echo bad", 7, "project-1", "https://github.com/acme/private.git", "CODEX", "session-7")
+	for _, expected := range []string{"git-credential", "'7'", "'project-1'", "'https://github.com/acme/private.git'", "'CODEX'", "'session-7'", "'\\''"} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("credential helper command %q missing %q", got, expected)
 		}

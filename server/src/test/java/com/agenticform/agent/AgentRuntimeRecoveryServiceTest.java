@@ -126,4 +126,34 @@ class AgentRuntimeRecoveryServiceTest {
         assertEquals(true, payload.getValue().get("recovery"));
         assertTrue(String.valueOf(payload.getValue().get("requestedBranch")).endsWith("-g2"));
     }
+
+    @Test
+    void cleanupFailedUnboundRuntimeOmitsSessionId() {
+        UUID agentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.getId()).thenReturn(agentId);
+        when(agent.getExecutionNodeId()).thenReturn(nodeId);
+        when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
+        when(agent.getActiveTaskId()).thenReturn(null);
+        when(agent.getActiveTurnId()).thenReturn(null);
+        when(agent.getStatus()).thenReturn(AgentStatus.FAILED);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getRuntimeSessionId()).thenReturn(null);
+        when(agent.getRuntimeGeneration()).thenReturn(2L);
+        when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
+        when(nodeService.get(nodeId)).thenReturn(replacement);
+        when(replacement.getId()).thenReturn(nodeId);
+        when(replacement.getStatus()).thenReturn(ExecutionNodeStatus.ONLINE);
+        when(agents.save(agent)).thenReturn(agent);
+
+        service.cleanup(agentId);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> payload = ArgumentCaptor.forClass(Map.class);
+        verify(nodeService).enqueue(eq(nodeId), eq(agentId), eq("CLEANUP_WORKSPACE"),
+                eq("cleanup-runtime:" + agentId + ":g2"), payload.capture());
+        assertEquals("CODEX", payload.getValue().get("runtimeType"));
+        assertTrue(!payload.getValue().containsKey("runtimeSessionId"));
+    }
 }

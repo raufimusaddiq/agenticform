@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	version        = "0.2.0"
+	version         = "0.2.0"
 	protocolVersion = 1
 )
 
@@ -278,7 +278,7 @@ func (d *daemonRuntime) heartbeat() error {
 	hostname, _ := os.Hostname()
 	codexVersion, codexAvailable, codexAuthenticated := detectCodex()
 	capabilities, _ := json.Marshal(map[string]any{
-		"git":   commandExists("git"),
+		"git": commandExists("git"),
 		"runtimes": map[string]any{
 			"CODEX": map[string]any{
 				"available":     codexAvailable,
@@ -296,7 +296,7 @@ func (d *daemonRuntime) heartbeat() error {
 	d.stateMu.Unlock()
 	sort.Slice(runtimes, func(i, j int) bool { return runtimes[i].AgentID < runtimes[j].AgentID })
 	body, _ := json.Marshal(map[string]any{
-		"protocolVersion": protocolVersion,
+		"protocolVersion":  protocolVersion,
 		"labelsJson":       string(labels),
 		"capabilitiesJson": string(capabilities),
 		"maxAgents":        envInt("AGENTICFORM_NODE_MAX_AGENTS", 4),
@@ -462,6 +462,7 @@ func (d *daemonRuntime) execute(command nodeCommand) (map[string]any, error) {
 
 func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	repositoryURL := stringValue(payload, "repositoryUrl")
+	projectID := stringValue(payload, "projectId")
 	projectSlug := safeSegment(stringValue(payload, "projectSlug"))
 	agentID := safeSegment(stringValue(payload, "agentId"))
 	baseBranch := stringValue(payload, "baseBranch")
@@ -540,6 +541,9 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 	}
 	if err := d.putRuntime(record); err != nil {
 		return nil, fmt.Errorf("persist runtime state: %w", err)
+	}
+	if err := configureProjectRuntimeCredentialHelper(repoRoot, workingDirectory, command, projectID, repositoryURL, "CODEX", threadID); err != nil {
+		return nil, fmt.Errorf("configure runtime Git credential helper: %w", err)
 	}
 	return map[string]any{
 		"runtimeSessionId": threadID, "sourceDirectory": repoRoot,

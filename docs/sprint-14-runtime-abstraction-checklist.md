@@ -19,13 +19,13 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 - [x] Preserve exact `(node, generation, runtimeType, runtimeSessionId)` fencing and durable remote command recovery.
 - [x] Add runtime-port contract coverage proving task orchestration does not require `CodexGateway`.
 
-## Persistence and compatibility
+## Persistence and migration policy
 
-- [x] Add runtime type/session fields without destructive reset.
 - [x] Rename provider-specific task, message, operation-event, and incident execution fields to neutral names.
 - [x] Persist runtime type and opaque `runtimeSessionId` directly; no legacy Codex identity column.
 - [x] Consolidate the pre-deployment schema into one final V1 baseline.
 - [x] Verify fresh-baseline application and idempotent Flyway execution.
+- [x] Pre-deployment reset policy: databases created from the superseded V1–V19 history must be dropped and recreated before using this branch. No deployed environment exists; this baseline is not an in-place upgrade path.
 
 ## Node scheduling
 

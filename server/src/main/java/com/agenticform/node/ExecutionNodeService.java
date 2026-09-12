@@ -146,14 +146,17 @@ public class ExecutionNodeService {
             NodeRuntimeSnapshotEntity snapshot = runtimeSnapshots
                     .findByNodeIdAndAgentId(nodeId, observation.agentId())
                     .orElseGet(() -> new NodeRuntimeSnapshotEntity(nodeId, observation.agentId()));
-            String status = agent.ownsRuntime(nodeId, observation.runtimeGeneration(), observation.runtimeType(),
-                    observation.runtimeSessionId()) ? observation.runtimeStatus() : "STALE";
+            boolean assignmentMatch = agent.ownsRuntimeAssignment(nodeId, observation.runtimeGeneration(), observation.runtimeType());
+            boolean sessionMatch = agent.ownsRuntime(nodeId, observation.runtimeGeneration(), observation.runtimeType(),
+                    observation.runtimeSessionId());
+            boolean firstBind = assignmentMatch && (agent.getRuntimeSessionId() == null || agent.getRuntimeSessionId().isBlank())
+                    && observation.runtimeSessionId() != null && !observation.runtimeSessionId().isBlank();
+            String status = (sessionMatch || firstBind) ? observation.runtimeStatus() : "STALE";
             snapshot.observe(observation.runtimeType(), observation.runtimeGeneration(), observation.runtimeSessionId(), observation.sourceDirectory(),
                     observation.workingDirectory(), observation.branch(), status);
             runtimeSnapshots.save(snapshot);
 
-            if (!agent.ownsRuntime(nodeId, observation.runtimeGeneration(), observation.runtimeType(),
-                    observation.runtimeSessionId())) continue;
+            if (!sessionMatch && !firstBind) continue;
             agent.recoverFromSnapshot(observation.runtimeGeneration(), observation.runtimeSessionId(),
                     observation.sourceDirectory(), observation.workingDirectory(), observation.branch());
             agents.save(agent);

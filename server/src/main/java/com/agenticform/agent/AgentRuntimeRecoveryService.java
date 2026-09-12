@@ -141,10 +141,13 @@ public class AgentRuntimeRecoveryService {
         if (node.getStatus() != ExecutionNodeStatus.ONLINE) {
             throw new IllegalStateException("Execution node must be online for deterministic cleanup");
         }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("runtimeType", runtimeType(agent).name());
+        if (runtimeSessionId(agent) != null && !runtimeSessionId(agent).isBlank()) {
+            payload.put("runtimeSessionId", runtimeSessionId(agent));
+        }
         nodeService.enqueue(node.getId(), agent.getId(), "CLEANUP_WORKSPACE",
-                "cleanup-runtime:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
-                        "runtimeType", runtimeType(agent).name(),
-                        "runtimeSessionId", runtimeSessionId(agent)));
+                "cleanup-runtime:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), payload);
         agent.setQueueMode(AgentQueueMode.PAUSED);
         agent.setStatus(AgentStatus.BLOCKED);
         return agents.save(agent);

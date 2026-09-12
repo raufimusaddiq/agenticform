@@ -88,4 +88,28 @@ class ExecutionNodeRecoveryTest {
         verify(commands).save(command);
         verify(command, never()).succeed("{}");
     }
+
+    @Test
+    void heartbeatBindsFirstSessionAfterStartCompletionIsLost() {
+        UUID nodeId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        ExecutionNodeEntity node = org.mockito.Mockito.mock(ExecutionNodeEntity.class);
+        ExecutionNodeService.Heartbeat heartbeat = new ExecutionNodeService.Heartbeat(1, "{}", "{}", 1,
+                "linux", "amd64", "node", "test", "", 1, 1L, 1L,
+                java.util.List.of(new ExecutionNodeService.RuntimeObservation(agentId, RuntimeType.CODEX, 4L,
+                        "session-4", "/repo", "/work", "agent/work", "IDLE")));
+
+        when(nodes.findById(nodeId)).thenReturn(Optional.of(node));
+        when(nodes.save(node)).thenReturn(node);
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntimeAssignment(nodeId, 4L, RuntimeType.CODEX)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, "session-4")).thenReturn(false);
+        when(agent.getRuntimeSessionId()).thenReturn(null);
+        when(snapshots.findByNodeIdAndAgentId(nodeId, agentId)).thenReturn(Optional.empty());
+
+        service.heartbeat(nodeId, heartbeat);
+
+        verify(agent).recoverFromSnapshot(4L, "session-4", "/repo", "/work", "agent/work");
+        verify(agents).save(agent);
+    }
 }

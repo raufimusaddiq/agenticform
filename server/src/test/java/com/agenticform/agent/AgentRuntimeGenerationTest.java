@@ -38,7 +38,6 @@ class AgentRuntimeGenerationTest {
 
         agent.bindRuntime(2, RuntimeType.CODEX, "thread-2", "/src", "/work", "recovery/coder-g2");
         assertEquals("thread-2", agent.getRuntimeSessionId());
-        assertEquals("thread-2", agent.getRuntimeSessionId());
         assertEquals(com.agenticform.runtime.RuntimeType.CODEX, agent.getRuntimeType());
         assertEquals(AgentStatus.IDLE, agent.getStatus());
         assertFalse(agent.ownsRuntime(nodeB, 2, RuntimeType.CODEX, "other-session"));
