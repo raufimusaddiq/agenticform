@@ -5,6 +5,7 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.approval.HumanApprovalService;
 import com.agenticform.codex.CodexJsonRpcClient;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.operation.OperationRunService;
 import com.agenticform.operation.OperationalIncidentService;
 import com.agenticform.operation.OperationalRegistryService;
@@ -34,7 +35,7 @@ class AgenticformDynamicToolHandlerSecurityTest {
     void generalAgentCannotRequestProtectedOperation() {
         AgentRepository agents = mock(AgentRepository.class);
         AgentEntity source = mock(AgentEntity.class);
-        when(agents.findByRuntimeSessionId("thread-1")).thenReturn(Optional.of(source));
+        when(agents.findByRuntimeTypeAndRuntimeSessionId(RuntimeType.CODEX, "thread-1")).thenReturn(Optional.of(source));
         when(source.getCapabilityProfile()).thenReturn(com.agenticform.agent.AgentCapabilityProfile.IMPLEMENTER);
         AgenticformDynamicToolHandler handler = handler(agents, new AgentCapabilityPolicy());
         ObjectNode params = new ObjectMapper().createObjectNode()

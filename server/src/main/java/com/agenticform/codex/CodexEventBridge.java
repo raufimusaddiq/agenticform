@@ -11,6 +11,7 @@ import com.agenticform.task.TaskDependencyService;
 import com.agenticform.task.TaskEntity;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
+import com.agenticform.runtime.RuntimeType;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,18 +52,20 @@ public class CodexEventBridge {
 
     @Transactional
     public void handle(CodexJsonRpcClient.Notification notification) {
-        handleInternal(null, 0, notification);
+        handleInternal(null, 0, null, null, notification);
     }
 
     @Transactional
-    public void handleRemote(UUID executionNodeId, long runtimeGeneration,
+    public void handleRemote(UUID executionNodeId, long runtimeGeneration, RuntimeType runtimeType,
+                             String runtimeSessionId,
                              CodexJsonRpcClient.Notification notification) {
         if (executionNodeId == null) throw new IllegalArgumentException("Execution node id is required");
         if (runtimeGeneration <= 0) throw new IllegalArgumentException("Runtime generation is required");
-        handleInternal(executionNodeId, runtimeGeneration, notification);
+        handleInternal(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, notification);
     }
 
     private void handleInternal(UUID executionNodeId, long runtimeGeneration,
+                                RuntimeType runtimeType, String runtimeSessionId,
                                 CodexJsonRpcClient.Notification notification) {
         JsonNode params = notification.params();
         if (params == null) return;
@@ -76,12 +79,12 @@ public class CodexEventBridge {
             UUID taskId = taskId(clientId);
             if (taskId != null) {
                 taskRepository.findById(taskId).ifPresent(task -> {
-                    if (!authorizedRuntime(executionNodeId, runtimeGeneration, task)) return;
-                    task.setCodexTurnId(turnId);
+                    if (!authorizedRuntime(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, task)) return;
+                    task.setTurnId(turnId);
                     task.setStatus(TaskStatus.RUNNING);
                     taskRepository.save(task);
                     agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
-                        if (!authorizedAgent(executionNodeId, runtimeGeneration, agent)) return;
+                        if (!authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, agent)) return;
                         agent.setStatus(AgentStatus.WORKING);
                         agent.setActiveTaskId(task.getId());
                         agent.setActiveTurnId(turnId);
@@ -96,7 +99,7 @@ public class CodexEventBridge {
             if (deliveryId != null) {
                 messageDeliveries.findById(deliveryId).ifPresent(delivery -> {
                     AgentEntity target = agentRepository.findById(delivery.getToAgentId()).orElse(null);
-                    if (!authorizedAgent(executionNodeId, runtimeGeneration, target)) return;
+                    if (!authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, target)) return;
                     delivery.markProcessing(turnId);
                     messageDeliveries.save(delivery);
                     messageService.refreshAggregate(delivery.getMessageId());
@@ -111,13 +114,13 @@ public class CodexEventBridge {
         if ("turn/completed".equals(notification.method())) {
             String turnId = params.path("turn").path("id").asText(null);
             if (turnId == null) return;
-            taskRepository.findByCodexTurnId(turnId).ifPresent(task -> {
-                if (authorizedRuntime(executionNodeId, runtimeGeneration, task)) {
-                    completeTask(task, params, executionNodeId, runtimeGeneration);
+            taskRepository.findByTurnId(turnId).ifPresent(task -> {
+                if (authorizedRuntime(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, task)) {
+                    completeTask(task, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId);
                 }
             });
-            messageDeliveries.findByCodexTurnId(turnId).ifPresent(delivery ->
-                    completeMessage(delivery, params, executionNodeId, runtimeGeneration));
+            messageDeliveries.findByTurnId(turnId).ifPresent(delivery ->
+                    completeMessage(delivery, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId));
         }
     }
 
@@ -139,20 +142,23 @@ public class CodexEventBridge {
         catch (IllegalArgumentException ignored) { return null; }
     }
 
-    private boolean authorizedRuntime(UUID executionNodeId, long generation, TaskEntity task) {
+    private boolean authorizedRuntime(UUID executionNodeId, long generation, RuntimeType runtimeType,
+                                      String runtimeSessionId, TaskEntity task) {
         AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-        return authorizedAgent(executionNodeId, generation, agent);
+        return authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, agent);
     }
 
-    private boolean authorizedAgent(UUID executionNodeId, long generation, AgentEntity agent) {
+    private boolean authorizedAgent(UUID executionNodeId, long generation, RuntimeType runtimeType,
+                                    String runtimeSessionId, AgentEntity agent) {
         if (agent == null) return false;
         if (executionNodeId == null) return agent.getExecutionNodeId() == null;
-        return agent.ownsRuntime(executionNodeId, generation);
+        return agent.ownsRuntime(executionNodeId, generation, runtimeType, runtimeSessionId);
     }
 
-    private void completeTask(TaskEntity task, JsonNode params, UUID executionNodeId, long generation) {
+    private void completeTask(TaskEntity task, JsonNode params, UUID executionNodeId, long generation,
+                              RuntimeType runtimeType, String runtimeSessionId) {
         AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-        if (!authorizedAgent(executionNodeId, generation, agent)) return;
+        if (!authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, agent)) return;
         String turnStatus = params.path("turn").path("status").asText();
         task.setStatus("completed".equalsIgnoreCase(turnStatus) ? TaskStatus.COMPLETED : TaskStatus.FAILED);
         taskRepository.save(task);
@@ -165,9 +171,10 @@ public class CodexEventBridge {
     }
 
     private void completeMessage(AgentMessageDeliveryEntity delivery, JsonNode params,
-                                 UUID executionNodeId, long generation) {
+                                 UUID executionNodeId, long generation, RuntimeType runtimeType,
+                                 String runtimeSessionId) {
         AgentEntity target = agentRepository.findById(delivery.getToAgentId()).orElse(null);
-        if (!authorizedAgent(executionNodeId, generation, target)) return;
+        if (!authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, target)) return;
         String turnStatus = params.path("turn").path("status").asText();
         if ("completed".equalsIgnoreCase(turnStatus)) {
             delivery.markCompleted();

@@ -46,10 +46,10 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(4L);
-        when(command.getPayloadJson()).thenReturn("{}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\"}");
         when(command.getIdempotencyKey()).thenReturn("cleanup-runtime:" + agentId + ":g4");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 4L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, null)).thenReturn(true);
 
         handler.handle(command, false, null, "worktree is dirty; cleanup refused");
 
@@ -65,10 +65,10 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(2L);
-        when(command.getPayloadJson()).thenReturn("{}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\"}");
         when(command.getIdempotencyKey()).thenReturn("cleanup-runtime:" + agentId + ":g2");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 2L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 2L, RuntimeType.CODEX, null)).thenReturn(true);
 
         handler.handle(command, true, "{\"cleaned\":true}", null);
 
@@ -86,12 +86,12 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(7L);
-        when(command.getPayloadJson()).thenReturn("{\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true,\"defaultBranch\":\"main\"}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\",\"runtimeSessionId\":\"session-7\",\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true,\"defaultBranch\":\"main\"}");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
         when(agent.getId()).thenReturn(agentId);
         when(agent.getRuntimeSessionId()).thenReturn("session-7");
         when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
-        when(agent.ownsRuntime(nodeId, 7L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 7L, RuntimeType.CODEX, "session-7")).thenReturn(true);
 
         handler.handle(command, true, "{\"interrupted\":true}", null);
 
@@ -108,9 +108,9 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(7L);
-        when(command.getPayloadJson()).thenReturn("{\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\",\"runtimeSessionId\":\"session-7\",\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true}");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 7L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 7L, RuntimeType.CODEX, "session-7")).thenReturn(true);
 
         handler.handle(command, false, null, "interrupt failed");
 
@@ -127,9 +127,9 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(9L);
-        when(command.getPayloadJson()).thenReturn("{\"stopLifecycle\":true}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\",\"stopLifecycle\":true}");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 9L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 9L, RuntimeType.CODEX, null)).thenReturn(true);
 
         handler.handle(command, false, null, "worktree branch is not proven merged");
 

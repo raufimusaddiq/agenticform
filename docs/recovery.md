@@ -112,7 +112,7 @@ logical Agent A
     generation 5 -> node-b
 ```
 
-Node commands, Codex notifications, server requests, Git credentials, command completions, and runtime snapshots are validated against the current `(executionNodeId, runtimeGeneration)` pair.
+Node commands, Codex notifications, server requests, Git credentials, command completions, and runtime snapshots are validated against the current `(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId)` identity.
 
 If node-a later reconnects and reports generation 4, its runtime is stale. It cannot mutate generation-5 task, message, approval, or agent state.
 
@@ -125,14 +125,14 @@ Execution nodes persist their runtime inventory locally:
 ```text
 agentId
 runtimeGeneration
-threadId
+runtimeSessionId
 sourceDirectory
 workingDirectory
 branch
 runtimeStatus
 ```
 
-Heartbeat sends this inventory to the control plane. If the observation matches the currently assigned node and generation, Agenticform can restore a `DISCONNECTED`/`STARTING` agent to its current runtime instead of creating a second Codex thread.
+Heartbeat sends this inventory to the control plane. If the observation matches the currently assigned node, generation, runtime type, and runtime session, Agenticform can restore a `DISCONNECTED`/`STARTING` agent to its current runtime instead of creating a second runtime session.
 
 A snapshot from an older generation is recorded as stale and cannot replace the current runtime.
 

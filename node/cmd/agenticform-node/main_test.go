@@ -23,6 +23,20 @@ func TestLoadRuntimeStateLoadsRuntimeSession(t *testing.T) {
 	}
 }
 
+func TestLoadRuntimeStateDefaultsMissingRuntimeTypeToCodex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime-state.json")
+	if err := os.WriteFile(path, []byte(`{"runtimes":{"agent-1":{"agentId":"agent-1","runtimeGeneration":1,"runtimeSessionId":"session-1"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadRuntimeState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Runtimes["agent-1"].RuntimeType; got != "CODEX" {
+		t.Fatalf("expected CODEX runtime default, got %q", got)
+	}
+}
+
 func TestRequireSecureServerURL(t *testing.T) {
 	for _, value := range []string{"https://agenticform.example.com", "http://localhost:8080", "http://127.0.0.1:8080"} {
 		if err := requireSecureServerURL(value); err != nil {

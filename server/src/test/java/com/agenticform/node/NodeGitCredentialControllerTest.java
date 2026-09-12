@@ -5,6 +5,7 @@ import com.agenticform.agent.AgentRepository;
 import com.agenticform.project.ProjectEntity;
 import com.agenticform.project.ProjectService;
 import com.agenticform.project.ProjectSourceType;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,7 +53,9 @@ class NodeGitCredentialControllerTest {
         byte[] body = request(agentId, projectId, 4L, repositoryUrl);
 
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 4L)).thenReturn(true);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getRuntimeSessionId()).thenReturn(null);
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, null)).thenReturn(true);
         when(agent.getProjectId()).thenReturn(projectId);
         when(projects.get(projectId)).thenReturn(project);
         when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);
@@ -79,7 +82,9 @@ class NodeGitCredentialControllerTest {
         byte[] body = request(agentId, projectId, 3L, "https://github.com/acme/private-repo.git");
 
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 3L)).thenReturn(false);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getRuntimeSessionId()).thenReturn(null);
+        when(agent.ownsRuntime(nodeId, 3L, RuntimeType.CODEX, null)).thenReturn(false);
 
         assertThrows(IllegalStateException.class,
                 () -> controller.issue(nodeId, "timestamp", "nonce", "signature", body));
@@ -94,7 +99,9 @@ class NodeGitCredentialControllerTest {
         byte[] body = request(agentId, projectId, 2L, "https://github.com/acme/other.git");
 
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 2L)).thenReturn(true);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getRuntimeSessionId()).thenReturn(null);
+        when(agent.ownsRuntime(nodeId, 2L, RuntimeType.CODEX, null)).thenReturn(true);
         when(agent.getProjectId()).thenReturn(projectId);
         when(projects.get(projectId)).thenReturn(project);
         when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);

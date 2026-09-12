@@ -86,7 +86,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             throw new IllegalArgumentException("Unsupported dynamic tool namespace: " + params.path("namespace").asText());
         }
         String threadId = requiredText(params, "threadId");
-        AgentEntity source = agentRepository.findByRuntimeSessionId(threadId)
+        AgentEntity source = agentRepository.findByRuntimeTypeAndRuntimeSessionId(com.agenticform.runtime.RuntimeType.CODEX, threadId)
                 .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns runtime session " + threadId));
         String tool = requiredText(params, "tool");
         JsonNode arguments = params.path("arguments");

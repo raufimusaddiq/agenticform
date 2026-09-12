@@ -52,7 +52,7 @@ public class NodeGitCredentialController {
         }
         AgentEntity agent = agents.findById(request.agentId())
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + request.agentId()));
-        if (!agent.ownsRuntime(nodeId, request.runtimeGeneration())) {
+        if (!agent.ownsRuntime(nodeId, request.runtimeGeneration(), agent.getRuntimeType(), agent.getRuntimeSessionId())) {
             throw new IllegalStateException("Git credential request belongs to a stale runtime generation");
         }
         if (!request.projectId().equals(agent.getProjectId())) {

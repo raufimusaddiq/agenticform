@@ -86,8 +86,8 @@ public class OperationEventService {
         for (OperationEventEntity event : deliverable) {
             if (event.getAttempts() >= MAX_ATTEMPTS) continue;
             if (event.getStatus() == OperationEventEntity.Status.FAILED
-                    && event.getCodexQueuedSubmissionId() != null
-                    && event.getCodexQueuedSubmissionId().startsWith("node-command:")) {
+                    && event.getQueuedSubmissionId() != null
+                    && event.getQueuedSubmissionId().startsWith("node-command:")) {
                 // A terminal remote command failure may be ambiguous after node crash. Fail closed instead of
                 // creating another command that could duplicate a Codex turn.
                 continue;

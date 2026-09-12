@@ -31,7 +31,7 @@ public class TaskQueueReconciler {
         }
 
         for (TaskEntity task : taskRepository.findTop20ByStatusOrderByUpdatedAtAsc(TaskStatus.DISPATCHED)) {
-            if (task.getCodexQueuedSubmissionId() == null) {
+            if (task.getQueuedSubmissionId() == null) {
                 continue;
             }
             agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {

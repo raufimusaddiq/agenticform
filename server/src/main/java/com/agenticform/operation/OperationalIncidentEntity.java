@@ -63,11 +63,11 @@ public class OperationalIncidentEntity {
     @Column(name = "wake_command_id")
     private UUID wakeCommandId;
 
-    @Column(name = "codex_queued_submission_id")
-    private String codexQueuedSubmissionId;
+    @Column(name = "queued_submission_id")
+    private String queuedSubmissionId;
 
-    @Column(name = "codex_turn_id")
-    private String codexTurnId;
+    @Column(name = "turn_id")
+    private String turnId;
 
     @Column(name = "last_wake_error", columnDefinition = "text")
     private String lastWakeError;
@@ -150,8 +150,8 @@ public class OperationalIncidentEntity {
     public void delivered(String queuedSubmissionId, String turnId) {
         boolean remoteAttempt = wakeCommandId != null;
         wakeStatus = WakeStatus.DELIVERED;
-        codexQueuedSubmissionId = queuedSubmissionId;
-        codexTurnId = turnId;
+        this.queuedSubmissionId = queuedSubmissionId;
+        this.turnId = turnId;
         lastWakeError = null;
         if (!remoteAttempt) wakeAttempts++;
     }
@@ -207,8 +207,8 @@ public class OperationalIncidentEntity {
     public WakeStatus getWakeStatus() { return wakeStatus; }
     public int getWakeAttempts() { return wakeAttempts; }
     public UUID getWakeCommandId() { return wakeCommandId; }
-    public String getCodexQueuedSubmissionId() { return codexQueuedSubmissionId; }
-    public String getCodexTurnId() { return codexTurnId; }
+    public String getQueuedSubmissionId() { return queuedSubmissionId; }
+    public String getTurnId() { return turnId; }
     public String getLastWakeError() { return lastWakeError; }
     public String getResolutionSummary() { return resolutionSummary; }
     public Instant getFirstSeenAt() { return firstSeenAt; }

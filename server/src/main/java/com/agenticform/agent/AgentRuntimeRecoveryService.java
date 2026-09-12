@@ -2,7 +2,7 @@ package com.agenticform.agent;
 
 import com.agenticform.approval.HumanApprovalRepository;
 import com.agenticform.approval.HumanApprovalStatus;
-import com.agenticform.codex.CodexThreadConfiguration;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeType;
 import com.agenticform.node.ExecutionNodeEntity;
 import com.agenticform.node.ExecutionNodeScheduler;
@@ -18,7 +18,6 @@ import com.agenticform.task.TaskStatus;
 import com.agenticform.workspace.WorkspaceMode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -34,8 +33,7 @@ public class AgentRuntimeRecoveryService {
     private final HumanApprovalRepository approvals;
     private final ExecutionNodeScheduler scheduler;
     private final ExecutionNodeService nodeService;
-    private final CodexThreadConfiguration threadConfiguration;
-    private final ObjectMapper mapper;
+    private final AgentRuntimeRegistry runtimeRegistry;
 
     public AgentRuntimeRecoveryService(AgentRepository agents,
                                        ProjectService projects,
@@ -43,16 +41,14 @@ public class AgentRuntimeRecoveryService {
                                        HumanApprovalRepository approvals,
                                        ExecutionNodeScheduler scheduler,
                                        ExecutionNodeService nodeService,
-                                       CodexThreadConfiguration threadConfiguration,
-                                       ObjectMapper mapper) {
+                                       AgentRuntimeRegistry runtimeRegistry) {
         this.agents = agents;
         this.projects = projects;
         this.tasks = tasks;
         this.approvals = approvals;
         this.scheduler = scheduler;
         this.nodeService = nodeService;
-        this.threadConfiguration = threadConfiguration;
-        this.mapper = mapper;
+        this.runtimeRegistry = runtimeRegistry;
     }
 
     @Transactional
@@ -95,8 +91,8 @@ public class AgentRuntimeRecoveryService {
 
         if (activeTask != null) {
             activeTask.setStatus(TaskStatus.BLOCKED);
-            activeTask.setCodexQueuedSubmissionId(null);
-            activeTask.setCodexTurnId(null);
+            activeTask.setQueuedSubmissionId(null);
+            activeTask.setTurnId(null);
             activeTask.setLastError("Execution node was lost; task will resume after runtime rehydration");
             tasks.save(activeTask);
         }
@@ -116,8 +112,7 @@ public class AgentRuntimeRecoveryService {
         payload.put("recovery", true);
         payload.put("previousNodeId", oldNodeId.toString());
         if (activeTask != null) payload.put("recoveryTaskId", activeTask.getId().toString());
-        payload.put("threadStartParams",
-                mapper.convertValue(threadConfiguration.startParams("", agent.getResponsibility()), Map.class));
+        payload.put("threadStartParams", runtimeRegistry.get(runtimeType).startParameters("", agent.getResponsibility(), agent.getCapabilityProfile()));
         nodeService.enqueue(replacement.getId(), agent.getId(), "START_AGENT",
                 "start-agent:" + agent.getId() + ":g" + generation, payload);
         return agent;

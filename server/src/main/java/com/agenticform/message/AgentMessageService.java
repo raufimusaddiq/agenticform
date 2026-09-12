@@ -277,17 +277,17 @@ public class AgentMessageService {
         } else if (terminal) {
             message.markPartial(failed + " of " + deliveries.size() + " message deliveries failed");
         } else if (processing > 0 || completed > 0) {
-            String turnId = deliveries.stream().map(AgentMessageDeliveryEntity::getCodexTurnId)
+            String turnId = deliveries.stream().map(AgentMessageDeliveryEntity::getTurnId)
                     .filter(value -> value != null && !value.isBlank()).findFirst().orElse(null);
             message.markProcessing(turnId);
         } else if (dispatched > 0) {
             AgentMessageDeliveryEntity first = deliveries.stream()
                     .filter(d -> d.getStatus() == AgentMessageStatus.DISPATCHED).findFirst().orElse(deliveries.get(0));
-            message.markDispatched(first.getCodexQueuedSubmissionId(), first.getCodexTurnId());
+            message.markDispatched(first.getQueuedSubmissionId(), first.getTurnId());
         } else if (queued > 0) {
             AgentMessageDeliveryEntity first = deliveries.stream()
                     .filter(d -> d.getStatus() == AgentMessageStatus.QUEUED).findFirst().orElse(deliveries.get(0));
-            message.markQueued(first.getCodexQueuedSubmissionId());
+            message.markQueued(first.getQueuedSubmissionId());
         } else {
             message.markCreated();
         }

@@ -24,13 +24,13 @@ class AgentRuntimeGenerationTest {
                 AgentRole.GENERAL, false, nodeA);
 
         assertEquals(1L, agent.getRuntimeGeneration());
-        assertTrue(agent.ownsRuntime(nodeA, 1));
+        assertTrue(agent.ownsRuntime(nodeA, 1, RuntimeType.CODEX, null));
 
         long generation = agent.reassignRuntime(nodeB, "recovery/coder-g2");
 
         assertEquals(2L, generation);
-        assertFalse(agent.ownsRuntime(nodeA, 1));
-        assertTrue(agent.ownsRuntime(nodeB, 2));
+        assertFalse(agent.ownsRuntime(nodeA, 1, RuntimeType.CODEX, null));
+        assertTrue(agent.ownsRuntime(nodeB, 2, RuntimeType.CODEX, null));
         assertEquals(AgentStatus.STARTING, agent.getStatus());
         assertThrows(IllegalStateException.class,
                 () -> agent.bindRuntime(1, RuntimeType.CODEX, "stale-thread", "/src", "/work", "old"));
@@ -40,6 +40,7 @@ class AgentRuntimeGenerationTest {
         assertEquals("thread-2", agent.getRuntimeSessionId());
         assertEquals(com.agenticform.runtime.RuntimeType.CODEX, agent.getRuntimeType());
         assertEquals(AgentStatus.IDLE, agent.getStatus());
+        assertFalse(agent.ownsRuntime(nodeB, 2, RuntimeType.CODEX, "other-session"));
     }
 
     @Test

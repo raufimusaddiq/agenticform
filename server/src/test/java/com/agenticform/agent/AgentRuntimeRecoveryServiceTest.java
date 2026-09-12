@@ -2,7 +2,8 @@ package com.agenticform.agent;
 
 import com.agenticform.approval.HumanApprovalRepository;
 import com.agenticform.approval.HumanApprovalStatus;
-import com.agenticform.codex.CodexThreadConfiguration;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.node.ExecutionNodeEntity;
 import com.agenticform.node.ExecutionNodeScheduler;
 import com.agenticform.node.ExecutionNodeService;
@@ -44,7 +45,8 @@ class AgentRuntimeRecoveryServiceTest {
     @Mock HumanApprovalRepository approvals;
     @Mock ExecutionNodeScheduler scheduler;
     @Mock ExecutionNodeService nodeService;
-    @Mock CodexThreadConfiguration threadConfiguration;
+    @Mock AgentRuntimeRegistry runtimeRegistry;
+    @Mock AgentRuntime runtime;
     @Mock AgentEntity agent;
     @Mock ProjectEntity project;
     @Mock ExecutionNodeEntity oldNode;
@@ -55,7 +57,7 @@ class AgentRuntimeRecoveryServiceTest {
     @BeforeEach
     void setUp() {
         service = new AgentRuntimeRecoveryService(agents, projects, tasks, approvals, scheduler,
-                nodeService, threadConfiguration, new ObjectMapper());
+                nodeService, runtimeRegistry);
     }
 
     @Test
@@ -89,6 +91,7 @@ class AgentRuntimeRecoveryServiceTest {
         when(agent.getActiveTaskId()).thenReturn(null);
         when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
         when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getCapabilityProfile()).thenReturn(AgentCapabilityProfile.IMPLEMENTER);
         when(agent.getResponsibility()).thenReturn("Implement features");
         when(agent.reassignRuntime(eq(newNodeId), any())).thenReturn(2L);
         when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
@@ -105,7 +108,8 @@ class AgentRuntimeRecoveryServiceTest {
         when(replacement.getId()).thenReturn(newNodeId);
         when(scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("runtime:CODEX", "git"), Set.of(oldNodeId)))
                 .thenReturn(replacement);
-        when(threadConfiguration.startParams("", "Implement features")).thenReturn(new ObjectMapper().createObjectNode());
+        when(runtimeRegistry.get(RuntimeType.CODEX)).thenReturn(runtime);
+        when(runtime.startParameters("", "Implement features", AgentCapabilityProfile.IMPLEMENTER)).thenReturn(Map.of());
 
         AgentEntity recovered = service.recover(agentId);
 

@@ -195,8 +195,11 @@ public class AgentEntity {
         this.capabilityProfile = capabilityProfile == null ? AgentCapabilityProfile.IMPLEMENTER : capabilityProfile;
     }
 
-    public boolean ownsRuntime(UUID nodeId, long generation) {
-        return executionNodeId != null && executionNodeId.equals(nodeId) && runtimeGeneration == generation;
+    public boolean ownsRuntime(UUID nodeId, long generation, RuntimeType runtimeType, String runtimeSessionId) {
+        return executionNodeId != null && executionNodeId.equals(nodeId)
+                && runtimeGeneration == generation
+                && this.runtimeType == runtimeType
+                && Objects.equals(this.runtimeSessionId, runtimeSessionId);
     }
 
     public long reassignRuntime(UUID nodeId, String requestedBranch) {

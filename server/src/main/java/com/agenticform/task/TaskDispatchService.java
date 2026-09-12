@@ -122,7 +122,7 @@ public class TaskDispatchService {
                                 "runtimeSessionId", runtimeSessionId(agent),
                                 "clientMessageId", clientMessageId,
                                 "prompt", task.getPrompt()));
-                task.setCodexQueuedSubmissionId("node-command:" + command.getId());
+                task.setQueuedSubmissionId("node-command:" + command.getId());
                 task.setStatus(TaskStatus.DISPATCHED);
                 taskRepository.save(task);
                 agent.setStatus(AgentStatus.WORKING);
@@ -135,8 +135,8 @@ public class TaskDispatchService {
             RuntimeDispatchReceipt receipt = runtimeRegistry.get(agent.getRuntimeType()).dispatch(
                     new RuntimeSession(agent.getRuntimeSessionId()), clientMessageId, task.getPrompt());
             TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
-            currentTask.setCodexQueuedSubmissionId(receipt.queuedSubmissionId());
-            if (receipt.turnId() != null) currentTask.setCodexTurnId(receipt.turnId());
+                currentTask.setQueuedSubmissionId(receipt.queuedSubmissionId());
+                if (receipt.turnId() != null) currentTask.setTurnId(receipt.turnId());
             if (currentTask.getStatus() == TaskStatus.DISPATCHING) {
                 currentTask.setStatus(receipt.turnId() == null ? TaskStatus.DISPATCHED : TaskStatus.RUNNING);
             }

@@ -50,7 +50,7 @@ public class NodeCommandCompletionHandler {
         } catch (Exception completionError) {
             if (command.getAgentId() != null) {
                 agents.findById(command.getAgentId()).ifPresent(agent -> {
-                    if (agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) {
+                    if (ownsCommandRuntime(command, agent)) {
                         agent.setStatus(AgentStatus.DISCONNECTED);
                         agents.save(agent);
                     }
@@ -62,7 +62,7 @@ public class NodeCommandCompletionHandler {
     private void completeStart(NodeCommandEntity command, boolean success, String resultJson, String error) throws Exception {
         if (command.getAgentId() == null) return;
         AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
-        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
+        if (agent == null || !ownsCommandRuntime(command, agent)) return;
         if (!success) {
             agent.setStatus(AgentStatus.FAILED);
             agents.save(agent);
@@ -71,6 +71,9 @@ public class NodeCommandCompletionHandler {
         JsonNode result = parse(resultJson);
         String runtimeSessionId = required(result, "runtimeSessionId");
         RuntimeType runtimeType = RuntimeType.valueOf(required(result, "runtimeType"));
+        if (!runtimeType.name().equals(parse(command.getPayloadJson()).path("runtimeType").asText())) {
+            throw new IllegalStateException("Node command returned an unexpected runtime type");
+        }
         String sourceDirectory = required(result, "sourceDirectory");
         String workingDirectory = required(result, "workingDirectory");
         String branch = result.path("branch").asText(null);
@@ -91,8 +94,8 @@ public class NodeCommandCompletionHandler {
                         "runtimeType", runtimeType.name(),
                         "clientMessageId", clientMessageId,
                         "prompt", task.getPrompt()));
-        task.setCodexQueuedSubmissionId("node-command:" + dispatch.getId());
-        task.setCodexTurnId(null);
+        task.setQueuedSubmissionId("node-command:" + dispatch.getId());
+        task.setTurnId(null);
         task.setStatus(TaskStatus.DISPATCHED);
         task.setLastError(null);
         tasks.save(task);
@@ -108,7 +111,7 @@ public class NodeCommandCompletionHandler {
         TaskEntity task = tasks.findById(taskId).orElse(null);
         if (task == null) return;
         AgentEntity agent = agents.findById(task.getAssignedAgentId()).orElse(null);
-        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
+        if (agent == null || !ownsCommandRuntime(command, agent)) return;
         if (!success) {
             task.setStatus(TaskStatus.BLOCKED);
             task.setLastError(error == null || error.isBlank() ? "Remote task dispatch failed" : error);
@@ -122,9 +125,9 @@ public class NodeCommandCompletionHandler {
         JsonNode result = parse(resultJson);
         String queueId = result.path("queuedSubmissionId").asText(null);
         String turnId = result.path("turnId").asText(null);
-        if (queueId != null && !queueId.isBlank()) task.setCodexQueuedSubmissionId(queueId);
+        if (queueId != null && !queueId.isBlank()) task.setQueuedSubmissionId(queueId);
         if (turnId != null && !turnId.isBlank()) {
-            task.setCodexTurnId(turnId);
+            task.setTurnId(turnId);
             task.setStatus(TaskStatus.RUNNING);
         } else {
             task.setStatus(TaskStatus.DISPATCHED);
@@ -145,7 +148,7 @@ public class NodeCommandCompletionHandler {
         UUID messageId = UUID.fromString(parts[1]);
         UUID agentId = UUID.fromString(parts[2]);
         AgentEntity agent = agents.findById(agentId).orElse(null);
-        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
+        if (agent == null || !ownsCommandRuntime(command, agent)) return;
         AgentMessageDeliveryEntity delivery = deliveries.findByMessageIdAndToAgentId(messageId, agentId).orElse(null);
         if (delivery == null) return;
         if (!success) {
@@ -160,7 +163,7 @@ public class NodeCommandCompletionHandler {
     private void completeInterrupt(NodeCommandEntity command, boolean success, String error) throws Exception {
         if (command.getAgentId() == null) return;
         AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
-        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
+        if (agent == null || !ownsCommandRuntime(command, agent)) return;
         JsonNode payload = parse(command.getPayloadJson());
         if (!payload.path("stopLifecycle").asBoolean(false)) return;
         if (!success) {
@@ -189,7 +192,7 @@ public class NodeCommandCompletionHandler {
     private void completeCleanup(NodeCommandEntity command, boolean success, String error) throws Exception {
         if (command.getAgentId() == null) return;
         AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
-        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
+        if (agent == null || !ownsCommandRuntime(command, agent)) return;
         JsonNode payload = parse(command.getPayloadJson());
         boolean stopLifecycle = payload.path("stopLifecycle").asBoolean(false)
                 || command.getIdempotencyKey().startsWith("stop-cleanup:");
@@ -235,5 +238,16 @@ public class NodeCommandCompletionHandler {
 
     private RuntimeType runtimeType(AgentEntity agent) {
         return agent.getRuntimeType();
+    }
+
+    private boolean ownsCommandRuntime(NodeCommandEntity command, AgentEntity agent) {
+        try {
+            JsonNode payload = parse(command.getPayloadJson());
+            RuntimeType type = RuntimeType.valueOf(required(payload, "runtimeType"));
+            String sessionId = payload.path("runtimeSessionId").asText(null);
+            return agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration(), type, sessionId);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 }

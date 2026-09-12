@@ -3,6 +3,7 @@ package com.agenticform.node;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.config.AgenticformProperties;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -75,9 +76,10 @@ class ExecutionNodeRecoveryTest {
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getRuntimeGeneration()).thenReturn(3L);
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\"}");
         when(command.getStatus()).thenReturn(NodeCommandEntity.Status.LEASED);
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 3L)).thenReturn(false);
+        when(agent.ownsRuntime(nodeId, 3L, RuntimeType.CODEX, null)).thenReturn(false);
 
         assertThrows(IllegalStateException.class,
                 () -> service.complete(nodeId, commandId, true, "{}", null));

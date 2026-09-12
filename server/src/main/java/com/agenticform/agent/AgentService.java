@@ -1,6 +1,5 @@
 package com.agenticform.agent;
 
-import com.agenticform.codex.CodexThreadConfiguration;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeSession;
@@ -16,7 +15,6 @@ import com.agenticform.workspace.WorkspaceManager;
 import com.agenticform.workspace.WorkspaceMode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -50,21 +48,16 @@ public class AgentService {
     private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeScheduler nodeScheduler;
     private final ExecutionNodeService nodeService;
-    private final CodexThreadConfiguration threadConfiguration;
-    private final ObjectMapper mapper;
 
     public AgentService(AgentRepository repository, ProjectService projectService,
                         WorkspaceManager workspaceManager, AgentRuntimeRegistry runtimeRegistry,
-                        ExecutionNodeScheduler nodeScheduler, ExecutionNodeService nodeService,
-                        CodexThreadConfiguration threadConfiguration, ObjectMapper mapper) {
+                        ExecutionNodeScheduler nodeScheduler, ExecutionNodeService nodeService) {
         this.repository = repository;
         this.projectService = projectService;
         this.workspaceManager = workspaceManager;
         this.runtimeRegistry = runtimeRegistry;
         this.nodeScheduler = nodeScheduler;
         this.nodeService = nodeService;
-        this.threadConfiguration = threadConfiguration;
-        this.mapper = mapper;
     }
 
     public List<AgentEntity> list(UUID projectId) {
@@ -177,8 +170,7 @@ public class AgentService {
             payload.put("agentName", name);
             payload.put("requestedBranch", requestedBranch == null ? "" : requestedBranch);
             payload.put("runtimeType", runtimeType.name());
-            payload.put("threadStartParams", mapper.convertValue(
-                    threadConfiguration.startParams("", responsibility, capabilityProfile), Map.class));
+            payload.put("threadStartParams", runtimeRegistry.get(runtimeType).startParameters("", responsibility, capabilityProfile));
             nodeService.enqueue(node.getId(), agent.getId(), "START_AGENT",
                     "start-agent:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), payload);
             return agent;

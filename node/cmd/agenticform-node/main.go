@@ -100,6 +100,12 @@ type interactionView struct {
 
 type rpcMessage map[string]any
 
+type runtimeIdentity struct {
+	RuntimeType       string
+	RuntimeSessionID  string
+	RuntimeGeneration int64
+}
+
 type rpcClient struct {
 	server               string
 	nodeID               string
@@ -112,7 +118,7 @@ type rpcClient struct {
 	pending              map[string]chan rpcMessage
 	seq                  uint64
 	http                 *http.Client
-	runtimeGenerationFor func(any) int64
+	runtimeIdentityFor   func(any) (runtimeIdentity, bool)
 	notificationObserver func(string, any)
 }
 
@@ -657,7 +663,7 @@ func (d *daemonRuntime) ensureCodex() (*rpcClient, error) {
 		return d.codex, nil
 	}
 	client, err := startCodex(d.server, d.id.NodeID, d.private, d.http,
-		d.generationForParams, d.observeNotification)
+		d.runtimeIdentityForParams, d.observeNotification)
 	if err != nil {
 		return nil, err
 	}
@@ -666,7 +672,7 @@ func (d *daemonRuntime) ensureCodex() (*rpcClient, error) {
 }
 
 func startCodex(server, nodeID string, private ed25519.PrivateKey, httpClient *http.Client,
-	generationFor func(any) int64, notificationObserver func(string, any)) (*rpcClient, error) {
+	runtimeIdentityFor func(any) (runtimeIdentity, bool), notificationObserver func(string, any)) (*rpcClient, error) {
 	cmd := exec.Command("codex", "app-server", "--stdio")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -682,7 +688,7 @@ func startCodex(server, nodeID string, private ed25519.PrivateKey, httpClient *h
 	}
 	client := &rpcClient{server: server, nodeID: nodeID, private: private, cmd: cmd,
 		stdin: stdin, stdout: stdout, pending: make(map[string]chan rpcMessage), http: httpClient,
-		runtimeGenerationFor: generationFor, notificationObserver: notificationObserver}
+		runtimeIdentityFor: runtimeIdentityFor, notificationObserver: notificationObserver}
 	go client.readLoop()
 	if _, err := client.request("initialize", map[string]any{
 		"clientInfo":   map[string]any{"name": "agenticform-node", "version": version},
@@ -781,17 +787,16 @@ func (c *rpcClient) readLoop() {
 }
 
 func (c *rpcClient) forwardServerRequest(id any, message rpcMessage) {
-	generation := int64(0)
-	if c.runtimeGenerationFor != nil {
-		generation = c.runtimeGenerationFor(message["params"])
-	}
-	if generation <= 0 {
+	identity, ok := c.runtimeIdentityFor(message["params"])
+	if !ok {
 		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": "runtime generation is unavailable"}})
 		return
 	}
 	body, _ := json.Marshal(map[string]any{
 		"requestId": id, "method": message["method"], "params": message["params"],
-		"runtimeGeneration": generation,
+		"runtimeGeneration": identity.RuntimeGeneration,
+		"runtimeType":       identity.RuntimeType,
+		"runtimeSessionId":  identity.RuntimeSessionID,
 	})
 	path := "/api/nodes/" + c.nodeID + "/codex/server-request"
 	resp, err := signedHTTP(c.http, c.server, c.nodeID, c.private, http.MethodPost, path, body)
@@ -861,16 +866,14 @@ func decodeInteractionResponse(resp *http.Response) (interactionView, error) {
 }
 
 func (c *rpcClient) forwardNotification(method string, params any) {
-	generation := int64(0)
-	if c.runtimeGenerationFor != nil {
-		generation = c.runtimeGenerationFor(params)
-	}
-	if generation <= 0 {
+	identity, ok := c.runtimeIdentityFor(params)
+	if !ok {
 		log.Printf("dropping %s notification without current runtime generation", method)
 		return
 	}
 	body, _ := json.Marshal(map[string]any{
-		"method": method, "params": params, "runtimeGeneration": generation,
+		"method": method, "params": params, "runtimeGeneration": identity.RuntimeGeneration,
+		"runtimeType": identity.RuntimeType, "runtimeSessionId": identity.RuntimeSessionID,
 	})
 	path := "/api/nodes/" + c.nodeID + "/codex/notification"
 	resp, err := signedHTTP(c.http, c.server, c.nodeID, c.private, http.MethodPost, path, body)
@@ -884,19 +887,23 @@ func shouldForwardNotification(method string) bool {
 	return method == "item/started" || method == "turn/completed"
 }
 
-func (d *daemonRuntime) generationForParams(params any) int64 {
+func (d *daemonRuntime) runtimeIdentityForParams(params any) (runtimeIdentity, bool) {
 	threadID := threadIDFromParams(params)
 	if threadID == "" {
-		return 0
+		return runtimeIdentity{}, false
 	}
 	d.stateMu.Lock()
 	defer d.stateMu.Unlock()
 	for _, record := range d.runtimes.Runtimes {
 		if record.ThreadID == threadID {
-			return record.RuntimeGeneration
+			if record.RuntimeType == "" || record.RuntimeSessionID == "" || record.RuntimeGeneration <= 0 {
+				return runtimeIdentity{}, false
+			}
+			return runtimeIdentity{RuntimeType: record.RuntimeType, RuntimeSessionID: record.RuntimeSessionID,
+				RuntimeGeneration: record.RuntimeGeneration}, true
 		}
 	}
-	return 0
+	return runtimeIdentity{}, false
 }
 
 func (d *daemonRuntime) observeNotification(method string, params any) {
@@ -1065,6 +1072,9 @@ func loadRuntimeState(path string) (runtimeState, error) {
 		state.Runtimes = map[string]runtimeRecord{}
 	}
 	for key, record := range state.Runtimes {
+		if record.RuntimeType == "" {
+			record.RuntimeType = "CODEX"
+		}
 		if record.ThreadID == "" {
 			record.ThreadID = record.RuntimeSessionID
 		}

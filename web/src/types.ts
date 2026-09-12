@@ -29,12 +29,14 @@ export type WorkspaceMode = 'ISOLATED_WORKTREE' | 'SHARED_PROJECT';
 export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
 export type AgentRole = 'GENERAL' | 'OPERATIONAL';
 export type AgentCapabilityProfile = 'IMPLEMENTER' | 'REVIEWER' | 'ARCHITECT' | 'OPS';
+export type RuntimeType = 'CODEX';
 
 export type Agent = {
   id: string;
   projectId: string;
   name: string;
   responsibility: string;
+  runtimeType: RuntimeType;
   runtimeSessionId: string;
   workspaceMode: WorkspaceMode;
   sourceDirectory: string | null;
@@ -75,8 +77,8 @@ export type Task = {
   prompt: string;
   status: TaskStatus;
   priority: number;
-  codexQueuedSubmissionId: string | null;
-  codexTurnId: string | null;
+  queuedSubmissionId: string | null;
+  turnId: string | null;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
@@ -110,8 +112,8 @@ export type AgentMessage = {
   content: string;
   hopCount: number;
   status: AgentMessageStatus;
-  codexQueuedSubmissionId: string | null;
-  codexTurnId: string | null;
+  queuedSubmissionId: string | null;
+  turnId: string | null;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;

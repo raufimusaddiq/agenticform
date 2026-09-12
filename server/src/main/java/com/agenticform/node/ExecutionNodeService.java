@@ -6,6 +6,7 @@ import com.agenticform.config.AgenticformProperties;
 import com.agenticform.runtime.RuntimeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -145,16 +146,14 @@ public class ExecutionNodeService {
             NodeRuntimeSnapshotEntity snapshot = runtimeSnapshots
                     .findByNodeIdAndAgentId(nodeId, observation.agentId())
                     .orElseGet(() -> new NodeRuntimeSnapshotEntity(nodeId, observation.agentId()));
-            String status = agent.ownsRuntime(nodeId, observation.runtimeGeneration()) ? observation.runtimeStatus() : "STALE";
+            String status = agent.ownsRuntime(nodeId, observation.runtimeGeneration(), observation.runtimeType(),
+                    observation.runtimeSessionId()) ? observation.runtimeStatus() : "STALE";
             snapshot.observe(observation.runtimeType(), observation.runtimeGeneration(), observation.runtimeSessionId(), observation.sourceDirectory(),
                     observation.workingDirectory(), observation.branch(), status);
             runtimeSnapshots.save(snapshot);
 
-            if (!agent.ownsRuntime(nodeId, observation.runtimeGeneration())) continue;
-            if (agent.getRuntimeSessionId() != null && observation.runtimeSessionId() != null
-                    && !agent.getRuntimeSessionId().equals(observation.runtimeSessionId())) {
-                continue;
-            }
+            if (!agent.ownsRuntime(nodeId, observation.runtimeGeneration(), observation.runtimeType(),
+                    observation.runtimeSessionId())) continue;
             agent.recoverFromSnapshot(observation.runtimeGeneration(), observation.runtimeSessionId(),
                     observation.sourceDirectory(), observation.workingDirectory(), observation.branch());
             agents.save(agent);
@@ -224,7 +223,15 @@ public class ExecutionNodeService {
     private boolean commandRuntimeCurrent(NodeCommandEntity command) {
         if (command.getAgentId() == null) return true;
         AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
-        return agent != null && agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration());
+        if (agent == null) return false;
+        try {
+            JsonNode payload = mapper.readTree(command.getPayloadJson());
+            RuntimeType runtimeType = RuntimeType.valueOf(payload.path("runtimeType").asText());
+            String sessionId = payload.path("runtimeSessionId").asText(null);
+            return agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration(), runtimeType, sessionId);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     @Transactional

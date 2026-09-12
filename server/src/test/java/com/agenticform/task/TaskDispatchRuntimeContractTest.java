@@ -55,7 +55,7 @@ class TaskDispatchRuntimeContractTest {
 
         verify(runtime).dispatch(new RuntimeSession("opaque-session-1"),
                 "agenticform-task:" + taskId, "inspect");
-        verify(task).setCodexQueuedSubmissionId("queue-1");
-        verify(task).setCodexTurnId("turn-1");
+        verify(task).setQueuedSubmissionId("queue-1");
+        verify(task).setTurnId("turn-1");
     }
 }

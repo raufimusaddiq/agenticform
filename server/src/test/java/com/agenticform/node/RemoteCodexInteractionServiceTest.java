@@ -3,6 +3,7 @@ package com.agenticform.node;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.codex.CodexServerRequestRouter;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,26 +40,26 @@ class RemoteCodexInteractionServiceTest {
     void currentNodeAndGenerationOwnRemoteRequest() {
         UUID nodeId = UUID.randomUUID();
         ObjectNode params = mapper.createObjectNode().put("runtimeSessionId", "session-1");
-        when(agents.findByRuntimeSessionId("session-1")).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 4L)).thenReturn(true);
+        when(agents.findByRuntimeTypeAndRuntimeSessionId(RuntimeType.CODEX, "session-1")).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, "session-1")).thenReturn(true);
 
-        assertSame(agent, service.requireRuntime(nodeId, 4L, params));
+        assertSame(agent, service.requireRuntime(nodeId, 4L, RuntimeType.CODEX, "session-1"));
     }
 
     @Test
     void staleGenerationIsRejectedEvenWithKnownThread() {
         UUID nodeId = UUID.randomUUID();
         ObjectNode params = mapper.createObjectNode().put("runtimeSessionId", "session-1");
-        when(agents.findByRuntimeSessionId("session-1")).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 3L)).thenReturn(false);
+        when(agents.findByRuntimeTypeAndRuntimeSessionId(RuntimeType.CODEX, "session-1")).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntime(nodeId, 3L, RuntimeType.CODEX, "session-1")).thenReturn(false);
 
         assertThrows(IllegalStateException.class,
-                () -> service.requireRuntime(nodeId, 3L, params));
+                () -> service.requireRuntime(nodeId, 3L, RuntimeType.CODEX, "session-1"));
     }
 
     @Test
     void requestWithoutThreadIdentityIsRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> service.requireRuntime(UUID.randomUUID(), 1L, mapper.createObjectNode()));
+                () -> service.requireRuntime(UUID.randomUUID(), 1L, null, null));
     }
 }
