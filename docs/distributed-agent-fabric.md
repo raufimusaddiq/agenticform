@@ -24,22 +24,25 @@ All human/operator APIs require:
 Authorization: Bearer <AGENTICFORM_ADMIN_TOKEN>
 ```
 
-The current Sprint 11 implementation uses one administrator credential as the bootstrap control-plane auth model. The web UI keeps this token in `sessionStorage`; it is not persisted to `localStorage`.
+The current Sprint 11 implementation is intentionally a **single-admin bootstrap authentication model**, not multi-user OIDC/RBAC. `AGENTICFORM_ADMIN_TOKEN` is required for local and remote control planes and must be at least 32 characters. The web UI keeps the token in `sessionStorage`; it is not persisted to `localStorage`.
 
 For any non-loopback deployment:
 
-- `AGENTICFORM_PUBLIC_URL` must use HTTPS.
-- `AGENTICFORM_ADMIN_TOKEN` is required and must be at least 32 characters.
+- `AGENTICFORM_PUBLIC_URL` must use HTTPS;
 - `AGENTICFORM_NODE_IMAGE` must be digest-qualified (`image@sha256:<64 hex>`).
 
-The server fails closed at startup when these requirements are not met.
+`AGENTICFORM_PUBLIC_URL` must be a clean origin without URL credentials, path, query string, or fragment. The server fails closed at startup when these requirements are not met. Remote TLS cannot be disabled by configuration.
+
+The HTTP security layer is stateless, denies framing, disables form/basic login, sends no-referrer/content-type protections, and enables HSTS for HTTPS deployments. Only `/actuator/health` is public from Actuator.
 
 The only unauthenticated HTTP surfaces are intentionally separate machine/bootstrap protocols:
 
-- actuator health/info;
+- actuator health;
 - GitHub webhook endpoint, authenticated by its HMAC secret;
 - node enrollment endpoint, authenticated by a one-time enrollment token;
 - node runtime endpoints, authenticated by the enrolled node Ed25519 identity.
+
+Authentication failures exposed by machine endpoints return generic responses so node existence/signature details are not disclosed to callers.
 
 ### Node enrollment
 
@@ -47,14 +50,17 @@ From the UI choose **Execution nodes → Add execution node**. Agenticform creat
 
 The generated command uses an ephemeral enrollment container:
 
-1. generate an Ed25519 key pair on the node;
-2. send only the public key plus the one-time token to Agenticform;
-3. atomically consume the enrollment token under a database row lock;
-4. persist the private key only in `$HOME/.agenticform-node` with mode `0600`;
-5. discard the enrollment container and token;
-6. start the permanent daemon without the enrollment token.
+1. require the setup command to be run as a non-root host user;
+2. generate an Ed25519 key pair on the node;
+3. send only the validated Ed25519 public key plus the one-time token to Agenticform;
+4. atomically consume the enrollment token under a database row lock;
+5. persist the private key only in `$HOME/.agenticform-node` with mode `0600`;
+6. discard the enrollment container and token;
+7. start the permanent daemon without the enrollment token.
 
 Reusing, racing, or using an expired enrollment token is rejected. Revoking a node is terminal for that device identity; it must enroll again with a new key pair.
+
+The bootstrap token can appear in the one-time shell command/history, but it becomes invalid as soon as enrollment succeeds and otherwise expires after its short TTL. It is never retained by the permanent node daemon.
 
 ### Signed node protocol and replay protection
 
@@ -77,15 +83,22 @@ HTTP path
 SHA-256(request body)
 ```
 
-The server validates clock skew, node status, signature, and a durable `(node_id, nonce)` unique constraint. A captured request therefore cannot be replayed inside the timestamp window. Expired nonce records are removed by a scheduled cleanup.
+The server validates clock skew, node status, signature, and a durable `(node_id, nonce)` unique constraint. A captured request therefore cannot be replayed inside the timestamp window. Invalid signatures do not consume nonce rows. Expired nonce records are removed by scheduled cleanup.
 
-Remote Codex server requests also validate that the supplied Codex thread belongs to an agent bound to the authenticated execution node, preventing one enrolled node from impersonating another node's thread.
+Remote Codex server requests also validate that the supplied Codex thread belongs to an agent bound to the authenticated execution node, preventing one enrolled node from impersonating another node's thread. Remote task lifecycle notifications are subject to the same node/agent ownership check.
 
 ### Runtime isolation
 
-The permanent Docker node is started as the invoking host UID/GID, without `--privileged`, Docker socket, host root mount, or inbound port publishing. It receives only:
+The node image defines a non-root user by default. The generated permanent Docker invocation additionally runs as the invoking host UID/GID with:
 
-- `$HOME/.agenticform-node` for node identity/runtime state;
+```text
+--security-opt no-new-privileges:true
+--cap-drop ALL
+```
+
+It does not mount the Docker socket, host root filesystem, or publish inbound ports. It receives only:
+
+- `$HOME/.agenticform-node` for node identity, repository cache, worktrees, and runtime state;
 - `$HOME/.codex` as the node-local Codex account/configuration source.
 
 Codex App Server runs locally over stdio. Agenticform does not expose a Codex App Server port on the network.
@@ -95,6 +108,7 @@ A compromised execution node may expose that node's local workspaces, node devic
 - Agenticform administrator authority;
 - identities of other execution nodes;
 - production deployment credentials;
+- authority to increase its own trust level;
 - the ability to bypass deterministic policy or registered operational runbooks.
 
 Production credentials should remain in GitHub Environments, the operational executor, or another purpose-built secret provider rather than on coding nodes.
@@ -117,7 +131,7 @@ Mutable tags such as `latest` are allowed only for local development. A non-loca
 
 ## Node placement
 
-Execution nodes heartbeat capacity and observed runtime capabilities such as Codex and Git availability. Trust level is assigned by the operator during enrollment and is not accepted from heartbeat data.
+Execution nodes heartbeat capacity and observed runtime capabilities such as Codex and Git availability. These are scheduling availability signals, not authorization claims. Trust level is assigned by the operator during enrollment and is not accepted from heartbeat data.
 
 The scheduler considers:
 
@@ -130,7 +144,7 @@ The scheduler considers:
 
 GIT-backed projects can run on remote nodes. Legacy `LOCAL_PATH` projects remain bound to the local control-plane host for backward compatibility.
 
-Repository URLs are metadata, not credentials. GIT project registration accepts credential-free HTTPS URLs only; userinfo, query-string tokens, fragments, SSH URLs, and plaintext HTTP are rejected. Private-repository credential brokerage is deliberately not implemented by storing a PAT in project metadata or node commands; use public repositories for this MVP until a scoped short-lived credential provider is added.
+Repository URLs are metadata, not credentials. GIT project registration accepts credential-free HTTPS URLs only; userinfo, query-string tokens, fragments, SSH URLs, and plaintext HTTP are rejected. Private-repository credential brokerage is deliberately not implemented by storing a PAT in project metadata or node commands; use public repositories or node-local supported credentials for this MVP until a scoped short-lived credential provider is added.
 
 ## Remote Codex runtime
 
@@ -163,9 +177,15 @@ A fanout is represented as one logical message plus one durable delivery per res
 
 Broadcasts are same-project, have a bounded fanout, exclude the sender by default, and do not imply reply-all. Direct replies remain the default to prevent recursive agent-swarm amplification.
 
-## Required production configuration
+## Required configuration
 
-At minimum:
+At minimum, including local development:
+
+```bash
+AGENTICFORM_ADMIN_TOKEN=<random value at least 32 characters>
+```
+
+For a remote deployment:
 
 ```bash
 AGENTICFORM_PUBLIC_URL=https://agenticform.example.com
@@ -174,7 +194,7 @@ AGENTICFORM_NODE_IMAGE=ghcr.io/raufimusaddiq/agenticform-node@sha256:<digest>
 AGENTICFORM_GITHUB_WEBHOOK_SECRET=<random webhook secret>
 ```
 
-The reverse proxy must terminate valid TLS and should restrict the origin/UI configuration to the actual Agenticform web origin.
+The reverse proxy must terminate valid TLS, must not expose the backend on an unintended public interface, and should restrict the UI origin configuration to the actual Agenticform web origin.
 
 ## Revocation semantics
 
@@ -183,3 +203,7 @@ The reverse proxy must terminate valid TLS and should restrict the origin/UI con
 - **Revoke**: permanently invalidate the enrolled device identity. Re-enrollment with a new key pair is required.
 
 Node loss never grants another node the dead node's private identity. Logical work remains durable in PostgreSQL; replacement/re-hydration is a separate recovery action rather than silent live migration of a Codex thread.
+
+## Current security scope
+
+Sprint 11 deliberately does not claim enterprise multi-user identity. The current admin Bearer token is appropriate for a single-owner/self-hosted control plane when transported only over TLS and stored as a strong secret. A later identity sprint can replace this bootstrap layer with OIDC/passkeys, named users, granular RBAC, and audit actors without weakening the execution-node device protocol.
