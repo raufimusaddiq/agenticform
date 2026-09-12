@@ -10,6 +10,7 @@ import com.agenticform.project.ProjectService;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.CodexAgentRuntime;
 import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.task.TaskDependencyService;
 import com.agenticform.task.TaskEntity;
 import com.agenticform.task.TaskRepository;
@@ -129,6 +130,7 @@ public class AgentLifecycleService {
         if (activeTurn) {
             Map<String, Object> interrupt = new LinkedHashMap<>();
             interrupt.put("threadId", agent.getCodexThreadId());
+            interrupt.put("runtimeType", RuntimeType.CODEX.name());
             interrupt.put("turnId", agent.getActiveTurnId());
             interrupt.put("stopLifecycle", true);
             interrupt.put("finalizeStop", !isolated);
@@ -157,6 +159,7 @@ public class AgentLifecycleService {
     private void enqueueStopCleanup(AgentEntity agent, String defaultBranch) {
         Map<String, Object> cleanup = new LinkedHashMap<>();
         cleanup.put("threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId());
+        cleanup.put("runtimeType", RuntimeType.CODEX.name());
         cleanup.put("defaultBranch", defaultBranch);
         cleanup.put("stopLifecycle", true);
         nodes.enqueue(agent.getExecutionNodeId(), agent.getId(), "CLEANUP_WORKSPACE",

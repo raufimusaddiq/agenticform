@@ -9,6 +9,7 @@ import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -116,6 +117,7 @@ public class TaskDispatchService {
                 var command = nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "DISPATCH_TASK",
                         "dispatch-task:" + task.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
                                 "taskId", task.getId().toString(),
+                                "runtimeType", RuntimeType.CODEX.name(),
                                 "threadId", agent.getCodexThreadId(),
                                 "clientMessageId", clientMessageId,
                                 "prompt", task.getPrompt()));

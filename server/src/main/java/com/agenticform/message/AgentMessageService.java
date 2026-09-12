@@ -10,6 +10,7 @@ import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.CodexAgentRuntime;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -242,6 +243,7 @@ public class AgentMessageService {
                         "message:" + message.getId() + ":" + target.getId() + ":g" + target.getRuntimeGeneration(), Map.of(
                                 "messageId", message.getId().toString(),
                                 "conversationId", message.getConversationId().toString(),
+                                "runtimeType", RuntimeType.CODEX.name(),
                                 "threadId", target.getCodexThreadId(),
                                 "clientMessageId", "agenticform-message:" + message.getId() + ":" + delivery.getId()
                                         + ":g" + target.getRuntimeGeneration(),

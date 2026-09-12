@@ -12,6 +12,7 @@ import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.CodexAgentRuntime;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -132,6 +133,7 @@ public class OperationEventService {
                     target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE", clientMessageId,
                     Map.of(
                             "operationEventId", event.getId().toString(),
+                            "runtimeType", RuntimeType.CODEX.name(),
                             "threadId", target.getCodexThreadId(),
                             "clientMessageId", clientMessageId,
                             "prompt", deliveryPrompt(event)));

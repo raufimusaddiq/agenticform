@@ -3,6 +3,7 @@ package com.agenticform.agent;
 import com.agenticform.approval.HumanApprovalRepository;
 import com.agenticform.approval.HumanApprovalStatus;
 import com.agenticform.codex.CodexThreadConfiguration;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.node.ExecutionNodeEntity;
 import com.agenticform.node.ExecutionNodeScheduler;
 import com.agenticform.node.ExecutionNodeService;
@@ -101,6 +102,7 @@ public class AgentRuntimeRecoveryService {
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("agentId", agent.getId().toString());
+        payload.put("runtimeType", RuntimeType.CODEX.name());
         payload.put("projectId", project.getId().toString());
         payload.put("projectSlug", project.getSlug());
         payload.put("repositoryUrl", project.getRepositoryUrl());

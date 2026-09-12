@@ -3,6 +3,7 @@ package com.agenticform.agent;
 import com.agenticform.codex.CodexThreadConfiguration;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.node.ExecutionNodeEntity;
 import com.agenticform.node.ExecutionNodeScheduler;
 import com.agenticform.node.ExecutionNodeService;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -158,19 +160,19 @@ public class AgentService {
                 node.getId(), capabilityProfile));
 
         try {
-            Map<String, Object> payload = Map.of(
-                    "agentId", agent.getId().toString(),
-                    "projectId", project.getId().toString(),
-                    "projectSlug", project.getSlug(),
-                    "repositoryUrl", project.getRepositoryUrl(),
-                    "defaultBranch", project.getDefaultBranch(),
-                    "baseBranch", baseBranch,
-                    "workspaceMode", mode.name(),
-                    "agentName", name,
-                    "requestedBranch", requestedBranch == null ? "" : requestedBranch,
-                    "threadStartParams", mapper.convertValue(
-                            threadConfiguration.startParams("", responsibility, capabilityProfile), Map.class)
-            );
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("agentId", agent.getId().toString());
+            payload.put("projectId", project.getId().toString());
+            payload.put("projectSlug", project.getSlug());
+            payload.put("repositoryUrl", project.getRepositoryUrl());
+            payload.put("defaultBranch", project.getDefaultBranch());
+            payload.put("baseBranch", baseBranch);
+            payload.put("workspaceMode", mode.name());
+            payload.put("agentName", name);
+            payload.put("requestedBranch", requestedBranch == null ? "" : requestedBranch);
+            payload.put("runtimeType", RuntimeType.CODEX.name());
+            payload.put("threadStartParams", mapper.convertValue(
+                    threadConfiguration.startParams("", responsibility, capabilityProfile), Map.class));
             nodeService.enqueue(node.getId(), agent.getId(), "START_AGENT",
                     "start-agent:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), payload);
             return agent;

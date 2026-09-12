@@ -1,6 +1,7 @@
 package com.agenticform.node;
 
 import com.agenticform.agent.AgentEntity;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.message.AgentMessageDeliveryEntity;
@@ -86,6 +87,7 @@ public class NodeCommandCompletionHandler {
                 "dispatch-task:" + task.getId() + ":g" + command.getRuntimeGeneration(), Map.of(
                         "taskId", task.getId().toString(),
                         "threadId", threadId,
+                        "runtimeType", RuntimeType.CODEX.name(),
                         "clientMessageId", clientMessageId,
                         "prompt", task.getPrompt()));
         task.setCodexQueuedSubmissionId("node-command:" + dispatch.getId());
@@ -168,6 +170,7 @@ public class NodeCommandCompletionHandler {
         if (payload.path("cleanupAfterInterrupt").asBoolean(false)) {
             Map<String, Object> cleanup = new LinkedHashMap<>();
             cleanup.put("threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId());
+            cleanup.put("runtimeType", RuntimeType.CODEX.name());
             cleanup.put("defaultBranch", payload.path("defaultBranch").asText(""));
             cleanup.put("stopLifecycle", true);
             nodes.enqueue(command.getNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
