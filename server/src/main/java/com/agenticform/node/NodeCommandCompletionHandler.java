@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -20,13 +21,16 @@ public class NodeCommandCompletionHandler {
     private final AgentRepository agents;
     private final TaskRepository tasks;
     private final AgentMessageDeliveryRepository deliveries;
+    private final ExecutionNodeService nodes;
     private final ObjectMapper mapper;
 
     public NodeCommandCompletionHandler(AgentRepository agents, TaskRepository tasks,
-                                        AgentMessageDeliveryRepository deliveries, ObjectMapper mapper) {
+                                        AgentMessageDeliveryRepository deliveries,
+                                        ExecutionNodeService nodes, ObjectMapper mapper) {
         this.agents = agents;
         this.tasks = tasks;
         this.deliveries = deliveries;
+        this.nodes = nodes;
         this.mapper = mapper;
     }
 
@@ -37,6 +41,7 @@ public class NodeCommandCompletionHandler {
                 case "START_AGENT" -> completeStart(command, success, resultJson, error);
                 case "DISPATCH_TASK" -> completeTaskDispatch(command, success, resultJson, error);
                 case "DELIVER_MESSAGE" -> completeMessage(command, success, resultJson, error);
+                case "CLEANUP_WORKSPACE" -> completeCleanup(command, success, error);
                 default -> { }
             }
         } catch (Exception completionError) {
@@ -67,6 +72,29 @@ public class NodeCommandCompletionHandler {
         String branch = result.path("branch").asText(null);
         agent.bindRuntime(command.getRuntimeGeneration(), threadId, sourceDirectory, workingDirectory, branch);
         agents.save(agent);
+
+        JsonNode payload = parse(command.getPayloadJson());
+        String recoveryTaskId = payload.path("recoveryTaskId").asText(null);
+        if (recoveryTaskId == null || recoveryTaskId.isBlank()) return;
+        TaskEntity task = tasks.findById(UUID.fromString(recoveryTaskId)).orElse(null);
+        if (task == null || terminal(task.getStatus())) return;
+
+        String clientMessageId = "agenticform-task:" + task.getId() + ":g" + command.getRuntimeGeneration();
+        NodeCommandEntity dispatch = nodes.enqueue(command.getNodeId(), agent.getId(), "DISPATCH_TASK",
+                "dispatch-task:" + task.getId() + ":g" + command.getRuntimeGeneration(), Map.of(
+                        "taskId", task.getId().toString(),
+                        "threadId", threadId,
+                        "clientMessageId", clientMessageId,
+                        "prompt", task.getPrompt()));
+        task.setCodexQueuedSubmissionId("node-command:" + dispatch.getId());
+        task.setCodexTurnId(null);
+        task.setStatus(TaskStatus.DISPATCHED);
+        task.setLastError(null);
+        tasks.save(task);
+        agent.setStatus(AgentStatus.WORKING);
+        agent.setActiveTaskId(task.getId());
+        agent.setActiveTurnId(null);
+        agents.save(agent);
     }
 
     private void completeTaskDispatch(NodeCommandEntity command, boolean success, String resultJson, String error) throws Exception {
@@ -96,6 +124,7 @@ public class NodeCommandCompletionHandler {
         } else {
             task.setStatus(TaskStatus.DISPATCHED);
         }
+        task.setLastError(null);
         tasks.save(task);
         if (turnId != null && !turnId.isBlank()) {
             agent.setStatus(AgentStatus.WORKING);
@@ -107,7 +136,7 @@ public class NodeCommandCompletionHandler {
 
     private void completeMessage(NodeCommandEntity command, boolean success, String resultJson, String error) throws Exception {
         String[] parts = command.getIdempotencyKey().split(":");
-        if (parts.length != 3 || !"message".equals(parts[0])) return;
+        if (parts.length < 3 || !"message".equals(parts[0])) return;
         UUID messageId = UUID.fromString(parts[1]);
         UUID agentId = UUID.fromString(parts[2]);
         AgentEntity agent = agents.findById(agentId).orElse(null);
@@ -121,6 +150,24 @@ public class NodeCommandCompletionHandler {
             delivery.markDispatched(result.path("queuedSubmissionId").asText(null), result.path("turnId").asText(null));
         }
         deliveries.save(delivery);
+    }
+
+    private void completeCleanup(NodeCommandEntity command, boolean success, String error) {
+        if (command.getAgentId() == null) return;
+        AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
+        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
+        if (success) {
+            agent.setStatus(AgentStatus.STOPPED);
+            agent.setActiveTaskId(null);
+            agent.setActiveTurnId(null);
+        } else {
+            agent.setStatus(AgentStatus.DISCONNECTED);
+        }
+        agents.save(agent);
+    }
+
+    private boolean terminal(TaskStatus status) {
+        return status == TaskStatus.COMPLETED || status == TaskStatus.CANCELLED || status == TaskStatus.FAILED;
     }
 
     private JsonNode parse(String json) throws Exception {
