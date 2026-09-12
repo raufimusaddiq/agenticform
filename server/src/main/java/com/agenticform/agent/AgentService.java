@@ -154,6 +154,7 @@ public class AgentService {
         try {
             Map<String, Object> payload = Map.of(
                     "agentId", agent.getId().toString(),
+                    "projectId", project.getId().toString(),
                     "projectSlug", project.getSlug(),
                     "repositoryUrl", project.getRepositoryUrl(),
                     "defaultBranch", project.getDefaultBranch(),
@@ -164,7 +165,7 @@ public class AgentService {
                     "threadStartParams", mapper.convertValue(threadConfiguration.startParams("", responsibility), Map.class)
             );
             nodeService.enqueue(node.getId(), agent.getId(), "START_AGENT",
-                    "start-agent:" + agent.getId(), payload);
+                    "start-agent:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), payload);
             return agent;
         } catch (RuntimeException error) {
             agent.setStatus(AgentStatus.FAILED);
@@ -196,7 +197,7 @@ public class AgentService {
 
         if (agent.getExecutionNodeId() != null) {
             nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "INTERRUPT_TURN",
-                    "interrupt:" + agent.getId() + ":" + agent.getActiveTurnId(), Map.of(
+                    "interrupt:" + agent.getId() + ":g" + agent.getRuntimeGeneration() + ":" + agent.getActiveTurnId(), Map.of(
                             "threadId", agent.getCodexThreadId(),
                             "turnId", agent.getActiveTurnId()));
             return agent;
