@@ -48,6 +48,27 @@ class SecurityStartupValidatorTest {
     }
 
     @Test
+    void publicUrlRejectsCredentialsPathQueryAndFragment() {
+        for (String value : new String[]{
+                "https://user:secret@agenticform.example.com",
+                "https://agenticform.example.com/control-plane",
+                "https://agenticform.example.com?token=secret",
+                "https://agenticform.example.com/#fragment"
+        }) {
+            AgenticformProperties properties = secureRemoteProperties();
+            properties.setPublicUrl(URI.create(value));
+            assertThrows(IllegalStateException.class, () -> new SecurityStartupValidator(properties).validate(), value);
+        }
+    }
+
+    @Test
+    void unsupportedPublicUrlSchemeIsRejected() {
+        AgenticformProperties properties = secureRemoteProperties();
+        properties.setPublicUrl(URI.create("ftp://agenticform.example.com"));
+        assertThrows(IllegalStateException.class, () -> new SecurityStartupValidator(properties).validate());
+    }
+
+    @Test
     void secureRemoteConfigurationPasses() {
         AgenticformProperties properties = secureRemoteProperties();
         assertDoesNotThrow(() -> new SecurityStartupValidator(properties).validate());
