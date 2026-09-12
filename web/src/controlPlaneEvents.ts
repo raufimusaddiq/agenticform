@@ -46,12 +46,14 @@ export async function consumeControlPlaneEvents(
   }
 }
 
-function consumeFrames(buffer: string, onEvent: (event: ControlPlaneEvent) => void): string {
-  let remaining = buffer;
+export function consumeFrames(buffer: string, onEvent: (event: ControlPlaneEvent) => void): string {
+  // SSE permits LF and CRLF line endings. Normalize before frame detection so proxy/server
+  // choices cannot silently disable UI updates.
+  let remaining = buffer.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
   while (true) {
     const boundary = remaining.indexOf('\n\n');
     if (boundary < 0) return remaining;
-    const frame = remaining.slice(0, boundary).replaceAll('\r', '');
+    const frame = remaining.slice(0, boundary);
     remaining = remaining.slice(boundary + 2);
 
     const eventName = lineValue(frame, 'event:');
