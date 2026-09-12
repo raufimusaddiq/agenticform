@@ -67,13 +67,17 @@ public class ExecutionNodeService {
 
         String server = properties.getPublicUrl().toString().replaceAll("/$", "");
         String image = properties.getNode().getImage();
-        String volume = "agenticform-node-" + name.toLowerCase().replaceAll("[^a-z0-9]+", "-");
-        String command = "docker run --rm -v " + volume + ":/var/lib/agenticform-node "
+        String containerName = "agenticform-node-" + name.toLowerCase().replaceAll("[^a-z0-9]+", "-");
+        String command = "test -d \"$HOME/.codex\" || { echo 'Codex login is required on this node first'; exit 1; }; "
+                + "mkdir -p \"$HOME/.agenticform-node\" && chmod 700 \"$HOME/.agenticform-node\" && "
+                + "docker run --rm --user \"$(id -u):$(id -g)\" "
+                + "-v \"$HOME/.agenticform-node:/var/lib/agenticform-node\" "
                 + "-e AGENTICFORM_SERVER='" + server + "' "
-                + "-e AGENTICFORM_ENROLLMENT_TOKEN='" + token + "' "
-                + "-e AGENTICFORM_NODE_NAME='" + shellSafe(name) + "' " + image + " enroll"
-                + " && docker run -d --name agenticform-node-" + shellSafe(name)
-                + " --restart unless-stopped -v " + volume + ":/var/lib/agenticform-node "
+                + "-e AGENTICFORM_ENROLLMENT_TOKEN='" + token + "' " + image + " enroll"
+                + " && docker run -d --name " + containerName + " --restart unless-stopped "
+                + "--user \"$(id -u):$(id -g)\" "
+                + "-v \"$HOME/.agenticform-node:/var/lib/agenticform-node\" "
+                + "-v \"$HOME/.codex:/codex-home\" -e CODEX_HOME=/codex-home "
                 + "-e AGENTICFORM_SERVER='" + server + "' " + image + " daemon";
         return new Enrollment(token, expiresAt, command);
     }
@@ -173,9 +177,5 @@ public class ExecutionNodeService {
             throw new IllegalArgumentException("Node name must contain only letters, numbers, dot, underscore, or dash");
         }
         return name;
-    }
-
-    private String shellSafe(String value) {
-        return value.replace("'", "");
     }
 }
