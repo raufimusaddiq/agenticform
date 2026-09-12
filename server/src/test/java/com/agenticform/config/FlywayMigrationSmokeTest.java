@@ -52,7 +52,7 @@ class FlywayMigrationSmokeTest {
                          source_directory, working_directory, branch, status, queue_mode, active_task_id,
                          active_turn_id, created_at, updated_at, human_control_mode, agent_role, system_managed,
                          execution_node_id, runtime_generation, capability_profile)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, FALSE, NULL, 0, ?)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, FALSE, NULL, 0, ?)
                      """)) {
             project.setObject(1, projectId);
             project.setString(2, "migration smoke");
