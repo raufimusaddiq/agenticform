@@ -67,6 +67,9 @@ public class AgenticformProperties {
         private String token = "";
         private String webhookSecret = "";
         private Duration pollInterval = Duration.ofSeconds(3);
+        private long appId;
+        private long installationId;
+        private String appPrivateKeyPath = "";
 
         public URI getApiUrl() { return apiUrl; }
         public void setApiUrl(URI apiUrl) { this.apiUrl = apiUrl; }
@@ -76,6 +79,12 @@ public class AgenticformProperties {
         public void setWebhookSecret(String webhookSecret) { this.webhookSecret = webhookSecret == null ? "" : webhookSecret; }
         public Duration getPollInterval() { return pollInterval; }
         public void setPollInterval(Duration pollInterval) { this.pollInterval = pollInterval; }
+        public long getAppId() { return appId; }
+        public void setAppId(long appId) { this.appId = appId; }
+        public long getInstallationId() { return installationId; }
+        public void setInstallationId(long installationId) { this.installationId = installationId; }
+        public String getAppPrivateKeyPath() { return appPrivateKeyPath; }
+        public void setAppPrivateKeyPath(String appPrivateKeyPath) { this.appPrivateKeyPath = appPrivateKeyPath == null ? "" : appPrivateKeyPath; }
     }
 
     public static class Node {
@@ -84,6 +93,8 @@ public class AgenticformProperties {
         private Duration commandLease = Duration.ofMinutes(15);
         private Duration requestNonceTtl = Duration.ofMinutes(10);
         private Duration maxClockSkew = Duration.ofMinutes(2);
+        private Duration recoveryGrace = Duration.ofMinutes(2);
+        private boolean autoRecoveryEnabled = true;
         private String image = "ghcr.io/raufimusaddiq/agenticform-node:latest";
 
         public Duration getEnrollmentTtl() { return enrollmentTtl; }
@@ -96,6 +107,10 @@ public class AgenticformProperties {
         public void setRequestNonceTtl(Duration requestNonceTtl) { this.requestNonceTtl = requestNonceTtl; }
         public Duration getMaxClockSkew() { return maxClockSkew; }
         public void setMaxClockSkew(Duration maxClockSkew) { this.maxClockSkew = maxClockSkew; }
+        public Duration getRecoveryGrace() { return recoveryGrace; }
+        public void setRecoveryGrace(Duration recoveryGrace) { this.recoveryGrace = recoveryGrace; }
+        public boolean isAutoRecoveryEnabled() { return autoRecoveryEnabled; }
+        public void setAutoRecoveryEnabled(boolean autoRecoveryEnabled) { this.autoRecoveryEnabled = autoRecoveryEnabled; }
         public String getImage() { return image; }
         public void setImage(String image) { this.image = image; }
     }
