@@ -6,6 +6,7 @@ import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.runtime.RuntimeType;
@@ -37,7 +38,7 @@ public class AgentMessageService {
     private final AgentGroupRepository groupRepository;
     private final AgentGroupMembershipRepository membershipRepository;
     private final CommunicationRuleService communicationRules;
-    private final AgentRuntime runtime;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeService nodeService;
     private final ObjectMapper mapper;
 
@@ -47,7 +48,7 @@ public class AgentMessageService {
                                AgentGroupRepository groupRepository,
                                AgentGroupMembershipRepository membershipRepository,
                                CommunicationRuleService communicationRules,
-                               AgentRuntime runtime,
+                               AgentRuntimeRegistry runtimeRegistry,
                                ExecutionNodeService nodeService,
                                ObjectMapper mapper) {
         this.repository = repository;
@@ -56,7 +57,7 @@ public class AgentMessageService {
         this.groupRepository = groupRepository;
         this.membershipRepository = membershipRepository;
         this.communicationRules = communicationRules;
-        this.runtime = runtime;
+        this.runtimeRegistry = runtimeRegistry;
         this.nodeService = nodeService;
         this.mapper = mapper;
     }
@@ -219,24 +220,25 @@ public class AgentMessageService {
                           AgentEntity source, AgentEntity target) {
         try {
             if (target.getExecutionNodeId() != null) {
-                if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+                if (runtimeSessionId(target) == null || runtimeSessionId(target).isBlank()) {
                     throw new IllegalStateException("Target remote runtime is not ready");
                 }
                 var command = nodeService.enqueue(target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
                         "message:" + message.getId() + ":" + target.getId() + ":g" + target.getRuntimeGeneration(), Map.of(
                                 "messageId", message.getId().toString(),
                                 "conversationId", message.getConversationId().toString(),
-                                "runtimeType", RuntimeType.CODEX.name(),
-                                "threadId", target.getCodexThreadId(),
+                                "runtimeType", target.getRuntimeType().name(),
+                                "runtimeSessionId", runtimeSessionId(target),
+                                "threadId", runtimeSessionId(target),
                                 "clientMessageId", "agenticform-message:" + message.getId() + ":" + delivery.getId()
                                         + ":g" + target.getRuntimeGeneration(),
                                 "prompt", deliveryPrompt(message, source, target)));
                 delivery.markQueuedOnNode(command.getId().toString());
             } else {
-                if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+                if (runtimeSessionId(target) == null || runtimeSessionId(target).isBlank()) {
                     throw new IllegalStateException("Target agent runtime is not ready");
                 }
-                RuntimeDispatchReceipt receipt = runtime.dispatch(
+                RuntimeDispatchReceipt receipt = runtimeRegistry.get(target.getRuntimeType()).dispatch(
                         new RuntimeSession(runtimeSessionId(target)),
                         "agenticform-message:" + message.getId() + ":" + delivery.getId(),
                         deliveryPrompt(message, source, target));

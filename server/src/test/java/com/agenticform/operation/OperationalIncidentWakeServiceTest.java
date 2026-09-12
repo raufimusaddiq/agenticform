@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,7 @@ class OperationalIncidentWakeServiceTest {
     @Mock OperationalIncidentRepository incidents;
     @Mock AgentRepository agents;
     @Mock AgentRuntime runtime;
+    @Mock AgentRuntimeRegistry runtimeRegistry;
     @Mock ExecutionNodeService nodeService;
     @Mock NodeCommandRepository commands;
 
@@ -40,7 +42,8 @@ class OperationalIncidentWakeServiceTest {
     @BeforeEach
     void setUp() {
         service = new OperationalIncidentWakeService(
-                incidents, agents, runtime, nodeService, commands, new ObjectMapper());
+                incidents, agents, runtimeRegistry, nodeService, commands, new ObjectMapper());
+        when(runtimeRegistry.get(any())).thenReturn(runtime);
     }
 
     @Test

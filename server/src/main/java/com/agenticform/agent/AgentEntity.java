@@ -39,7 +39,7 @@ public class AgentEntity {
     @Column(name = "runtime_type", nullable = false, length = 32)
     private RuntimeType runtimeType = RuntimeType.CODEX;
 
-    @Column(name = "runtime_session_id", unique = true)
+    @Column(name = "runtime_session_id")
     private String runtimeSessionId;
 
     @Enumerated(EnumType.STRING)
@@ -182,6 +182,7 @@ public class AgentEntity {
     public void setQueueMode(AgentQueueMode queueMode) { this.queueMode = queueMode; }
     public void setHumanControlMode(HumanControlMode humanControlMode) { this.humanControlMode = humanControlMode; }
     public void setExecutionNodeId(UUID executionNodeId) { this.executionNodeId = executionNodeId; }
+    public void setRuntimeType(RuntimeType runtimeType) { this.runtimeType = runtimeType == null ? RuntimeType.CODEX : runtimeType; }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
 
@@ -216,11 +217,17 @@ public class AgentEntity {
 
     public void bindRuntime(long generation, String codexThreadId, String sourceDirectory,
                             String workingDirectory, String branch) {
+        bindRuntime(generation, RuntimeType.CODEX, codexThreadId, sourceDirectory, workingDirectory, branch);
+    }
+
+    public void bindRuntime(long generation, RuntimeType runtimeType, String runtimeSessionId,
+                            String sourceDirectory, String workingDirectory, String branch) {
         if (runtimeGeneration != generation) {
             throw new IllegalStateException("Stale agent runtime generation: " + generation + ", expected " + runtimeGeneration);
         }
-        this.codexThreadId = codexThreadId;
-        this.runtimeSessionId = codexThreadId;
+        this.runtimeType = runtimeType == null ? RuntimeType.CODEX : runtimeType;
+        this.codexThreadId = this.runtimeType == RuntimeType.CODEX ? runtimeSessionId : this.codexThreadId;
+        this.runtimeSessionId = runtimeSessionId;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;
         this.branch = branch;

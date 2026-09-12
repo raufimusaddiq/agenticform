@@ -5,6 +5,7 @@ import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.node.ExecutionNodeService;
@@ -25,6 +26,7 @@ class TaskDispatchRuntimeContractTest {
         TaskRepository tasks = mock(TaskRepository.class);
         AgentRepository agents = mock(AgentRepository.class);
         AgentRuntime runtime = mock(AgentRuntime.class);
+        AgentRuntimeRegistry runtimeRegistry = mock(AgentRuntimeRegistry.class);
         ExecutionNodeService nodes = mock(ExecutionNodeService.class);
         TaskDependencyService dependencies = mock(TaskDependencyService.class);
 
@@ -43,12 +45,13 @@ class TaskDispatchRuntimeContractTest {
         when(agent.getStatus()).thenReturn(AgentStatus.IDLE);
         when(agent.getExecutionNodeId()).thenReturn(null);
         when(agent.getRuntimeSessionId()).thenReturn("opaque-session-1");
+        when(runtimeRegistry.get(any())).thenReturn(runtime);
         when(dependencies.reconcile(taskId)).thenReturn(new TaskDependencyService.Evaluation(
                 TaskDependencyService.State.READY, null));
         when(runtime.dispatch(any(RuntimeSession.class), eq("agenticform-task:" + taskId), eq("inspect")))
                 .thenReturn(new RuntimeDispatchReceipt("queue-1", "turn-1"));
 
-        new TaskDispatchService(tasks, agents, runtime, nodes, dependencies).dispatchManually(taskId);
+        new TaskDispatchService(tasks, agents, runtimeRegistry, nodes, dependencies).dispatchManually(taskId);
 
         verify(runtime).dispatch(new RuntimeSession("opaque-session-1"),
                 "agenticform-task:" + taskId, "inspect");

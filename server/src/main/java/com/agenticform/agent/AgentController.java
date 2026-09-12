@@ -1,6 +1,7 @@
 package com.agenticform.agent;
 
 import com.agenticform.node.NodeTrustLevel;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.workspace.WorkspaceMode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -40,7 +41,7 @@ public class AgentController {
         return service.spawn(new AgentService.SpawnAgent(
                 request.projectId(), request.name(), request.responsibility(), request.workspaceMode(),
                 request.baseBranch(), request.branch(), request.queueMode(), request.humanControlMode(),
-                request.executionNodeId(), request.minimumTrust(), request.capabilityProfile()));
+                request.executionNodeId(), request.minimumTrust(), request.capabilityProfile(), request.runtimeType()));
     }
 
     @PostMapping("/operational/ensure")
@@ -91,7 +92,8 @@ public class AgentController {
             HumanControlMode humanControlMode,
             UUID executionNodeId,
             NodeTrustLevel minimumTrust,
-            AgentCapabilityProfile capabilityProfile
+            AgentCapabilityProfile capabilityProfile,
+            RuntimeType runtimeType
     ) {}
 
     public record EnsureOperationalAgentRequest(@NotNull UUID projectId) {}

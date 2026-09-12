@@ -89,7 +89,8 @@ public class RemoteCodexInteractionService {
     }
 
     public AgentEntity requireRuntime(UUID nodeId, long generation, JsonNode params) {
-        String threadId = params == null ? null : params.path("threadId").asText(null);
+        String threadId = params == null ? null : params.path("runtimeSessionId").asText(null);
+        if (threadId == null || threadId.isBlank()) threadId = params == null ? null : params.path("threadId").asText(null);
         if (threadId == null || threadId.isBlank()) {
             throw new IllegalArgumentException("Remote Codex request requires threadId");
         }

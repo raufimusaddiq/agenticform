@@ -7,6 +7,7 @@ import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.runtime.RuntimeType;
@@ -22,16 +23,16 @@ import java.util.UUID;
 public class TaskDispatchService {
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
-    private final AgentRuntime runtime;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeService nodeService;
     private final TaskDependencyService dependencyService;
 
     public TaskDispatchService(TaskRepository taskRepository, AgentRepository agentRepository,
-                               AgentRuntime runtime, ExecutionNodeService nodeService,
+                               AgentRuntimeRegistry runtimeRegistry, ExecutionNodeService nodeService,
                                TaskDependencyService dependencyService) {
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
-        this.runtime = runtime;
+        this.runtimeRegistry = runtimeRegistry;
         this.nodeService = nodeService;
         this.dependencyService = dependencyService;
     }
@@ -111,14 +112,15 @@ public class TaskDispatchService {
                     + (agent.getExecutionNodeId() == null ? "" : ":g" + agent.getRuntimeGeneration());
 
             if (agent.getExecutionNodeId() != null) {
-                if (agent.getCodexThreadId() == null || agent.getCodexThreadId().isBlank()) {
+                if (runtimeSessionId(agent) == null || runtimeSessionId(agent).isBlank()) {
                     throw new IllegalStateException("Remote agent runtime is not ready");
                 }
                 var command = nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "DISPATCH_TASK",
                         "dispatch-task:" + task.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
                                 "taskId", task.getId().toString(),
-                                "runtimeType", RuntimeType.CODEX.name(),
-                                "threadId", agent.getCodexThreadId(),
+                                "runtimeType", agent.getRuntimeType().name(),
+                                "runtimeSessionId", runtimeSessionId(agent),
+                                "threadId", runtimeSessionId(agent),
                                 "clientMessageId", clientMessageId,
                                 "prompt", task.getPrompt()));
                 task.setCodexQueuedSubmissionId("node-command:" + command.getId());
@@ -131,7 +133,7 @@ public class TaskDispatchService {
                 return;
             }
 
-            RuntimeDispatchReceipt receipt = runtime.dispatch(
+            RuntimeDispatchReceipt receipt = runtimeRegistry.get(agent.getRuntimeType()).dispatch(
                     new RuntimeSession(agent.getRuntimeSessionId()), clientMessageId, task.getPrompt());
             TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
             currentTask.setCodexQueuedSubmissionId(receipt.queuedSubmissionId());

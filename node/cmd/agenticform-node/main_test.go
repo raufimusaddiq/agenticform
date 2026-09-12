@@ -1,11 +1,27 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLoadRuntimeStateDefaultsLegacyRuntimeType(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime-state.json")
+	if err := os.WriteFile(path, []byte(`{"runtimes":{"agent-1":{"agentId":"agent-1","runtimeGeneration":1,"threadId":"thread-1"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadRuntimeState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := state.Runtimes["agent-1"]
+	if record.RuntimeType != "CODEX" || record.RuntimeSessionID != "thread-1" {
+		t.Fatalf("legacy runtime was not normalized: %+v", record)
+	}
+}
 
 func TestRequireSecureServerURL(t *testing.T) {
 	for _, value := range []string{"https://agenticform.example.com", "http://localhost:8080", "http://127.0.0.1:8080"} {

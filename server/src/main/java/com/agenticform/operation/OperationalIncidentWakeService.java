@@ -8,6 +8,7 @@ import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
 import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.runtime.RuntimeType;
@@ -27,20 +28,20 @@ public class OperationalIncidentWakeService {
 
     private final OperationalIncidentRepository incidents;
     private final AgentRepository agents;
-    private final AgentRuntime runtime;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeService nodeService;
     private final NodeCommandRepository commands;
     private final ObjectMapper mapper;
 
     public OperationalIncidentWakeService(OperationalIncidentRepository incidents,
                                           AgentRepository agents,
-                                          AgentRuntime runtime,
+                                          AgentRuntimeRegistry runtimeRegistry,
                                           ExecutionNodeService nodeService,
                                           NodeCommandRepository commands,
                                           ObjectMapper mapper) {
         this.incidents = incidents;
         this.agents = agents;
-        this.runtime = runtime;
+        this.runtimeRegistry = runtimeRegistry;
         this.nodeService = nodeService;
         this.commands = commands;
         this.mapper = mapper;
@@ -114,7 +115,7 @@ public class OperationalIncidentWakeService {
         if (target.getStatus() == AgentStatus.STOPPED || target.getStatus() == AgentStatus.FAILED) {
             throw new IllegalStateException("Operational Agent is unavailable: " + target.getStatus());
         }
-        if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+        if (runtimeSessionId(target) == null || runtimeSessionId(target).isBlank()) {
             throw new IllegalStateException("Operational Agent runtime is not ready");
         }
         incident.setOperationalAgentId(target.getId());
@@ -125,8 +126,9 @@ public class OperationalIncidentWakeService {
                     target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
                     commandKey, Map.of(
                             "incidentId", incident.getId().toString(),
-                            "runtimeType", RuntimeType.CODEX.name(),
-                            "threadId", target.getCodexThreadId(),
+                            "runtimeType", target.getRuntimeType().name(),
+                            "runtimeSessionId", runtimeSessionId(target),
+                            "threadId", runtimeSessionId(target),
                             "clientMessageId", clientMessageId,
                             "prompt", prompt(incident)));
             incident.queued(command.getId());
@@ -138,7 +140,7 @@ public class OperationalIncidentWakeService {
             return;
         }
 
-        RuntimeDispatchReceipt receipt = runtime.dispatch(
+        RuntimeDispatchReceipt receipt = runtimeRegistry.get(target.getRuntimeType()).dispatch(
                 new RuntimeSession(runtimeSessionId(target)), clientMessageId, prompt(incident));
         incident.delivered(receipt.queuedSubmissionId(), receipt.turnId());
         incidents.save(incident);

@@ -13,6 +13,7 @@ import com.agenticform.task.TaskStatus;
 import com.agenticform.workspace.WorkspaceLifecycleService;
 import com.agenticform.workspace.WorkspaceMode;
 import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,7 @@ class AgentLifecycleServiceTest {
     @Mock HumanApprovalRepository approvals;
     @Mock ProjectService projects;
     @Mock AgentRuntime runtime;
+    @Mock AgentRuntimeRegistry runtimeRegistry;
     @Mock ExecutionNodeService nodes;
     @Mock WorkspaceLifecycleService workspaces;
     @Mock ControlPlaneEventBus events;
@@ -52,7 +54,8 @@ class AgentLifecycleServiceTest {
     @BeforeEach
     void setUp() {
         lifecycle = new AgentLifecycleService(agents, tasks, dependencies, approvals, projects,
-                runtime, nodes, workspaces, events);
+                runtimeRegistry, nodes, workspaces, events);
+        when(runtimeRegistry.get(any())).thenReturn(runtime);
     }
 
     @Test

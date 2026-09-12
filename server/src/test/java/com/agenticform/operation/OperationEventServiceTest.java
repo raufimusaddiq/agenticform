@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ class OperationEventServiceTest {
     @Mock OperationEventRepository events;
     @Mock AgentRepository agents;
     @Mock AgentRuntime runtime;
+    @Mock AgentRuntimeRegistry runtimeRegistry;
     @Mock OperationalSignalService signals;
     @Mock ExecutionNodeService nodeService;
     @Mock NodeCommandRepository commands;
@@ -39,8 +41,9 @@ class OperationEventServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OperationEventService(events, agents, runtime, signals,
+        service = new OperationEventService(events, agents, runtimeRegistry, signals,
                 nodeService, commands, new ObjectMapper());
+        when(runtimeRegistry.get(any())).thenReturn(runtime);
     }
 
     @Test

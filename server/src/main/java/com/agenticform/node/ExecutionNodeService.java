@@ -26,7 +26,7 @@ import java.util.UUID;
 public class ExecutionNodeService {
     public record Enrollment(String token, Instant expiresAt, String setupCommand) {}
     public record EnrollmentResult(UUID nodeId, String name, String fingerprint, NodeTrustLevel trustLevel) {}
-    public record RuntimeObservation(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String threadId,
+    public record RuntimeObservation(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String runtimeSessionId,
                                      String sourceDirectory, String workingDirectory, String branch,
                                      String runtimeStatus) {}
     public record Heartbeat(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
@@ -146,16 +146,16 @@ public class ExecutionNodeService {
                     .findByNodeIdAndAgentId(nodeId, observation.agentId())
                     .orElseGet(() -> new NodeRuntimeSnapshotEntity(nodeId, observation.agentId()));
             String status = agent.ownsRuntime(nodeId, observation.runtimeGeneration()) ? observation.runtimeStatus() : "STALE";
-            snapshot.observe(observation.runtimeType(), observation.runtimeGeneration(), observation.threadId(), observation.sourceDirectory(),
+            snapshot.observe(observation.runtimeType(), observation.runtimeGeneration(), observation.runtimeSessionId(), observation.sourceDirectory(),
                     observation.workingDirectory(), observation.branch(), status);
             runtimeSnapshots.save(snapshot);
 
             if (!agent.ownsRuntime(nodeId, observation.runtimeGeneration())) continue;
-            if (agent.getCodexThreadId() != null && observation.threadId() != null
-                    && !agent.getCodexThreadId().equals(observation.threadId())) {
+            if (agent.getRuntimeSessionId() != null && observation.runtimeSessionId() != null
+                    && !agent.getRuntimeSessionId().equals(observation.runtimeSessionId())) {
                 continue;
             }
-            agent.recoverFromSnapshot(observation.runtimeGeneration(), observation.threadId(),
+            agent.recoverFromSnapshot(observation.runtimeGeneration(), observation.runtimeSessionId(),
                     observation.sourceDirectory(), observation.workingDirectory(), observation.branch());
             agents.save(agent);
         }

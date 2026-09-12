@@ -147,7 +147,9 @@ public class AgentRuntimeRecoveryService {
         }
         nodeService.enqueue(node.getId(), agent.getId(), "CLEANUP_WORKSPACE",
                 "cleanup-runtime:" + agent.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
-                        "threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId()));
+                        "runtimeType", agent.getRuntimeType().name(),
+                        "runtimeSessionId", runtimeSessionId(agent),
+                        "threadId", runtimeSessionId(agent)));
         agent.setQueueMode(AgentQueueMode.PAUSED);
         agent.setStatus(AgentStatus.BLOCKED);
         return agents.save(agent);
@@ -161,5 +163,10 @@ public class AgentRuntimeRecoveryService {
         String normalized = value == null ? "agent" : value.toLowerCase().replaceAll("[^a-z0-9]+", "-");
         normalized = normalized.replaceAll("^-+|-+$", "");
         return normalized.isBlank() ? "agent" : normalized;
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        String value = agent.getRuntimeSessionId();
+        return value == null || value.isBlank() ? agent.getCodexThreadId() : value;
     }
 }

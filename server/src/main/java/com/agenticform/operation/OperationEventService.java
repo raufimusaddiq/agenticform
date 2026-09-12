@@ -8,6 +8,7 @@ import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
 import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.runtime.RuntimeType;
@@ -27,7 +28,7 @@ public class OperationEventService {
 
     private final OperationEventRepository repository;
     private final AgentRepository agentRepository;
-    private final AgentRuntime runtime;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final OperationalSignalService signals;
     private final ExecutionNodeService nodeService;
     private final NodeCommandRepository nodeCommands;
@@ -35,14 +36,14 @@ public class OperationEventService {
 
     public OperationEventService(OperationEventRepository repository,
                                  AgentRepository agentRepository,
-                                 AgentRuntime runtime,
+                                 AgentRuntimeRegistry runtimeRegistry,
                                  OperationalSignalService signals,
                                  ExecutionNodeService nodeService,
                                  NodeCommandRepository nodeCommands,
                                  ObjectMapper mapper) {
         this.repository = repository;
         this.agentRepository = agentRepository;
-        this.runtime = runtime;
+        this.runtimeRegistry = runtimeRegistry;
         this.signals = signals;
         this.nodeService = nodeService;
         this.nodeCommands = nodeCommands;
@@ -109,7 +110,7 @@ public class OperationEventService {
         if (target.getStatus() == AgentStatus.STOPPED || target.getStatus() == AgentStatus.FAILED) {
             throw new IllegalStateException("Operational Agent is unavailable: " + target.getStatus());
         }
-        if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+        if (runtimeSessionId(target) == null || runtimeSessionId(target).isBlank()) {
             throw new IllegalStateException("Operational Agent runtime is not ready");
         }
         String clientMessageId = "agenticform-operation-event:" + event.getId() + ":g" + target.getRuntimeGeneration();
@@ -118,8 +119,9 @@ public class OperationEventService {
                     target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE", clientMessageId,
                     Map.of(
                             "operationEventId", event.getId().toString(),
-                            "runtimeType", RuntimeType.CODEX.name(),
-                            "threadId", target.getCodexThreadId(),
+                            "runtimeType", target.getRuntimeType().name(),
+                            "runtimeSessionId", runtimeSessionId(target),
+                            "threadId", runtimeSessionId(target),
                             "clientMessageId", clientMessageId,
                             "prompt", deliveryPrompt(event)));
             event.queued(command.getId());
@@ -128,7 +130,7 @@ public class OperationEventService {
             return;
         }
 
-        RuntimeDispatchReceipt receipt = runtime.dispatch(
+        RuntimeDispatchReceipt receipt = runtimeRegistry.get(target.getRuntimeType()).dispatch(
                 new RuntimeSession(runtimeSessionId(target)), clientMessageId, deliveryPrompt(event));
         event.delivered(receipt.queuedSubmissionId(), receipt.turnId());
         repository.save(event);

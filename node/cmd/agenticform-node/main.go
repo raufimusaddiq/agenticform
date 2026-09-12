@@ -79,7 +79,8 @@ type runtimeRecord struct {
 	AgentID           string `json:"agentId"`
 	RuntimeType       string `json:"runtimeType"`
 	RuntimeGeneration int64  `json:"runtimeGeneration"`
-	ThreadID          string `json:"threadId"`
+	RuntimeSessionID  string `json:"runtimeSessionId"`
+	ThreadID          string `json:"-"`
 	SourceDirectory   string `json:"sourceDirectory"`
 	WorkingDirectory  string `json:"workingDirectory"`
 	Branch            string `json:"branch"`
@@ -267,14 +268,14 @@ func (d *daemonRuntime) heartbeatLoop(ctx context.Context) {
 
 func (d *daemonRuntime) heartbeat() error {
 	hostname, _ := os.Hostname()
-	codexVersion, codexOK := detectCodex()
+	codexVersion, codexAvailable, codexAuthenticated := detectCodex()
 	capabilities, _ := json.Marshal(map[string]any{
 		"git": commandExists("git"),
-		"codex": codexOK,
+		"codex": codexAvailable && codexAuthenticated,
 		"runtimes": map[string]any{
 			"CODEX": map[string]any{
-				"available":     codexOK,
-				"authenticated": codexOK,
+				"available":     codexAvailable,
+				"authenticated": codexAuthenticated,
 				"version":       codexVersion,
 			},
 		},
@@ -526,21 +527,22 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		return nil, errors.New("Codex thread/start returned no thread id")
 	}
 	record := runtimeRecord{
-		AgentID: agentID, RuntimeType: "CODEX", RuntimeGeneration: command.RuntimeGeneration, ThreadID: threadID,
+		AgentID: agentID, RuntimeType: "CODEX", RuntimeGeneration: command.RuntimeGeneration, RuntimeSessionID: threadID, ThreadID: threadID,
 		SourceDirectory: repoRoot, WorkingDirectory: workingDirectory, Branch: branch, RuntimeStatus: "IDLE",
 	}
 	if err := d.putRuntime(record); err != nil {
 		return nil, fmt.Errorf("persist runtime state: %w", err)
 	}
 	return map[string]any{
-		"threadId": threadID, "sourceDirectory": repoRoot,
+		"runtimeSessionId": threadID, "sourceDirectory": repoRoot,
 		"workingDirectory": workingDirectory, "branch": branch,
 		"runtimeGeneration": command.RuntimeGeneration, "runtimeType": "CODEX",
 	}, nil
 }
 
 func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (map[string]any, error) {
-	threadID := stringValue(payload, "threadId")
+	threadID := stringValue(payload, "runtimeSessionId")
+	if threadID == "" { threadID = stringValue(payload, "threadId") }
 	prompt := stringValue(payload, "prompt")
 	if threadID == "" || prompt == "" {
 		return nil, errors.New(command.CommandType + " missing threadId or prompt")
@@ -582,7 +584,8 @@ func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (m
 }
 
 func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (map[string]any, error) {
-	threadID := stringValue(payload, "threadId")
+	threadID := stringValue(payload, "runtimeSessionId")
+	if threadID == "" { threadID = stringValue(payload, "threadId") }
 	turnID := stringValue(payload, "turnId")
 	if threadID == "" || turnID == "" {
 		return nil, errors.New("INTERRUPT_TURN missing threadId or turnId")
@@ -602,7 +605,8 @@ func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (
 }
 
 func (d *daemonRuntime) cleanupWorkspace(command nodeCommand, payload map[string]any) (map[string]any, error) {
-	threadID := optionalString(payload, "threadId")
+	threadID := optionalString(payload, "runtimeSessionId")
+	if threadID == "" { threadID = optionalString(payload, "threadId") }
 	d.stateMu.Lock()
 	record, ok := d.runtimes.Runtimes[command.AgentID]
 	d.stateMu.Unlock()
@@ -1063,6 +1067,12 @@ func loadRuntimeState(path string) (runtimeState, error) {
 	if state.Runtimes == nil {
 		state.Runtimes = map[string]runtimeRecord{}
 	}
+	for key, record := range state.Runtimes {
+		if record.RuntimeType == "" { record.RuntimeType = "CODEX" }
+		if record.RuntimeSessionID == "" { record.RuntimeSessionID = record.ThreadID }
+		if record.ThreadID == "" { record.ThreadID = record.RuntimeSessionID }
+		state.Runtimes[key] = record
+	}
 	return state, nil
 }
 
@@ -1178,23 +1188,23 @@ func requireSecureServerURL(value string) error {
 	return nil
 }
 
-func detectCodex() (string, bool) {
+func detectCodex() (string, bool, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "codex", "--version").CombinedOutput()
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
 	versionText := strings.TrimSpace(string(out))
 	if os.Getenv("OPENAI_API_KEY") != "" {
-		return versionText, true
+		return versionText, true, true
 	}
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer statusCancel()
 	if err := exec.CommandContext(statusCtx, "codex", "login", "status").Run(); err != nil {
-		return versionText, false
+		return versionText, true, false
 	}
-	return versionText, true
+	return versionText, true, true
 }
 
 func withinRoot(root, path string) bool {

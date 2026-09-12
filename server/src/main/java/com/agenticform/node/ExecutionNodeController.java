@@ -59,7 +59,8 @@ public class ExecutionNodeController {
         HeartbeatRequest request = mapper.readValue(body, HeartbeatRequest.class);
         List<ExecutionNodeService.RuntimeObservation> runtimes = request.runtimes() == null ? List.of()
                 : request.runtimes().stream().map(runtime -> new ExecutionNodeService.RuntimeObservation(
-                        runtime.agentId(), runtime.runtimeType(), runtime.runtimeGeneration(), runtime.threadId(), runtime.sourceDirectory(),
+                        runtime.agentId(), runtime.runtimeType(), runtime.runtimeGeneration(),
+                        runtime.runtimeSessionId() == null ? runtime.threadId() : runtime.runtimeSessionId(), runtime.sourceDirectory(),
                         runtime.workingDirectory(), runtime.branch(), runtime.runtimeStatus())).toList();
         int protocolVersion = request.protocolVersion() != null
                 ? request.protocolVersion()
@@ -111,7 +112,8 @@ public class ExecutionNodeController {
 
     public record CreateEnrollmentRequest(@NotBlank String name, NodeTrustLevel trustLevel) {}
     public record EnrollRequest(@NotBlank String token, @NotBlank String publicKeyBase64) {}
-    public record RuntimeObservationRequest(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String threadId,
+    public record RuntimeObservationRequest(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String runtimeSessionId,
+                                            String threadId,
                                             String sourceDirectory, String workingDirectory, String branch,
                                             String runtimeStatus) {}
     public record HeartbeatRequest(Integer protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
