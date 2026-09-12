@@ -79,7 +79,7 @@ public class AgentRuntimeRecoveryService {
         }
 
         ExecutionNodeEntity replacement = scheduler.select(null, NodeTrustLevel.STANDARD,
-                Set.of("codex", "git"), Set.of(oldNodeId));
+                        Set.of("runtime:CODEX", "git"), Set.of(oldNodeId));
         long nextGeneration = agent.getRuntimeGeneration() + 1;
         String recoveryBranch = "recovery/" + safe(agent.getName()) + "-"
                 + agent.getId().toString().substring(0, 8) + "-g" + nextGeneration;

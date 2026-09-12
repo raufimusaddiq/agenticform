@@ -149,7 +149,7 @@ public class AgentService {
                                           UUID preferredNodeId, NodeTrustLevel minimumTrust,
                                           AgentCapabilityProfile capabilityProfile) {
         ExecutionNodeEntity node = nodeScheduler.select(preferredNodeId,
-                minimumTrust == null ? NodeTrustLevel.STANDARD : minimumTrust, Set.of("codex", "git"));
+                minimumTrust == null ? NodeTrustLevel.STANDARD : minimumTrust, Set.of("runtime:CODEX", "git"));
         String baseBranch = requestedBaseBranch == null || requestedBaseBranch.isBlank()
                 ? project.getDefaultBranch() : requestedBaseBranch;
         AgentEntity agent = repository.save(new AgentEntity(

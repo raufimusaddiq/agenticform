@@ -101,7 +101,7 @@ class AgentRuntimeRecoveryServiceTest {
         when(nodeService.get(oldNodeId)).thenReturn(oldNode);
         when(oldNode.getStatus()).thenReturn(ExecutionNodeStatus.OFFLINE);
         when(replacement.getId()).thenReturn(newNodeId);
-        when(scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("codex", "git"), Set.of(oldNodeId)))
+        when(scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("runtime:CODEX", "git"), Set.of(oldNodeId)))
                 .thenReturn(replacement);
         when(threadConfiguration.startParams("", "Implement features")).thenReturn(new ObjectMapper().createObjectNode());
 
