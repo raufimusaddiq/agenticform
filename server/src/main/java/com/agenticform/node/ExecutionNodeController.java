@@ -60,8 +60,11 @@ public class ExecutionNodeController {
                 : request.runtimes().stream().map(runtime -> new ExecutionNodeService.RuntimeObservation(
                         runtime.agentId(), runtime.runtimeGeneration(), runtime.threadId(), runtime.sourceDirectory(),
                         runtime.workingDirectory(), runtime.branch(), runtime.runtimeStatus())).toList();
+        int protocolVersion = request.protocolVersion() != null
+                ? request.protocolVersion()
+                : ("0.2.0".equals(request.nodeVersion()) ? ExecutionNodeProtocol.CURRENT : 0);
         return service.heartbeat(nodeId, new ExecutionNodeService.Heartbeat(
-                request.protocolVersion(), request.labelsJson(), request.capabilitiesJson(), request.maxAgents(),
+                protocolVersion, request.labelsJson(), request.capabilitiesJson(), request.maxAgents(),
                 request.os(), request.arch(), request.hostname(), request.nodeVersion(), request.codexVersion(),
                 request.cpuCores(), request.memoryMb(), request.diskFreeMb(), runtimes));
     }
@@ -110,7 +113,7 @@ public class ExecutionNodeController {
     public record RuntimeObservationRequest(UUID agentId, long runtimeGeneration, String threadId,
                                             String sourceDirectory, String workingDirectory, String branch,
                                             String runtimeStatus) {}
-    public record HeartbeatRequest(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
+    public record HeartbeatRequest(Integer protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
                                    String os, String arch, String hostname, String nodeVersion,
                                    String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb,
                                    List<RuntimeObservationRequest> runtimes) {}
