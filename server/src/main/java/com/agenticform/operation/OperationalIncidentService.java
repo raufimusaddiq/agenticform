@@ -5,7 +5,6 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -38,11 +37,13 @@ public class OperationalIncidentService {
 
     @Transactional
     public OperationalIncidentEntity correlate(OperationalSignalEntity signal) {
+        if ("SERVICE_HEALTH_RECOVERED".equals(signal.getSignalType())) {
+            return attachRecoveryEvidence(signal);
+        }
         Rule rule = rule(signal);
         if (rule == null || signal.getOccurrenceCount() < rule.threshold()) return null;
 
-        String key = signal.getCorrelationKey() == null || signal.getCorrelationKey().isBlank()
-                ? signal.getFingerprint() : signal.getCorrelationKey();
+        String key = correlationKey(signal);
         String fingerprint = rule.incidentType() + ":" + key;
         OperationalSeverity severity = signal.getSeverity().higherThan(rule.severity())
                 ? signal.getSeverity() : rule.severity();
@@ -61,12 +62,7 @@ public class OperationalIncidentService {
             incident.observe(severity, summary, suspectedChange, signal.getLastSeenAt());
             incident = incidents.save(incident);
         }
-
-        if (!links.existsByIncidentIdAndSignalId(incident.getId(), signal.getId())) {
-            links.save(new OperationalIncidentSignalEntity(incident.getId(), signal.getId()));
-        }
-        signal.correlated();
-        signals.save(signal);
+        link(incident, signal);
         return incident;
     }
 
@@ -114,6 +110,32 @@ public class OperationalIncidentService {
         if (incident.terminal()) throw new IllegalStateException("Terminal incident cannot be woken");
         incident.retryWake();
         return incidents.save(incident);
+    }
+
+    private OperationalIncidentEntity attachRecoveryEvidence(OperationalSignalEntity signal) {
+        OperationalIncidentEntity incident = incidents
+                .findFirstByProjectIdAndFingerprintAndStatusInOrderByUpdatedAtDesc(
+                        signal.getProjectId(), "SERVICE_DEGRADED:" + correlationKey(signal), ACTIVE)
+                .orElse(null);
+        if (incident == null) return null;
+        incident.observe(incident.getSeverity(), "Service health recovered; verify stability before resolving", null,
+                signal.getLastSeenAt());
+        incident = incidents.save(incident);
+        link(incident, signal);
+        return incident;
+    }
+
+    private void link(OperationalIncidentEntity incident, OperationalSignalEntity signal) {
+        if (!links.existsByIncidentIdAndSignalId(incident.getId(), signal.getId())) {
+            links.save(new OperationalIncidentSignalEntity(incident.getId(), signal.getId()));
+        }
+        signal.correlated();
+        signals.save(signal);
+    }
+
+    private String correlationKey(OperationalSignalEntity signal) {
+        return signal.getCorrelationKey() == null || signal.getCorrelationKey().isBlank()
+                ? signal.getFingerprint() : signal.getCorrelationKey();
     }
 
     private Rule rule(OperationalSignalEntity signal) {
