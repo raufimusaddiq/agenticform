@@ -21,6 +21,9 @@ management:
 
 agenticform:
   public-url: ${AGENTICFORM_PUBLIC_URL:http://localhost:8080}
+  security:
+    admin-token: ${AGENTICFORM_ADMIN_TOKEN:}
+    require-tls: ${AGENTICFORM_REQUIRE_TLS:true}
   project-roots:
     - ${AGENTICFORM_PROJECT_ROOT:/srv/apps}
   workspace:
@@ -42,6 +45,8 @@ agenticform:
     enrollment-ttl: ${AGENTICFORM_NODE_ENROLLMENT_TTL:10m}
     offline-after: ${AGENTICFORM_NODE_OFFLINE_AFTER:45s}
     command-lease: ${AGENTICFORM_NODE_COMMAND_LEASE:30s}
+    request-nonce-ttl: ${AGENTICFORM_NODE_REQUEST_NONCE_TTL:10m}
+    max-clock-skew: ${AGENTICFORM_NODE_MAX_CLOCK_SKEW:2m}
     image: ${AGENTICFORM_NODE_IMAGE:ghcr.io/raufimusaddiq/agenticform-node:latest}
   ui:
     origin: ${AGENTICFORM_UI_ORIGIN:http://localhost:5173}
