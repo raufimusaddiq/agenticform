@@ -10,6 +10,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TaskDependencyServiceTest {
@@ -66,6 +67,63 @@ class TaskDependencyServiceTest {
 
         when(dependencies.findAllByTaskId(downstream.getId())).thenReturn(List.of(
                 new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_COMPLETION)));
+        assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.READY);
+    }
+
+    @Test
+    void blocksRelationshipWaitsForAnyTerminalOutcome() {
+        UUID project = UUID.randomUUID();
+        TaskEntity downstream = task(project, TaskStatus.READY);
+        TaskEntity upstream = task(project, TaskStatus.RUNNING);
+        when(tasks.findById(downstream.getId())).thenReturn(Optional.of(downstream));
+        when(tasks.findById(upstream.getId())).thenReturn(Optional.of(upstream));
+        when(dependencies.findAllByTaskId(downstream.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.BLOCKS)));
+
+        assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.WAITING);
+        upstream.setStatus(TaskStatus.CANCELLED);
+        assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.READY);
+    }
+
+    @Test
+    void dependencyFailurePropagatesThroughMultipleLevels() {
+        UUID project = UUID.randomUUID();
+        TaskEntity a = task(project, TaskStatus.FAILED);
+        TaskEntity b = task(project, TaskStatus.WAITING_DEPENDENCY);
+        TaskEntity c = task(project, TaskStatus.WAITING_DEPENDENCY);
+
+        when(tasks.findById(a.getId())).thenReturn(Optional.of(a));
+        when(tasks.findById(b.getId())).thenReturn(Optional.of(b));
+        when(tasks.findById(c.getId())).thenReturn(Optional.of(c));
+        when(dependencies.findAllByTaskId(b.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(b.getId(), a.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
+        when(dependencies.findAllByTaskId(c.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(c.getId(), b.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
+        when(dependencies.findAllByDependsOnTaskId(b.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(c.getId(), b.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
+        when(dependencies.findAllByDependsOnTaskId(c.getId())).thenReturn(List.of());
+
+        service.reconcile(b.getId());
+
+        assertThat(b.getStatus()).isEqualTo(TaskStatus.BLOCKED);
+        assertThat(b.getLastError()).startsWith("Dependency failed:");
+        assertThat(c.getStatus()).isEqualTo(TaskStatus.BLOCKED);
+        assertThat(c.getLastError()).startsWith("Dependency failed:");
+        verify(tasks).save(b);
+        verify(tasks).save(c);
+    }
+
+    @Test
+    void completionDependencyTreatsPropagatedDependencyBlockAsTerminal() {
+        UUID project = UUID.randomUUID();
+        TaskEntity downstream = task(project, TaskStatus.WAITING_DEPENDENCY);
+        TaskEntity upstream = task(project, TaskStatus.BLOCKED);
+        upstream.setLastError("Dependency failed: prerequisite failed");
+        when(tasks.findById(downstream.getId())).thenReturn(Optional.of(downstream));
+        when(tasks.findById(upstream.getId())).thenReturn(Optional.of(upstream));
+        when(dependencies.findAllByTaskId(downstream.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_COMPLETION)));
+
         assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.READY);
     }
 
