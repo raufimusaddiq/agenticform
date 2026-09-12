@@ -10,7 +10,7 @@ const messageTypes: AgentMessageType[] = [
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
 const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}…` : '—');
 
-export function MessagesView({ messages, agents, projects, onSend }: {
+export function MessagesView({ messages, agents, projects, communicationRules, onSend, onSaveRule, onDeleteRule }: {
   messages: AgentMessage[];
   agents: Agent[];
   projects: Project[];
