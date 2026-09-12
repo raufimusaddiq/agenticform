@@ -33,6 +33,7 @@ public class AgentMessageService {
     private final AgentRepository agentRepository;
     private final AgentGroupRepository groupRepository;
     private final AgentGroupMembershipRepository membershipRepository;
+    private final CommunicationRuleService communicationRules;
     private final CodexGateway codexGateway;
     private final ExecutionNodeService nodeService;
     private final ObjectMapper mapper;
@@ -42,6 +43,7 @@ public class AgentMessageService {
                                AgentRepository agentRepository,
                                AgentGroupRepository groupRepository,
                                AgentGroupMembershipRepository membershipRepository,
+                               CommunicationRuleService communicationRules,
                                CodexGateway codexGateway,
                                ExecutionNodeService nodeService,
                                ObjectMapper mapper) {
@@ -50,6 +52,7 @@ public class AgentMessageService {
         this.agentRepository = agentRepository;
         this.groupRepository = groupRepository;
         this.membershipRepository = membershipRepository;
+        this.communicationRules = communicationRules;
         this.codexGateway = codexGateway;
         this.nodeService = nodeService;
         this.mapper = mapper;
@@ -135,8 +138,11 @@ public class AgentMessageService {
         AgentEntity source = agent(message.getFromAgentId());
         List<AgentMessageDeliveryEntity> deliveries = deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(messageId);
         for (AgentMessageDeliveryEntity delivery : deliveries) {
-            if (delivery.getStatus() == AgentMessageStatus.DISPATCHED || delivery.getAttemptCount() >= 3) continue;
+            if (List.of(AgentMessageStatus.QUEUED, AgentMessageStatus.DISPATCHED,
+                    AgentMessageStatus.PROCESSING, AgentMessageStatus.COMPLETED).contains(delivery.getStatus())
+                    || delivery.getAttemptCount() >= 3) continue;
             AgentEntity target = agent(delivery.getToAgentId());
+            communicationRules.require(source.getProjectId(), target.getProjectId(), CommunicationRuleEntity.Action.MESSAGE);
             delivery.resetForRetry();
             deliveryRepository.save(delivery);
             dispatch(message, delivery, source, target);
@@ -146,16 +152,27 @@ public class AgentMessageService {
         return new SendResult(repository.save(message), current);
     }
 
+    @Transactional
+    public AgentMessageEntity refreshAggregate(UUID messageId) {
+        AgentMessageEntity message = repository.findById(messageId)
+                .orElseThrow(() -> new NoSuchElementException("Message not found: " + messageId));
+        updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(messageId));
+        return repository.save(message);
+    }
+
     private List<AgentEntity> resolveAudience(AgentEntity source, AudienceRequest audience, AgentMessageEntity parent) {
         AgentMessageAudienceType type = audience == null || audience.type() == null
                 ? AgentMessageAudienceType.DIRECT : audience.type();
         LinkedHashSet<UUID> ids = new LinkedHashSet<>();
         switch (type) {
             case DIRECT -> {
-                if (audience == null || audience.agentIds() == null || audience.agentIds().size() != 1) {
-                    if (parent != null) ids.add(parent.getFromAgentId());
-                    else throw new IllegalArgumentException("DIRECT audience requires exactly one agent id");
-                } else ids.add(audience.agentIds().get(0));
+                if (parent != null) {
+                    ids.add(parent.getFromAgentId());
+                } else if (audience == null || audience.agentIds() == null || audience.agentIds().size() != 1) {
+                    throw new IllegalArgumentException("DIRECT audience requires exactly one agent id");
+                } else {
+                    ids.add(audience.agentIds().get(0));
+                }
             }
             case MULTICAST -> {
                 if (audience.agentIds() == null || audience.agentIds().isEmpty()) {
@@ -185,8 +202,9 @@ public class AgentMessageService {
         List<AgentEntity> result = new ArrayList<>();
         for (UUID id : ids) {
             AgentEntity target = agent(id);
-            if (!source.getProjectId().equals(target.getProjectId())) {
-                throw new IllegalStateException("Cross-project agent messaging is disabled");
+            boolean replyToAuthorizedSender = parent != null && target.getId().equals(parent.getFromAgentId());
+            if (!replyToAuthorizedSender) {
+                communicationRules.require(source.getProjectId(), target.getProjectId(), CommunicationRuleEntity.Action.MESSAGE);
             }
             if (target.getStatus() == AgentStatus.STOPPED) continue;
             result.add(target);
@@ -228,13 +246,35 @@ public class AgentMessageService {
     }
 
     private void updateAggregate(AgentMessageEntity message, List<AgentMessageDeliveryEntity> deliveries) {
-        long dispatched = deliveries.stream().filter(delivery -> delivery.getStatus() == AgentMessageStatus.DISPATCHED).count();
-        long failed = deliveries.stream().filter(delivery -> delivery.getStatus() == AgentMessageStatus.FAILED).count();
-        if (dispatched == deliveries.size()) {
-            AgentMessageDeliveryEntity first = deliveries.get(0);
-            message.markDispatched(first.getCodexQueuedSubmissionId(), first.getCodexTurnId());
-        } else if (failed == deliveries.size()) {
+        if (deliveries.isEmpty()) {
+            message.markFailed("Message has no deliveries");
+            return;
+        }
+        long completed = deliveries.stream().filter(d -> d.getStatus() == AgentMessageStatus.COMPLETED).count();
+        long failed = deliveries.stream().filter(d -> d.getStatus() == AgentMessageStatus.FAILED).count();
+        long processing = deliveries.stream().filter(d -> d.getStatus() == AgentMessageStatus.PROCESSING).count();
+        long dispatched = deliveries.stream().filter(d -> d.getStatus() == AgentMessageStatus.DISPATCHED).count();
+        long queued = deliveries.stream().filter(d -> d.getStatus() == AgentMessageStatus.QUEUED).count();
+        boolean terminal = completed + failed == deliveries.size();
+
+        if (terminal && completed == deliveries.size()) {
+            message.markCompleted();
+        } else if (terminal && failed == deliveries.size()) {
             message.markFailed("All message deliveries failed");
+        } else if (terminal) {
+            message.markPartial(failed + " of " + deliveries.size() + " message deliveries failed");
+        } else if (processing > 0 || completed > 0) {
+            String turnId = deliveries.stream().map(AgentMessageDeliveryEntity::getCodexTurnId)
+                    .filter(value -> value != null && !value.isBlank()).findFirst().orElse(null);
+            message.markProcessing(turnId);
+        } else if (dispatched > 0) {
+            AgentMessageDeliveryEntity first = deliveries.stream()
+                    .filter(d -> d.getStatus() == AgentMessageStatus.DISPATCHED).findFirst().orElse(deliveries.get(0));
+            message.markDispatched(first.getCodexQueuedSubmissionId(), first.getCodexTurnId());
+        } else if (queued > 0) {
+            AgentMessageDeliveryEntity first = deliveries.stream()
+                    .filter(d -> d.getStatus() == AgentMessageStatus.QUEUED).findFirst().orElse(deliveries.get(0));
+            message.markQueued(first.getCodexQueuedSubmissionId());
         } else {
             message.markCreated();
         }

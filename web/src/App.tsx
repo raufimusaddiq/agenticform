@@ -1,11 +1,13 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
+import { consumeControlPlaneEvents } from './controlPlaneEvents';
 import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
 import { OperationsView } from './OperationsView';
 import { PolicyView } from './PolicyView';
 import type {
   Agent,
+  AgentCapabilityProfile,
   AgentMessage,
   AgentQueueMode,
   HumanApproval,
@@ -13,13 +15,15 @@ import type {
   PolicyRule,
   Project,
   Task,
-  WorkspaceMode
+  WorkspaceMode,
+  CommunicationRule
 } from './types';
 import './approvals.css';
 import './human-control.css';
 
 type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages' | 'operations' | 'approvals' | 'policy';
 type Dialog = 'project' | 'agent' | 'task' | null;
+type ProjectCandidate = { name: string; path: string; configuredRoot: string; detectedBranch: string | null; registered: boolean };
 
 const nav: Array<{ id: View; label: string }> = [
   { id: 'overview', label: 'Overview' },
@@ -60,6 +64,8 @@ export default function App() {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [approvals, setApprovals] = useState<HumanApproval[]>([]);
   const [policyRules, setPolicyRules] = useState<PolicyRule[]>([]);
+  const [communicationRules, setCommunicationRules] = useState<CommunicationRule[]>([]);
+  const [projectCandidates, setProjectCandidates] = useState<ProjectCandidate[]>([]);
   const [view, setView] = useState<View>('overview');
   const [projectFilter, setProjectFilter] = useState('all');
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -69,8 +75,8 @@ export default function App() {
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const [nextProjects, nextAgents, nextTasks, nextMessages, nextApprovals, nextPolicyRules] = await Promise.all([
-        api.projects(), api.agents(), api.tasks(), api.messages(), api.approvals(), api.policyRules()
+      const [nextProjects, nextAgents, nextTasks, nextMessages, nextApprovals, nextPolicyRules, nextCommunicationRules] = await Promise.all([
+        api.projects(), api.agents(), api.tasks(), api.messages(), api.approvals(), api.policyRules(), api.communicationRules()
       ]);
       setProjects(nextProjects);
       setAgents(nextAgents);
@@ -78,6 +84,7 @@ export default function App() {
       setMessages(nextMessages);
       setApprovals(nextApprovals);
       setPolicyRules(nextPolicyRules);
+      setCommunicationRules(nextCommunicationRules);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load Agenticform state');
@@ -88,8 +95,42 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(true), 5000);
-    return () => window.clearInterval(timer);
+    const controller = new AbortController();
+    let stopped = false;
+    let reconnectTimer: number | undefined;
+    let refreshTimer: number | undefined;
+
+    const scheduleRefresh = () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => void refresh(true), 125);
+    };
+
+    const reconnectDelay = () => new Promise<void>((resolve) => {
+      reconnectTimer = window.setTimeout(resolve, 1500);
+    });
+
+    const connect = async () => {
+      while (!stopped && !controller.signal.aborted) {
+        try {
+          await consumeControlPlaneEvents(() => scheduleRefresh(), controller.signal);
+        } catch (cause) {
+          if (controller.signal.aborted || stopped) return;
+          if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') {
+            setError('ADMIN_AUTH_REQUIRED');
+            return;
+          }
+        }
+        if (!stopped && !controller.signal.aborted) await reconnectDelay();
+      }
+    };
+
+    void connect();
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+    };
   }, [refresh]);
 
   const visibleAgents = useMemo(() => projectFilter === 'all' ? agents : agents.filter((agent) => agent.projectId === projectFilter), [agents, projectFilter]);
@@ -125,7 +166,7 @@ export default function App() {
         <nav>
           {nav.map((item) => <button key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setView(item.id)}>{item.label}</button>)}
         </nav>
-        <div className="sidebar-footer"><span className="live-dot" />Local server</div>
+        <div className="sidebar-footer"><span className="live-dot" />Live control plane</div>
       </aside>
 
       <main className="workspace">
@@ -145,10 +186,10 @@ export default function App() {
         {loading ? <div className="loading">Loading control-plane state…</div> : (
           <>
             {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} attention={attention} active={active} queued={queued} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onSpawn={() => setDialog('agent')} />}
-            {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} onRegister={() => setDialog('project')} />}
+            {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} />}
             {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
-            {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} />}
+            {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} communicationRules={communicationRules} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} onSaveRule={async (input) => { await mutate(() => api.saveCommunicationRule(input)); }} onDeleteRule={async (id) => { await mutate(() => api.deleteCommunicationRule(id)); }} />}
             {view === 'operations' && <OperationsView projects={projects} agents={agents} projectFilter={projectFilter} />}
             {view === 'approvals' && <ApprovalsView approvals={visibleApprovals} agents={agents} projects={projects} onDecision={async (id, decision) => { await mutate(() => api.decideApproval(id, decision)); }} onAnswer={async (id, answers) => { await mutate(() => api.answerApproval(id, answers)); }} />}
             {view === 'policy' && <PolicyView rules={policyRules} projects={projects} agents={agents} tasks={tasks} onCreate={async (input) => { await mutate(() => api.createPolicyRule(input)); }} onUpdate={async (id, input) => { await mutate(() => api.updatePolicyRule(id, input)); }} onDelete={async (id) => { await mutate(() => api.deletePolicyRule(id)); }} onEvaluate={(input) => api.evaluatePolicy(input)} />}
@@ -202,8 +243,8 @@ function Overview({ projects, agents, tasks, attention, active, queued, projectB
   </div>;
 }
 
-function Projects({ projects, agents, tasks, onRegister }: { projects: Project[]; agents: Agent[]; tasks: Task[]; onRegister: () => void }) {
-  return <section className="panel"><div className="section-header"><div><p className="eyebrow">Approved roots</p><h2>Projects</h2></div><button className="button primary" onClick={onRegister}>Register project</button></div>
+function Projects({ projects, agents, tasks, candidates, onRegister, onDiscover, onRegisterCandidate }: { projects: Project[]; agents: Agent[]; tasks: Task[]; candidates: ProjectCandidate[]; onRegister: () => void; onDiscover: () => void; onRegisterCandidate: (candidate: ProjectCandidate) => void }) {
+  return <section className="panel"><div className="section-header"><div><p className="eyebrow">Approved roots</p><h2>Projects</h2></div><div className="form-actions"><button className="button secondary" onClick={onDiscover}>Scan roots</button><button className="button primary" onClick={onRegister}>Register project</button></div></div>
     {!projects.length ? <Empty title="No projects registered" body="Register a repository under an allowed server root." /> : <div className="data-list">
       {projects.map((project) => {
         const projectAgents = agents.filter((agent) => agent.projectId === project.id);
@@ -216,6 +257,7 @@ function Projects({ projects, agents, tasks, onRegister }: { projects: Project[]
         </div>;
       })}
     </div>}
+    {candidates.length > 0 && <div className="data-list"><div className="section-header"><div><p className="eyebrow">Discovery results</p><h2>Repositories</h2></div></div>{candidates.map((candidate) => <div className="data-row" key={candidate.path}><div><strong>{candidate.name}</strong><code>{candidate.path}</code></div><span>{candidate.detectedBranch || 'main'}</span><span>{candidate.registered ? 'Registered' : 'Unregistered'}</span>{!candidate.registered && <button className="button compact secondary" onClick={() => onRegisterCandidate(candidate)}>Register</button>}</div>)}</div>}
   </section>;
 }
 
@@ -267,7 +309,7 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
   projects: Project[];
   initialProjectId?: string;
   onClose: () => void;
-  onSubmit: (input: { projectId: string; name: string; responsibility: string; workspaceMode: WorkspaceMode; baseBranch?: string; branch?: string; queueMode: AgentQueueMode; humanControlMode: HumanControlMode }) => void;
+  onSubmit: (input: { projectId: string; name: string; responsibility: string; workspaceMode: WorkspaceMode; baseBranch?: string; branch?: string; queueMode: AgentQueueMode; humanControlMode: HumanControlMode; capabilityProfile: AgentCapabilityProfile }) => void;
 }) {
   const [projectId, setProjectId] = useState(initialProjectId ?? projects[0]?.id ?? '');
   const [name, setName] = useState('');
@@ -276,13 +318,15 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
   const [branch, setBranch] = useState('');
   const [queueMode, setQueueMode] = useState<AgentQueueMode>('AUTO');
   const [humanControlMode, setHumanControlMode] = useState<HumanControlMode>('ON_THE_LOOP');
+  const [capabilityProfile, setCapabilityProfile] = useState<AgentCapabilityProfile>('IMPLEMENTER');
   const project = projects.find((item) => item.id === projectId);
-  return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode, humanControlMode }); }}>
+  return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode, humanControlMode, capabilityProfile }); }}>
     <label>Project<select required value={projectId} onChange={(e) => setProjectId(e.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label>Agent name<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Backend Auth" /></label>
     <label>Responsibility<textarea required rows={5} value={responsibility} onChange={(e) => setResponsibility(e.target.value)} placeholder="Own authentication, token lifecycle, backend API and tests." /></label>
     <div className="form-grid"><label>Workspace<select value={workspaceMode} onChange={(e) => setWorkspaceMode(e.target.value as WorkspaceMode)}><option value="ISOLATED_WORKTREE">Isolated worktree</option><option value="SHARED_PROJECT">Shared project</option></select></label><label>Queue policy<select value={queueMode} onChange={(e) => setQueueMode(e.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></label></div>
     <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop — autonomous by default</option><option value="IN_THE_LOOP">Human in the loop — all approvals block</option></select></label>
+    <label>Capability profile<select value={capabilityProfile} onChange={(e) => setCapabilityProfile(e.target.value as AgentCapabilityProfile)}><option value="IMPLEMENTER">Implementer — read, write, test, commit, message</option><option value="REVIEWER">Reviewer — read, test, review, message</option><option value="ARCHITECT">Architect — read, message</option><option value="OPS">Ops — read, test, message, deploy</option></select></label>
     <p className="form-note">On-the-loop is the default. Deterministic policy rules decide which actions continue, require you, or are denied; full HITL only tightens allowed actions. A system-managed Operational Agent is provisioned automatically for operational handoffs.</p>
     <label>Agent branch <span className="optional">optional</span><input className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="agent/backend-auth" /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Spawn agent</button></footer>

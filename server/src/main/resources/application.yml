@@ -25,6 +25,9 @@ agenticform:
     admin-token: ${AGENTICFORM_ADMIN_TOKEN:}
   project-roots:
     - ${AGENTICFORM_PROJECT_ROOT:/srv/apps}
+  project-discovery:
+    max-depth: ${AGENTICFORM_PROJECT_DISCOVERY_MAX_DEPTH:3}
+    max-candidates: ${AGENTICFORM_PROJECT_DISCOVERY_MAX_CANDIDATES:200}
   workspace:
     root: ${AGENTICFORM_WORKTREE_ROOT:/srv/agenticform/worktrees}
     git-timeout: ${AGENTICFORM_GIT_TIMEOUT:30s}

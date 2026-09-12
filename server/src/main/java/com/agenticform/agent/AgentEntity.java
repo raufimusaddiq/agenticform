@@ -62,6 +62,10 @@ public class AgentEntity {
     @Column(name = "agent_role", nullable = false, length = 32)
     private AgentRole role = AgentRole.GENERAL;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "capability_profile", nullable = false, length = 32)
+    private AgentCapabilityProfile capabilityProfile = AgentCapabilityProfile.IMPLEMENTER;
+
     @Column(name = "system_managed", nullable = false)
     private boolean systemManaged;
 
@@ -89,7 +93,7 @@ public class AgentEntity {
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode) {
         this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
-                branch, queueMode, humanControlMode, AgentRole.GENERAL, false, null);
+                branch, queueMode, humanControlMode, AgentRole.GENERAL, false, null, AgentCapabilityProfile.IMPLEMENTER);
     }
 
     public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
@@ -97,13 +101,24 @@ public class AgentEntity {
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
                        AgentRole role, boolean systemManaged) {
         this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
-                branch, queueMode, humanControlMode, role, systemManaged, null);
+                branch, queueMode, humanControlMode, role, systemManaged, null,
+                role == AgentRole.OPERATIONAL || systemManaged ? AgentCapabilityProfile.OPS : AgentCapabilityProfile.IMPLEMENTER);
     }
 
     public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
                        AgentRole role, boolean systemManaged, UUID executionNodeId) {
+        this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
+                branch, queueMode, humanControlMode, role, systemManaged, executionNodeId,
+                role == AgentRole.OPERATIONAL || systemManaged ? AgentCapabilityProfile.OPS : AgentCapabilityProfile.IMPLEMENTER);
+    }
+
+    public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
+                       WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
+                       String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
+                       AgentRole role, boolean systemManaged, UUID executionNodeId,
+                       AgentCapabilityProfile capabilityProfile) {
         this.projectId = projectId;
         this.name = name;
         this.responsibility = responsibility;
@@ -116,6 +131,9 @@ public class AgentEntity {
         this.humanControlMode = humanControlMode;
         this.role = role == null ? AgentRole.GENERAL : role;
         this.systemManaged = systemManaged;
+        this.capabilityProfile = this.role == AgentRole.OPERATIONAL || systemManaged
+                ? AgentCapabilityProfile.OPS
+                : (capabilityProfile == null ? AgentCapabilityProfile.IMPLEMENTER : capabilityProfile);
         this.executionNodeId = executionNodeId;
         this.runtimeGeneration = executionNodeId == null ? 0 : 1;
         this.status = codexThreadId == null ? AgentStatus.STARTING : AgentStatus.IDLE;
@@ -140,6 +158,7 @@ public class AgentEntity {
     public AgentQueueMode getQueueMode() { return queueMode; }
     public HumanControlMode getHumanControlMode() { return humanControlMode; }
     public AgentRole getRole() { return role; }
+    public AgentCapabilityProfile getCapabilityProfile() { return capabilityProfile; }
     public boolean isSystemManaged() { return systemManaged; }
     public UUID getExecutionNodeId() { return executionNodeId; }
     public long getRuntimeGeneration() { return runtimeGeneration; }
@@ -154,6 +173,17 @@ public class AgentEntity {
     public void setExecutionNodeId(UUID executionNodeId) { this.executionNodeId = executionNodeId; }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
+
+    public void setCapabilityProfile(AgentCapabilityProfile capabilityProfile) {
+        if (role == AgentRole.OPERATIONAL || systemManaged) {
+            if (capabilityProfile != AgentCapabilityProfile.OPS) {
+                throw new IllegalArgumentException("System-managed Operational Agent capability profile is fixed to OPS");
+            }
+            this.capabilityProfile = AgentCapabilityProfile.OPS;
+            return;
+        }
+        this.capabilityProfile = capabilityProfile == null ? AgentCapabilityProfile.IMPLEMENTER : capabilityProfile;
+    }
 
     public boolean ownsRuntime(UUID nodeId, long generation) {
         return executionNodeId != null && executionNodeId.equals(nodeId) && runtimeGeneration == generation;

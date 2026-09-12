@@ -3,6 +3,11 @@ package com.agenticform.codex;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
+import com.agenticform.event.ControlPlaneEventBus;
+import com.agenticform.message.AgentMessageDeliveryEntity;
+import com.agenticform.message.AgentMessageDeliveryRepository;
+import com.agenticform.message.AgentMessageService;
+import com.agenticform.task.TaskDependencyService;
 import com.agenticform.task.TaskEntity;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
@@ -16,15 +21,29 @@ import java.util.UUID;
 @Component
 public class CodexEventBridge {
     private static final String TASK_CLIENT_PREFIX = "agenticform-task:";
+    private static final String MESSAGE_CLIENT_PREFIX = "agenticform-message:";
 
     private final CodexJsonRpcClient client;
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
+    private final AgentMessageDeliveryRepository messageDeliveries;
+    private final AgentMessageService messageService;
+    private final TaskDependencyService taskDependencies;
+    private final ControlPlaneEventBus events;
 
-    public CodexEventBridge(CodexJsonRpcClient client, TaskRepository taskRepository, AgentRepository agentRepository) {
+    public CodexEventBridge(CodexJsonRpcClient client, TaskRepository taskRepository,
+                            AgentRepository agentRepository,
+                            AgentMessageDeliveryRepository messageDeliveries,
+                            AgentMessageService messageService,
+                            TaskDependencyService taskDependencies,
+                            ControlPlaneEventBus events) {
         this.client = client;
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
+        this.messageDeliveries = messageDeliveries;
+        this.messageService = messageService;
+        this.taskDependencies = taskDependencies;
+        this.events = events;
     }
 
     @PostConstruct
@@ -52,22 +71,40 @@ public class CodexEventBridge {
             JsonNode item = params.path("item");
             if (!"userMessage".equals(item.path("type").asText())) return;
             String clientId = item.path("clientId").asText("");
+            String turnId = params.path("turnId").asText(null);
+
             UUID taskId = taskId(clientId);
-            if (taskId == null) return;
-            taskRepository.findById(taskId).ifPresent(task -> {
-                if (!authorizedRuntime(executionNodeId, runtimeGeneration, task)) return;
-                String turnId = params.path("turnId").asText(null);
-                task.setCodexTurnId(turnId);
-                task.setStatus(TaskStatus.RUNNING);
-                taskRepository.save(task);
-                agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
-                    if (!authorizedAgent(executionNodeId, runtimeGeneration, agent)) return;
-                    agent.setStatus(AgentStatus.WORKING);
-                    agent.setActiveTaskId(task.getId());
-                    agent.setActiveTurnId(turnId);
-                    agentRepository.save(agent);
+            if (taskId != null) {
+                taskRepository.findById(taskId).ifPresent(task -> {
+                    if (!authorizedRuntime(executionNodeId, runtimeGeneration, task)) return;
+                    task.setCodexTurnId(turnId);
+                    task.setStatus(TaskStatus.RUNNING);
+                    taskRepository.save(task);
+                    agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
+                        if (!authorizedAgent(executionNodeId, runtimeGeneration, agent)) return;
+                        agent.setStatus(AgentStatus.WORKING);
+                        agent.setActiveTaskId(task.getId());
+                        agent.setActiveTurnId(turnId);
+                        agentRepository.save(agent);
+                    });
+                    events.publish("task.running", task.getProjectId(), task.getId());
                 });
-            });
+                return;
+            }
+
+            UUID deliveryId = messageDeliveryId(clientId);
+            if (deliveryId != null) {
+                messageDeliveries.findById(deliveryId).ifPresent(delivery -> {
+                    AgentEntity target = agentRepository.findById(delivery.getToAgentId()).orElse(null);
+                    if (!authorizedAgent(executionNodeId, runtimeGeneration, target)) return;
+                    delivery.markProcessing(turnId);
+                    messageDeliveries.save(delivery);
+                    messageService.refreshAggregate(delivery.getMessageId());
+                    if (target != null) {
+                        events.publish("message.processing", target.getProjectId(), delivery.getMessageId());
+                    }
+                });
+            }
             return;
         }
 
@@ -79,6 +116,8 @@ public class CodexEventBridge {
                     completeTask(task, params, executionNodeId, runtimeGeneration);
                 }
             });
+            messageDeliveries.findByCodexTurnId(turnId).ifPresent(delivery ->
+                    completeMessage(delivery, params, executionNodeId, runtimeGeneration));
         }
     }
 
@@ -88,6 +127,15 @@ public class CodexEventBridge {
         int generation = correlation.indexOf(":g");
         if (generation >= 0) correlation = correlation.substring(0, generation);
         try { return UUID.fromString(correlation); }
+        catch (IllegalArgumentException ignored) { return null; }
+    }
+
+    private UUID messageDeliveryId(String clientId) {
+        if (clientId == null || !clientId.startsWith(MESSAGE_CLIENT_PREFIX)) return null;
+        String correlation = clientId.substring(MESSAGE_CLIENT_PREFIX.length());
+        String[] parts = correlation.split(":");
+        if (parts.length < 2) return null;
+        try { return UUID.fromString(parts[1]); }
         catch (IllegalArgumentException ignored) { return null; }
     }
 
@@ -112,5 +160,24 @@ public class CodexEventBridge {
         agent.setActiveTaskId(null);
         agent.setActiveTurnId(null);
         agentRepository.save(agent);
+        taskDependencies.reconcileDependents(task.getId());
+        events.publish("task.terminal", task.getProjectId(), task.getId());
+    }
+
+    private void completeMessage(AgentMessageDeliveryEntity delivery, JsonNode params,
+                                 UUID executionNodeId, long generation) {
+        AgentEntity target = agentRepository.findById(delivery.getToAgentId()).orElse(null);
+        if (!authorizedAgent(executionNodeId, generation, target)) return;
+        String turnStatus = params.path("turn").path("status").asText();
+        if ("completed".equalsIgnoreCase(turnStatus)) {
+            delivery.markCompleted();
+        } else {
+            delivery.markProcessingFailed("Recipient Codex turn completed with status " + turnStatus);
+        }
+        messageDeliveries.save(delivery);
+        messageService.refreshAggregate(delivery.getMessageId());
+        if (target != null) {
+            events.publish("message.terminal", target.getProjectId(), delivery.getMessageId());
+        }
     }
 }

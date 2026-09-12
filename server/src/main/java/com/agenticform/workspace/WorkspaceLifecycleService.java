@@ -21,8 +21,9 @@ public class WorkspaceLifecycleService {
     public record Inspection(UUID agentId, boolean eligible, String reason, long estimatedBytes) {}
 
     private static final List<TaskStatus> ACTIVE_TASK_STATUSES = List.of(
-            TaskStatus.QUEUED, TaskStatus.READY, TaskStatus.DISPATCHING, TaskStatus.DISPATCHED,
-            TaskStatus.RUNNING, TaskStatus.BLOCKED, TaskStatus.WAITING_APPROVAL, TaskStatus.PAUSED);
+            TaskStatus.QUEUED, TaskStatus.READY, TaskStatus.WAITING_DEPENDENCY,
+            TaskStatus.DISPATCHING, TaskStatus.DISPATCHED, TaskStatus.RUNNING,
+            TaskStatus.BLOCKED, TaskStatus.WAITING_APPROVAL, TaskStatus.PAUSED);
 
     private final AgentRepository agentRepository;
     private final ProjectRepository projectRepository;

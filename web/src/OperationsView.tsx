@@ -1,5 +1,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type OperationExternalWait } from './api';
+import {
+  operationalIntelligenceApi,
+  type OperationalIncident,
+  type OperationalIncidentDetail,
+  type OperationalIncidentStatus,
+  type OperationalSignal
+} from './operationalIntelligence';
 import type { Agent, OperationRun, OperationRunDetail, OperationalEnvironment, OperationalRunbook, OperationalService, Project, WorkspaceCleanupRecord } from './types';
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
@@ -35,8 +42,11 @@ export function OperationsView({ projects, agents, projectFilter }: {
   const [services, setServices] = useState<OperationalService[]>([]);
   const [runbooks, setRunbooks] = useState<OperationalRunbook[]>([]);
   const [runs, setRuns] = useState<OperationRun[]>([]);
+  const [incidents, setIncidents] = useState<OperationalIncident[]>([]);
+  const [signals, setSignals] = useState<OperationalSignal[]>([]);
   const [cleanupHistory, setCleanupHistory] = useState<WorkspaceCleanupRecord[]>([]);
   const [selectedRun, setSelectedRun] = useState<OperationRunDetail | null>(null);
+  const [selectedIncident, setSelectedIncident] = useState<OperationalIncidentDetail | null>(null);
   const [externalWaits, setExternalWaits] = useState<OperationExternalWait[]>([]);
   const [launchRunbook, setLaunchRunbook] = useState<OperationalRunbook | null>(null);
   const [parameters, setParameters] = useState<Record<string, string>>({});
@@ -45,14 +55,18 @@ export function OperationsView({ projects, agents, projectFilter }: {
 
   const refresh = useCallback(async () => {
     try {
-      const [nextEnvironments, nextServices, nextRunbooks, nextRuns, nextCleanup] = await Promise.all([
+      const intelligenceProject = projectFilter === 'all' ? undefined : projectFilter;
+      const [nextEnvironments, nextServices, nextRunbooks, nextRuns, nextIncidents, nextSignals, nextCleanup] = await Promise.all([
         api.operationalEnvironments(), api.operationalServices(), api.operationalRunbooks(), api.operationRuns(),
-        api.workspaceCleanupHistory(projectFilter === 'all' ? undefined : projectFilter)
+        operationalIntelligenceApi.incidents(intelligenceProject), operationalIntelligenceApi.signals(intelligenceProject),
+        api.workspaceCleanupHistory(intelligenceProject)
       ]);
       setEnvironments(nextEnvironments);
       setServices(nextServices);
       setRunbooks(nextRunbooks);
       setRuns(nextRuns);
+      setIncidents(nextIncidents);
+      setSignals(nextSignals);
       setCleanupHistory(nextCleanup);
       setError(null);
       if (selectedRun) {
@@ -62,10 +76,11 @@ export function OperationsView({ projects, agents, projectFilter }: {
         setSelectedRun(detail);
         setExternalWaits(waits);
       }
+      if (selectedIncident) setSelectedIncident(await operationalIntelligenceApi.incident(selectedIncident.incident.id));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load operational state');
     }
-  }, [selectedRun?.run.id, projectFilter]);
+  }, [selectedRun?.run.id, selectedIncident?.incident.id, projectFilter]);
 
   useEffect(() => {
     void refresh();
@@ -80,6 +95,8 @@ export function OperationsView({ projects, agents, projectFilter }: {
   const visibleRuns = scoped(runs);
   const visibleProjects = projectFilter === 'all' ? projects : projects.filter((project) => project.id === projectFilter);
   const visibleCodingAgents = agents.filter((agent) => !agent.systemManaged && agent.workspaceMode === 'ISOLATED_WORKTREE' && (projectFilter === 'all' || agent.projectId === projectFilter));
+  const activeIncidents = incidents.filter((incident) => !['RESOLVED', 'SUPPRESSED'].includes(incident.status));
+  const highIncidents = activeIncidents.filter((incident) => ['HIGH', 'CRITICAL'].includes(incident.severity));
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const environmentById = useMemo(() => new Map(environments.map((environment) => [environment.id, environment])), [environments]);
   const runbookById = useMemo(() => new Map(runbooks.map((runbook) => [runbook.id, runbook])), [runbooks]);
@@ -106,6 +123,18 @@ export function OperationsView({ projects, agents, projectFilter }: {
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load operation evidence');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectIncident(incidentId: string) {
+    setBusy(true);
+    try {
+      setSelectedIncident(await operationalIntelligenceApi.incident(incidentId));
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to load incident evidence');
     } finally {
       setBusy(false);
     }
@@ -138,6 +167,17 @@ export function OperationsView({ projects, agents, projectFilter }: {
     });
   }
 
+  async function transitionIncident(incident: OperationalIncident, status: OperationalIncidentStatus) {
+    let summary: string | undefined;
+    if (status === 'RESOLVED' || status === 'SUPPRESSED') {
+      summary = window.prompt(status === 'RESOLVED' ? 'Resolution summary' : 'Suppression reason')?.trim();
+      if (!summary) return;
+    } else {
+      summary = status === 'INVESTIGATING' ? 'Operator acknowledged incident for investigation' : 'Mitigation is in progress';
+    }
+    await mutate(() => operationalIntelligenceApi.transitionIncident(incident.id, status, summary));
+  }
+
   return <div className="page-stack">
     {error && <div className="error-banner"><strong>Operational action required</strong><span>{error}</span><button onClick={() => setError(null)}>Dismiss</button></div>}
 
@@ -158,10 +198,59 @@ export function OperationsView({ projects, agents, projectFilter }: {
     </section>
 
     <section className="metrics-strip">
-      <div><span>Environments</span><strong>{visibleEnvironments.length}</strong></div>
-      <div><span>Services</span><strong>{visibleServices.length}</strong></div>
-      <div><span>Runbooks</span><strong>{visibleRunbooks.filter((runbook) => runbook.enabled).length}</strong></div>
+      <div><span>Open incidents</span><strong>{activeIncidents.length}</strong></div>
+      <div><span>High / critical</span><strong>{highIncidents.length}</strong></div>
+      <div><span>Monitored services</span><strong>{visibleServices.filter((service) => service.enabled && Boolean(service.healthUrl || service.readinessUrl)).length}</strong></div>
       <div><span>Active runs</span><strong>{visibleRuns.filter((run) => ['WAITING_APPROVAL', 'QUEUED', 'RUNNING', 'WAITING_EXTERNAL'].includes(run.status)).length}</strong></div>
+    </section>
+
+    <section className="panel">
+      <div className="section-header"><div><p className="eyebrow">Operational intelligence</p><h2>Incidents</h2></div><button className="button secondary" disabled={busy} onClick={() => void refresh()}>Refresh</button></div>
+      {!incidents.length ? <div className="empty"><strong>No incidents</strong><p>Deterministic health, node, workflow, and operation signals will open incidents when configured thresholds are met.</p></div> : <div className="data-list">
+        {incidents.slice(0, 30).map((incident) => <div className="data-row task-detail-row" key={incident.id}>
+          <div><strong>{incident.title}</strong><small>{projectById.get(incident.projectId)?.name} · {incident.incidentType}</small></div>
+          <Status value={incident.severity} /><Status value={incident.status} /><span>Wake: {label(incident.wakeStatus)}</span>
+          <span title={incident.summary}>{incident.summary.slice(0, 100)}</span>
+          <button className="button compact ghost" disabled={busy} onClick={() => void selectIncident(incident.id)}>Evidence</button>
+        </div>)}
+      </div>}
+    </section>
+
+    {selectedIncident && <section className="panel">
+      <div className="section-header"><div><p className="eyebrow">Incident evidence</p><h2>{selectedIncident.incident.title}</h2></div><button className="button ghost" onClick={() => setSelectedIncident(null)}>Close</button></div>
+      <div className="metrics-strip">
+        <div><span>Severity</span><strong>{label(selectedIncident.incident.severity)}</strong></div>
+        <div><span>Status</span><strong>{label(selectedIncident.incident.status)}</strong></div>
+        <div><span>Wake</span><strong>{label(selectedIncident.incident.wakeStatus)}</strong></div>
+        <div><span>Signals</span><strong>{selectedIncident.signals.length}</strong></div>
+      </div>
+      <p>{selectedIncident.incident.summary}</p>
+      {selectedIncident.incident.suspectedChange && <p className="form-note">Suspected change <code>{selectedIncident.incident.suspectedChange}</code></p>}
+      {selectedIncident.incident.lastWakeError && <div className="error-banner"><strong>Agent wake failed</strong><span>{selectedIncident.incident.lastWakeError}</span></div>}
+      <div className="top-actions">
+        {selectedIncident.incident.status === 'OPEN' && <button className="button compact secondary" disabled={busy} onClick={() => void transitionIncident(selectedIncident.incident, 'INVESTIGATING')}>Investigate</button>}
+        {['OPEN', 'INVESTIGATING'].includes(selectedIncident.incident.status) && <button className="button compact secondary" disabled={busy} onClick={() => void transitionIncident(selectedIncident.incident, 'MITIGATING')}>Mark mitigating</button>}
+        {!['RESOLVED', 'SUPPRESSED'].includes(selectedIncident.incident.status) && <button className="button compact primary" disabled={busy} onClick={() => void transitionIncident(selectedIncident.incident, 'RESOLVED')}>Resolve</button>}
+        {!['RESOLVED', 'SUPPRESSED'].includes(selectedIncident.incident.status) && <button className="button compact ghost" disabled={busy} onClick={() => void transitionIncident(selectedIncident.incident, 'SUPPRESSED')}>Suppress</button>}
+        {selectedIncident.incident.wakeStatus === 'FAILED' && <button className="button compact secondary" disabled={busy} onClick={() => void mutate(() => operationalIntelligenceApi.retryWake(selectedIncident.incident.id))}>Retry agent wake</button>}
+      </div>
+      <p className="eyebrow">Correlated signals</p>
+      <div className="data-list">
+        {selectedIncident.signals.map((signal) => <div className="data-row task-row" key={signal.id}>
+          <div><strong>{label(signal.signalType)}</strong><small>{signal.source} · {signal.occurrenceCount} occurrence{signal.occurrenceCount === 1 ? '' : 's'}</small></div>
+          <Status value={signal.severity} /><Status value={signal.status} /><span>{new Date(signal.lastSeenAt).toLocaleString()}</span><code title={signal.payloadJson}>{signal.payloadJson.slice(0, 120)}</code>
+        </div>)}
+      </div>
+    </section>}
+
+    <section className="panel">
+      <div className="section-header"><div><p className="eyebrow">Recent evidence</p><h2>Operational signals</h2></div></div>
+      {!signals.length ? <div className="empty"><strong>No operational signals</strong><p>Registered monitors and operation events will populate durable evidence here.</p></div> : <div className="data-list">
+        {signals.slice(0, 20).map((signal) => <div className="data-row task-row" key={signal.id}>
+          <div><strong>{label(signal.signalType)}</strong><small>{projectById.get(signal.projectId)?.name} · {signal.source}</small></div>
+          <Status value={signal.severity} /><Status value={signal.status} /><span>{signal.occurrenceCount}×</span><time>{new Date(signal.lastSeenAt).toLocaleString()}</time>
+        </div>)}
+      </div>}
     </section>
 
     <section className="panel">

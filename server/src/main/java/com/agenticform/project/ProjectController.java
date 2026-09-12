@@ -14,14 +14,21 @@ import java.util.List;
 @RequestMapping("/api/projects")
 public class ProjectController {
     private final ProjectService service;
+    private final ProjectDiscoveryService discovery;
 
-    public ProjectController(ProjectService service) {
+    public ProjectController(ProjectService service, ProjectDiscoveryService discovery) {
         this.service = service;
+        this.discovery = discovery;
     }
 
     @GetMapping
     public List<ProjectEntity> list() {
         return service.list();
+    }
+
+    @GetMapping("/discover")
+    public List<ProjectDiscoveryService.Candidate> discover() {
+        return discovery.discover();
     }
 
     @PostMapping

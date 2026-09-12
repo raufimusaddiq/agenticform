@@ -17,16 +17,13 @@ public class ProjectPathPolicy {
     }
 
     public Path requireAllowedDirectory(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) throw new IllegalArgumentException("Project path is required");
         try {
             Path candidate = Path.of(rawPath).toRealPath();
             if (!Files.isDirectory(candidate)) {
                 throw new IllegalArgumentException("Project path is not a directory: " + candidate);
             }
-            List<Path> roots = properties.getProjectRoots().stream()
-                    .map(Path::of)
-                    .map(this::realPath)
-                    .toList();
-            if (roots.stream().noneMatch(candidate::startsWith)) {
+            if (allowedRoots().stream().noneMatch(candidate::startsWith)) {
                 throw new IllegalArgumentException("Project path is outside configured project roots");
             }
             return candidate;
@@ -35,9 +32,21 @@ public class ProjectPathPolicy {
         }
     }
 
-    private Path realPath(Path path) {
+    public List<Path> allowedRoots() {
+        return properties.getProjectRoots().stream()
+                .map(Path::of)
+                .map(this::realDirectory)
+                .distinct()
+                .toList();
+    }
+
+    private Path realDirectory(Path path) {
         try {
-            return path.toRealPath();
+            Path real = path.toRealPath();
+            if (!Files.isDirectory(real)) {
+                throw new IllegalStateException("Configured project root is not a directory: " + real);
+            }
+            return real;
         } catch (IOException e) {
             throw new IllegalStateException("Configured project root cannot be resolved: " + path, e);
         }

@@ -21,10 +21,13 @@ import java.util.UUID;
 public class AgentController {
     private final AgentService service;
     private final AgentRuntimeRecoveryService recovery;
+    private final AgentLifecycleService lifecycle;
 
-    public AgentController(AgentService service, AgentRuntimeRecoveryService recovery) {
+    public AgentController(AgentService service, AgentRuntimeRecoveryService recovery,
+                           AgentLifecycleService lifecycle) {
         this.service = service;
         this.recovery = recovery;
+        this.lifecycle = lifecycle;
     }
 
     @GetMapping
@@ -37,7 +40,7 @@ public class AgentController {
         return service.spawn(new AgentService.SpawnAgent(
                 request.projectId(), request.name(), request.responsibility(), request.workspaceMode(),
                 request.baseBranch(), request.branch(), request.queueMode(), request.humanControlMode(),
-                request.executionNodeId(), request.minimumTrust()));
+                request.executionNodeId(), request.minimumTrust(), request.capabilityProfile()));
     }
 
     @PostMapping("/operational/ensure")
@@ -62,6 +65,11 @@ public class AgentController {
         return service.intervene(agentId);
     }
 
+    @PostMapping("/{agentId}/stop")
+    public AgentEntity stop(@PathVariable UUID agentId) {
+        return lifecycle.stop(agentId);
+    }
+
     @PostMapping("/{agentId}/recover-runtime")
     public AgentEntity recoverRuntime(@PathVariable UUID agentId) {
         return recovery.recover(agentId);
@@ -82,7 +90,8 @@ public class AgentController {
             AgentQueueMode queueMode,
             HumanControlMode humanControlMode,
             UUID executionNodeId,
-            NodeTrustLevel minimumTrust
+            NodeTrustLevel minimumTrust,
+            AgentCapabilityProfile capabilityProfile
     ) {}
 
     public record EnsureOperationalAgentRequest(@NotNull UUID projectId) {}

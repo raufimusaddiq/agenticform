@@ -168,7 +168,6 @@ https://github.com/owner/repository.git
 - [Durable recovery and GitHub webhooks](docs/recovery.md)
 - [Distributed Agent Fabric](docs/distributed-agent-fabric.md)
 - [UI/UX specification](docs/ui-ux.md)
-- [Platform & SaaS PRD](docs/platform-saas-prd.md)
 
 ## Current architecture
 

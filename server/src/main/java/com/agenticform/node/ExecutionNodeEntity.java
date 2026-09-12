@@ -41,6 +41,9 @@ public class ExecutionNodeEntity {
     @Column(name = "drain_requested", nullable = false)
     private boolean drainRequested;
 
+    @Column(name = "protocol_version", nullable = false)
+    private int protocolVersion = ExecutionNodeProtocol.CURRENT;
+
     @Column(name = "labels_json", nullable = false, columnDefinition = "text")
     private String labelsJson = "{}";
 
@@ -92,6 +95,7 @@ public class ExecutionNodeEntity {
         this.publicKeyBase64 = publicKeyBase64;
         this.fingerprint = fingerprint;
         this.status = ExecutionNodeStatus.ONLINE;
+        this.protocolVersion = ExecutionNodeProtocol.CURRENT;
         this.enrolledAt = Instant.now();
         this.lastSeenAt = this.enrolledAt;
     }
@@ -104,13 +108,14 @@ public class ExecutionNodeEntity {
     @PreUpdate
     void onUpdate() { updatedAt = Instant.now(); }
 
-    public void heartbeat(String labelsJson, String capabilitiesJson, int maxAgents,
+    public void heartbeat(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
                           String os, String arch, String hostname, String nodeVersion,
                           String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb) {
         if (status == ExecutionNodeStatus.REVOKED || status == ExecutionNodeStatus.DISABLED) return;
         if (status == ExecutionNodeStatus.OFFLINE) {
             status = drainRequested ? ExecutionNodeStatus.DRAINING : ExecutionNodeStatus.ONLINE;
         }
+        this.protocolVersion = protocolVersion;
         this.labelsJson = labelsJson == null || labelsJson.isBlank() ? "{}" : labelsJson;
         this.capabilitiesJson = capabilitiesJson == null || capabilitiesJson.isBlank() ? "{}" : capabilitiesJson;
         this.maxAgents = Math.max(1, maxAgents);
@@ -145,6 +150,8 @@ public class ExecutionNodeEntity {
     public String getPublicKeyBase64() { return publicKeyBase64; }
     public String getFingerprint() { return fingerprint; }
     public boolean isDrainRequested() { return drainRequested; }
+    public int getProtocolVersion() { return protocolVersion; }
+    public boolean isProtocolCompatible() { return ExecutionNodeProtocol.compatible(protocolVersion); }
     public String getLabelsJson() { return labelsJson; }
     public String getCapabilitiesJson() { return capabilitiesJson; }
     public int getMaxAgents() { return maxAgents; }

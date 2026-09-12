@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -41,6 +42,7 @@ public class NodeCommandCompletionHandler {
                 case "START_AGENT" -> completeStart(command, success, resultJson, error);
                 case "DISPATCH_TASK" -> completeTaskDispatch(command, success, resultJson, error);
                 case "DELIVER_MESSAGE" -> completeMessage(command, success, resultJson, error);
+                case "INTERRUPT_TURN" -> completeInterrupt(command, success, error);
                 case "CLEANUP_WORKSPACE" -> completeCleanup(command, success, error);
                 default -> { }
             }
@@ -152,10 +154,51 @@ public class NodeCommandCompletionHandler {
         deliveries.save(delivery);
     }
 
-    private void completeCleanup(NodeCommandEntity command, boolean success, String error) {
+    private void completeInterrupt(NodeCommandEntity command, boolean success, String error) throws Exception {
         if (command.getAgentId() == null) return;
         AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
         if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
+        JsonNode payload = parse(command.getPayloadJson());
+        if (!payload.path("stopLifecycle").asBoolean(false)) return;
+        if (!success) {
+            agent.setStatus(AgentStatus.DISCONNECTED);
+            agents.save(agent);
+            return;
+        }
+        if (payload.path("cleanupAfterInterrupt").asBoolean(false)) {
+            Map<String, Object> cleanup = new LinkedHashMap<>();
+            cleanup.put("threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId());
+            cleanup.put("defaultBranch", payload.path("defaultBranch").asText(""));
+            cleanup.put("stopLifecycle", true);
+            nodes.enqueue(command.getNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
+                    "stop-cleanup:" + agent.getId() + ":g" + command.getRuntimeGeneration(), cleanup);
+            return;
+        }
+        if (payload.path("finalizeStop").asBoolean(false)) {
+            agent.setStatus(AgentStatus.STOPPED);
+            agent.setActiveTaskId(null);
+            agent.setActiveTurnId(null);
+            agents.save(agent);
+        }
+    }
+
+    private void completeCleanup(NodeCommandEntity command, boolean success, String error) throws Exception {
+        if (command.getAgentId() == null) return;
+        AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
+        if (agent == null || !agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration())) return;
+        JsonNode payload = parse(command.getPayloadJson());
+        boolean stopLifecycle = payload.path("stopLifecycle").asBoolean(false)
+                || command.getIdempotencyKey().startsWith("stop-cleanup:");
+        if (stopLifecycle) {
+            // Workspace cleanup is an optimization, not permission to discard unmerged work.
+            // Even if cleanup is refused because the branch is dirty/unmerged, the agent runtime
+            // is logically stopped and the retained workspace remains available for recovery.
+            agent.setStatus(AgentStatus.STOPPED);
+            agent.setActiveTaskId(null);
+            agent.setActiveTurnId(null);
+            agents.save(agent);
+            return;
+        }
         if (success) {
             agent.setStatus(AgentStatus.STOPPED);
             agent.setActiveTaskId(null);
