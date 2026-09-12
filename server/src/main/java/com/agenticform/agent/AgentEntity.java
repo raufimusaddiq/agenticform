@@ -33,9 +33,6 @@ public class AgentEntity {
     @Column(nullable = false, columnDefinition = "text")
     private String responsibility;
 
-    @Column(name = "codex_thread_id", unique = true)
-    private String codexThreadId;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "runtime_type", nullable = false, length = 32)
     private RuntimeType runtimeType = RuntimeType.CODEX;
@@ -98,32 +95,32 @@ public class AgentEntity {
 
     protected AgentEntity() {}
 
-    public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
+    public AgentEntity(UUID projectId, String name, String responsibility, String runtimeSessionId,
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode) {
-        this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
+        this(projectId, name, responsibility, runtimeSessionId, workspaceMode, sourceDirectory, workingDirectory,
                 branch, queueMode, humanControlMode, AgentRole.GENERAL, false, null, AgentCapabilityProfile.IMPLEMENTER);
     }
 
-    public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
+    public AgentEntity(UUID projectId, String name, String responsibility, String runtimeSessionId,
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
                        AgentRole role, boolean systemManaged) {
-        this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
+        this(projectId, name, responsibility, runtimeSessionId, workspaceMode, sourceDirectory, workingDirectory,
                 branch, queueMode, humanControlMode, role, systemManaged, null,
                 role == AgentRole.OPERATIONAL || systemManaged ? AgentCapabilityProfile.OPS : AgentCapabilityProfile.IMPLEMENTER);
     }
 
-    public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
+    public AgentEntity(UUID projectId, String name, String responsibility, String runtimeSessionId,
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
                        AgentRole role, boolean systemManaged, UUID executionNodeId) {
-        this(projectId, name, responsibility, codexThreadId, workspaceMode, sourceDirectory, workingDirectory,
+        this(projectId, name, responsibility, runtimeSessionId, workspaceMode, sourceDirectory, workingDirectory,
                 branch, queueMode, humanControlMode, role, systemManaged, executionNodeId,
                 role == AgentRole.OPERATIONAL || systemManaged ? AgentCapabilityProfile.OPS : AgentCapabilityProfile.IMPLEMENTER);
     }
 
-    public AgentEntity(UUID projectId, String name, String responsibility, String codexThreadId,
+    public AgentEntity(UUID projectId, String name, String responsibility, String runtimeSessionId,
                        WorkspaceMode workspaceMode, String sourceDirectory, String workingDirectory,
                        String branch, AgentQueueMode queueMode, HumanControlMode humanControlMode,
                        AgentRole role, boolean systemManaged, UUID executionNodeId,
@@ -131,8 +128,7 @@ public class AgentEntity {
         this.projectId = projectId;
         this.name = name;
         this.responsibility = responsibility;
-        this.codexThreadId = codexThreadId;
-        this.runtimeSessionId = codexThreadId;
+        this.runtimeSessionId = runtimeSessionId;
         this.workspaceMode = workspaceMode;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;
@@ -146,7 +142,7 @@ public class AgentEntity {
                 : (capabilityProfile == null ? AgentCapabilityProfile.IMPLEMENTER : capabilityProfile);
         this.executionNodeId = executionNodeId;
         this.runtimeGeneration = executionNodeId == null ? 0 : 1;
-        this.status = codexThreadId == null ? AgentStatus.STARTING : AgentStatus.IDLE;
+        this.status = runtimeSessionId == null ? AgentStatus.STARTING : AgentStatus.IDLE;
     }
 
     @PrePersist
@@ -159,7 +155,6 @@ public class AgentEntity {
     public UUID getProjectId() { return projectId; }
     public String getName() { return name; }
     public String getResponsibility() { return responsibility; }
-    public String getCodexThreadId() { return codexThreadId; }
     public RuntimeType getRuntimeType() { return runtimeType; }
     public String getRuntimeSessionId() { return runtimeSessionId; }
     public WorkspaceMode getWorkspaceMode() { return workspaceMode; }
@@ -185,7 +180,6 @@ public class AgentEntity {
     public void setExecutionNodeId(UUID executionNodeId) { this.executionNodeId = executionNodeId; }
     public void setRuntimeType(RuntimeType runtimeType) {
         this.runtimeType = Objects.requireNonNull(runtimeType, "Runtime type is required");
-        if (this.runtimeType != RuntimeType.CODEX) this.codexThreadId = null;
     }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
@@ -209,7 +203,6 @@ public class AgentEntity {
         if (nodeId == null) throw new IllegalArgumentException("Execution node is required");
         executionNodeId = nodeId;
         runtimeGeneration++;
-        codexThreadId = null;
         runtimeSessionId = null;
         sourceDirectory = null;
         workingDirectory = null;
@@ -225,7 +218,6 @@ public class AgentEntity {
             throw new IllegalStateException("Stale agent runtime generation: " + generation + ", expected " + runtimeGeneration);
         }
         this.runtimeType = Objects.requireNonNull(runtimeType, "Runtime type is required");
-        this.codexThreadId = this.runtimeType == RuntimeType.CODEX ? runtimeSessionId : null;
         this.runtimeSessionId = runtimeSessionId;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;

@@ -37,7 +37,6 @@ public class TaskQueueReconciler {
             agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
                 try {
                     String sessionId = agent.getRuntimeSessionId();
-                    if (sessionId == null || sessionId.isBlank()) sessionId = agent.getCodexThreadId();
                     runtimeRegistry.get(agent.getRuntimeType()).resume(new RuntimeSession(sessionId));
                     updateError(task.getId(), null);
                 } catch (RuntimeException error) {

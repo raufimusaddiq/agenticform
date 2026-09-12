@@ -276,7 +276,7 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
         <p>{agent.responsibility}</p>
         <div className="control-stack"><small>Human control</small><select className="compact-select" value={agent.humanControlMode} onChange={(event) => onControlMode(agent.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">On the loop</option><option value="IN_THE_LOOP">In the loop</option></select></div>
         <div className="control-stack"><small>Queue</small><select className="compact-select" value={agent.queueMode} onChange={(event) => onQueueMode(agent.id, event.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></div>
-        <div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small><code title={agent.codexThreadId}>{shortId(agent.codexThreadId)}</code></div>
+        <div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small><code title={agent.runtimeSessionId}>{shortId(agent.runtimeSessionId)}</code></div>
         <button className="button compact secondary" onClick={() => onIntervene(agent.id)} disabled={agent.queueMode === 'PAUSED' && !agent.activeTurnId}>Intervene</button>
       </div>)}
     </div>}

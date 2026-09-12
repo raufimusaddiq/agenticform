@@ -48,7 +48,7 @@ class FlywayMigrationSmokeTest {
                      VALUES (?, ?, ?, ?, ?, TRUE, ?, ?)
                      """);
              PreparedStatement agent = connection.prepareStatement("""
-                     INSERT INTO agents (id, project_id, name, responsibility, codex_thread_id, workspace_mode,
+                     INSERT INTO agents (id, project_id, name, responsibility, workspace_mode,
                          source_directory, working_directory, branch, status, queue_mode, active_task_id,
                          active_turn_id, created_at, updated_at, human_control_mode, agent_role, system_managed,
                          execution_node_id, runtime_generation, capability_profile)
@@ -67,18 +67,17 @@ class FlywayMigrationSmokeTest {
             agent.setObject(2, projectId);
             agent.setString(3, "legacy agent");
             agent.setString(4, "migration test");
-            agent.setString(5, "legacy-codex-thread");
-            agent.setString(6, "ISOLATED_WORKTREE");
-            agent.setString(7, "/tmp/source");
-            agent.setString(8, "/tmp/work");
-            agent.setString(9, "agent/legacy");
-            agent.setString(10, "IDLE");
-            agent.setString(11, "AUTO");
+            agent.setString(5, "ISOLATED_WORKTREE");
+            agent.setString(6, "/tmp/source");
+            agent.setString(7, "/tmp/work");
+            agent.setString(8, "agent/legacy");
+            agent.setString(9, "IDLE");
+            agent.setString(10, "AUTO");
+            agent.setTimestamp(11, Timestamp.from(now));
             agent.setTimestamp(12, Timestamp.from(now));
-            agent.setTimestamp(13, Timestamp.from(now));
-            agent.setString(14, "IN_THE_LOOP");
-            agent.setString(15, "GENERAL");
-            agent.setString(16, "IMPLEMENTER");
+            agent.setString(13, "IN_THE_LOOP");
+            agent.setString(14, "GENERAL");
+            agent.setString(15, "IMPLEMENTER");
             agent.executeUpdate();
         }
 
@@ -91,7 +90,7 @@ class FlywayMigrationSmokeTest {
             try (var rows = query.executeQuery()) {
                 assertTrue(rows.next(), "legacy agent should survive runtime migration");
                 assertEquals("CODEX", rows.getString("runtime_type"));
-                assertEquals("legacy-codex-thread", rows.getString("runtime_session_id"));
+                assertEquals(null, rows.getString("runtime_session_id"));
             }
         }
 

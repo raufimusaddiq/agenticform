@@ -77,8 +77,8 @@ public class HumanApprovalService {
     public CompletionStage<JsonNode> receive(CodexJsonRpcClient.ServerRequest request) {
         JsonNode params = request.params();
         String threadId = requiredText(params, "threadId");
-        AgentEntity agent = agentRepository.findByCodexThreadId(threadId)
-                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns Codex thread " + threadId));
+        AgentEntity agent = agentRepository.findByRuntimeSessionId(threadId)
+                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns runtime session " + threadId));
 
         HumanApprovalType type = typeForMethod(request.method());
         HumanApprovalPolicy.Evaluation evaluation = policy.evaluate(agent, type, params);

@@ -64,7 +64,6 @@ CREATE UNIQUE INDEX ux_projects_repository_url_not_null ON projects(repository_u
 
 ALTER TABLE agents
     ADD COLUMN execution_node_id UUID REFERENCES execution_nodes(id) ON DELETE SET NULL;
-ALTER TABLE agents ALTER COLUMN codex_thread_id DROP NOT NULL;
 ALTER TABLE agents ALTER COLUMN source_directory DROP NOT NULL;
 ALTER TABLE agents ALTER COLUMN working_directory DROP NOT NULL;
 CREATE INDEX idx_agents_execution_node ON agents(execution_node_id);

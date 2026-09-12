@@ -36,7 +36,7 @@ class AgentRuntimeGenerationTest {
                 () -> agent.bindRuntime(1, RuntimeType.CODEX, "stale-thread", "/src", "/work", "old"));
 
         agent.bindRuntime(2, RuntimeType.CODEX, "thread-2", "/src", "/work", "recovery/coder-g2");
-        assertEquals("thread-2", agent.getCodexThreadId());
+        assertEquals("thread-2", agent.getRuntimeSessionId());
         assertEquals("thread-2", agent.getRuntimeSessionId());
         assertEquals(com.agenticform.runtime.RuntimeType.CODEX, agent.getRuntimeType());
         assertEquals(AgentStatus.IDLE, agent.getStatus());
@@ -56,7 +56,7 @@ class AgentRuntimeGenerationTest {
 
         agent.recoverFromSnapshot(1, "stale-thread", "/stale-src", "/stale-work", "stale-branch");
 
-        assertEquals("thread-2", agent.getCodexThreadId());
+        assertEquals("thread-2", agent.getRuntimeSessionId());
         assertEquals("/src-2", agent.getSourceDirectory());
         assertEquals("/work-2", agent.getWorkingDirectory());
         assertEquals("branch-2", agent.getBranch());

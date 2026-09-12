@@ -58,7 +58,7 @@ CREATE TABLE node_runtime_snapshots (
     node_id UUID NOT NULL REFERENCES execution_nodes(id) ON DELETE CASCADE,
     agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     runtime_generation BIGINT NOT NULL,
-    thread_id VARCHAR(255),
+    runtime_session_id VARCHAR(255),
     source_directory TEXT,
     working_directory TEXT,
     branch VARCHAR(255),

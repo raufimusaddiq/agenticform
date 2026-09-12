@@ -14,7 +14,6 @@ CREATE TABLE agents (
     project_id UUID NOT NULL REFERENCES projects(id),
     name VARCHAR(255) NOT NULL,
     responsibility TEXT NOT NULL,
-    codex_thread_id VARCHAR(255) NOT NULL UNIQUE,
     workspace_mode VARCHAR(64) NOT NULL,
     source_directory TEXT NOT NULL,
     working_directory TEXT NOT NULL,

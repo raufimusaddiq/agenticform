@@ -11,7 +11,6 @@ public interface AgentRepository extends JpaRepository<AgentEntity, UUID> {
     List<AgentEntity> findAllByProjectId(UUID projectId);
     List<AgentEntity> findAllByExecutionNodeId(UUID executionNodeId);
     long countByExecutionNodeIdAndStatusIn(UUID executionNodeId, Collection<AgentStatus> statuses);
-    Optional<AgentEntity> findByCodexThreadId(String codexThreadId);
     Optional<AgentEntity> findByRuntimeSessionId(String runtimeSessionId);
     Optional<AgentEntity> findByProjectIdAndRole(UUID projectId, AgentRole role);
 }

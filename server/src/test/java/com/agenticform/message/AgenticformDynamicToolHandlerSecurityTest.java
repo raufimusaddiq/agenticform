@@ -34,7 +34,7 @@ class AgenticformDynamicToolHandlerSecurityTest {
     void generalAgentCannotRequestProtectedOperation() {
         AgentRepository agents = mock(AgentRepository.class);
         AgentEntity source = mock(AgentEntity.class);
-        when(agents.findByCodexThreadId("thread-1")).thenReturn(Optional.of(source));
+        when(agents.findByRuntimeSessionId("thread-1")).thenReturn(Optional.of(source));
         when(source.getCapabilityProfile()).thenReturn(com.agenticform.agent.AgentCapabilityProfile.IMPLEMENTER);
         AgenticformDynamicToolHandler handler = handler(agents, new AgentCapabilityPolicy());
         ObjectNode params = new ObjectMapper().createObjectNode()

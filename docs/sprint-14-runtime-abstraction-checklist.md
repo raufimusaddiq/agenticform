@@ -22,7 +22,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 ## Persistence and compatibility
 
 - [x] Add runtime type/session fields without destructive reset.
-- [ ] Migrate existing `codexThreadId` values to `runtimeType=CODEX` and opaque `runtimeSessionId`.
+- [x] Persist runtime type and opaque `runtimeSessionId` directly; no legacy Codex identity column.
 - [x] Keep Flyway numbering ordered after the current operational-intelligence migration.
 - [x] Verify migrated-agent compatibility and idempotent V14→V16 migration; existing recovery/reconciliation tests cover runtime lifecycle.
 

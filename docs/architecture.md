@@ -106,7 +106,7 @@ Agent
 - projectId
 - name
 - responsibility
-- codexThreadId
+- runtimeSessionId
 - workspaceMode
 - sourceDirectory
 - workingDirectory
@@ -295,7 +295,7 @@ Allowed only for intentionally shared/read-mostly agents, for example architectu
 
 Runtime integrations are isolated behind an internal `AgentRuntime` port. Codex is the first adapter; protocol changes must not leak into core orchestration.
 
-Persisted agents use `runtimeType` plus opaque `runtimeSessionId`. Existing `codexThreadId` data is backfilled to `CODEX` during migration and retained as a compatibility column while dependent wire paths migrate.
+Persisted agents use `runtimeType` plus opaque `runtimeSessionId`. No provider-specific runtime identity column is persisted.
 
 The Codex adapter remains responsible for transport, thread/turn mapping, event translation, approvals, queue semantics, and reconnect/reconciliation.
 
