@@ -3,6 +3,7 @@ package com.agenticform.codex;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
+import com.agenticform.event.ControlPlaneEventBus;
 import com.agenticform.message.AgentMessageDeliveryEntity;
 import com.agenticform.message.AgentMessageDeliveryRepository;
 import com.agenticform.message.AgentMessageService;
@@ -28,18 +29,21 @@ public class CodexEventBridge {
     private final AgentMessageDeliveryRepository messageDeliveries;
     private final AgentMessageService messageService;
     private final TaskDependencyService taskDependencies;
+    private final ControlPlaneEventBus events;
 
     public CodexEventBridge(CodexJsonRpcClient client, TaskRepository taskRepository,
                             AgentRepository agentRepository,
                             AgentMessageDeliveryRepository messageDeliveries,
                             AgentMessageService messageService,
-                            TaskDependencyService taskDependencies) {
+                            TaskDependencyService taskDependencies,
+                            ControlPlaneEventBus events) {
         this.client = client;
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
         this.messageDeliveries = messageDeliveries;
         this.messageService = messageService;
         this.taskDependencies = taskDependencies;
+        this.events = events;
     }
 
     @PostConstruct
@@ -83,6 +87,7 @@ public class CodexEventBridge {
                         agent.setActiveTurnId(turnId);
                         agentRepository.save(agent);
                     });
+                    events.publish("task.running", task.getProjectId(), task.getId());
                 });
                 return;
             }
@@ -95,6 +100,9 @@ public class CodexEventBridge {
                     delivery.markProcessing(turnId);
                     messageDeliveries.save(delivery);
                     messageService.refreshAggregate(delivery.getMessageId());
+                    if (target != null) {
+                        events.publish("message.processing", target.getProjectId(), delivery.getMessageId());
+                    }
                 });
             }
             return;
@@ -153,6 +161,7 @@ public class CodexEventBridge {
         agent.setActiveTurnId(null);
         agentRepository.save(agent);
         taskDependencies.reconcileDependents(task.getId());
+        events.publish("task.terminal", task.getProjectId(), task.getId());
     }
 
     private void completeMessage(AgentMessageDeliveryEntity delivery, JsonNode params,
@@ -167,5 +176,8 @@ public class CodexEventBridge {
         }
         messageDeliveries.save(delivery);
         messageService.refreshAggregate(delivery.getMessageId());
+        if (target != null) {
+            events.publish("message.terminal", target.getProjectId(), delivery.getMessageId());
+        }
     }
 }
