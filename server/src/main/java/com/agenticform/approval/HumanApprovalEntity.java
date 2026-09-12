@@ -75,6 +75,9 @@ public class HumanApprovalEntity {
     @Column(name = "policy_rule_id")
     private UUID policyRuleId;
 
+    @Column(name = "effect_digest", length = 64)
+    private String effectDigest;
+
     @Column(name = "preauthorization_grant_id")
     private UUID preauthorizationGrantId;
 
@@ -137,6 +140,7 @@ public class HumanApprovalEntity {
     public String getPolicyEnvironment() { return policyEnvironment; }
     public PolicyEffect getPolicyEffect() { return policyEffect; }
     public UUID getPolicyRuleId() { return policyRuleId; }
+    public String getEffectDigest() { return effectDigest; }
     public UUID getPreauthorizationGrantId() { return preauthorizationGrantId; }
     public UUID getRemoteInteractionId() { return remoteInteractionId; }
     public String getRequestPayload() { return requestPayload; }
@@ -152,6 +156,7 @@ public class HumanApprovalEntity {
         this.policyRuleId = ruleId;
     }
 
+    public void attachEffectDigest(String effectDigest) { this.effectDigest = effectDigest; }
     public void attachPreauthorizationGrant(UUID grantId) { this.preauthorizationGrantId = grantId; }
     public void attachRemoteInteraction(UUID interactionId) { this.remoteInteractionId = interactionId; }
 
