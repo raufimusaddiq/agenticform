@@ -16,6 +16,7 @@ public class AgenticformProperties {
     private final Ui ui = new Ui();
     private final GitHub github = new GitHub();
     private final Node node = new Node();
+    private final Security security = new Security();
 
     public List<String> getProjectRoots() { return projectRoots; }
     public void setProjectRoots(List<String> projectRoots) { this.projectRoots = projectRoots; }
@@ -26,6 +27,7 @@ public class AgenticformProperties {
     public Ui getUi() { return ui; }
     public GitHub getGithub() { return github; }
     public Node getNode() { return node; }
+    public Security getSecurity() { return security; }
 
     public static class Codex {
         private URI endpoint = URI.create("ws://127.0.0.1:4500");
@@ -80,6 +82,8 @@ public class AgenticformProperties {
         private Duration enrollmentTtl = Duration.ofMinutes(10);
         private Duration offlineAfter = Duration.ofSeconds(45);
         private Duration commandLease = Duration.ofSeconds(30);
+        private Duration requestNonceTtl = Duration.ofMinutes(10);
+        private Duration maxClockSkew = Duration.ofMinutes(2);
         private String image = "ghcr.io/raufimusaddiq/agenticform-node:latest";
 
         public Duration getEnrollmentTtl() { return enrollmentTtl; }
@@ -88,7 +92,21 @@ public class AgenticformProperties {
         public void setOfflineAfter(Duration offlineAfter) { this.offlineAfter = offlineAfter; }
         public Duration getCommandLease() { return commandLease; }
         public void setCommandLease(Duration commandLease) { this.commandLease = commandLease; }
+        public Duration getRequestNonceTtl() { return requestNonceTtl; }
+        public void setRequestNonceTtl(Duration requestNonceTtl) { this.requestNonceTtl = requestNonceTtl; }
+        public Duration getMaxClockSkew() { return maxClockSkew; }
+        public void setMaxClockSkew(Duration maxClockSkew) { this.maxClockSkew = maxClockSkew; }
         public String getImage() { return image; }
         public void setImage(String image) { this.image = image; }
+    }
+
+    public static class Security {
+        private String adminToken = "";
+        private boolean requireTls = true;
+
+        public String getAdminToken() { return adminToken; }
+        public void setAdminToken(String adminToken) { this.adminToken = adminToken == null ? "" : adminToken; }
+        public boolean isRequireTls() { return requireTls; }
+        public void setRequireTls(boolean requireTls) { this.requireTls = requireTls; }
     }
 }
