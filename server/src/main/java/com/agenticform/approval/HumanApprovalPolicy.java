@@ -7,6 +7,7 @@ import com.agenticform.policy.PolicyActionClassifier;
 import com.agenticform.policy.PolicyContext;
 import com.agenticform.policy.PolicyDecision;
 import com.agenticform.policy.PolicyEffect;
+import com.agenticform.policy.PolicyEffectFingerprint;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
@@ -35,13 +36,14 @@ public class HumanApprovalPolicy {
                 classified.action(), classified.environment()));
 
         PolicyEffect effectiveEffect = configured.effect();
-        // Full HITL remains an explicit operational override. DENY can never be weakened.
         if (agent.getHumanControlMode() == HumanControlMode.IN_THE_LOOP
                 && effectiveEffect == PolicyEffect.ALLOW) {
             effectiveEffect = PolicyEffect.REQUIRE_HUMAN;
         }
 
         HumanApprovalRisk risk = risk(classified.action(), type, effectiveEffect);
+        String effectDigest = PolicyEffectFingerprint.digest(
+                classified.action(), classified.environment(), classified.effectKey());
         return new Evaluation(
                 risk,
                 effectiveEffect,
@@ -49,6 +51,7 @@ public class HumanApprovalPolicy {
                 classified.summary(),
                 classified.action(),
                 classified.environment(),
+                effectDigest,
                 configured
         );
     }
@@ -73,6 +76,7 @@ public class HumanApprovalPolicy {
             String summary,
             String action,
             String environment,
+            String effectDigest,
             PolicyDecision configuredDecision
     ) {}
 }
