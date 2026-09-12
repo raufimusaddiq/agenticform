@@ -2,6 +2,10 @@ package com.agenticform.task;
 
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.codex.CodexGateway;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.CodexAgentRuntime;
+import com.agenticform.runtime.RuntimeSession;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -9,15 +13,21 @@ import org.springframework.stereotype.Component;
 public class TaskQueueReconciler {
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
-    private final CodexGateway codexGateway;
+    private final AgentRuntime runtime;
     private final TaskDependencyService dependencies;
+
+    @Autowired
+    public TaskQueueReconciler(TaskRepository taskRepository, AgentRepository agentRepository,
+                               AgentRuntime runtime, TaskDependencyService dependencies) {
+        this.taskRepository = taskRepository;
+        this.agentRepository = agentRepository;
+        this.runtime = runtime;
+        this.dependencies = dependencies;
+    }
 
     public TaskQueueReconciler(TaskRepository taskRepository, AgentRepository agentRepository,
                                CodexGateway codexGateway, TaskDependencyService dependencies) {
-        this.taskRepository = taskRepository;
-        this.agentRepository = agentRepository;
-        this.codexGateway = codexGateway;
-        this.dependencies = dependencies;
+        this(taskRepository, agentRepository, new CodexAgentRuntime(codexGateway), dependencies);
     }
 
     @Scheduled(fixedDelayString = "${agenticform.scheduler.reconcile-delay-ms:10000}")
@@ -34,7 +44,9 @@ public class TaskQueueReconciler {
             }
             agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
                 try {
-                    codexGateway.resumeThread(agent.getCodexThreadId());
+                    String sessionId = agent.getRuntimeSessionId();
+                    if (sessionId == null || sessionId.isBlank()) sessionId = agent.getCodexThreadId();
+                    runtime.resume(new RuntimeSession(sessionId));
                     updateError(task.getId(), null);
                 } catch (RuntimeException error) {
                     updateError(task.getId(), "Queue wake/reconcile failed: " + error.getMessage());

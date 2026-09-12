@@ -8,6 +8,11 @@ import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.CodexAgentRuntime;
+import com.agenticform.runtime.RuntimeDispatchReceipt;
+import com.agenticform.runtime.RuntimeSession;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -24,11 +29,28 @@ public class OperationEventService {
 
     private final OperationEventRepository repository;
     private final AgentRepository agentRepository;
-    private final CodexGateway codexGateway;
+    private final AgentRuntime runtime;
     private final OperationalSignalService signals;
     private final ExecutionNodeService nodeService;
     private final NodeCommandRepository nodeCommands;
     private final ObjectMapper mapper;
+
+    @Autowired
+    public OperationEventService(OperationEventRepository repository,
+                                 AgentRepository agentRepository,
+                                 AgentRuntime runtime,
+                                 OperationalSignalService signals,
+                                 ExecutionNodeService nodeService,
+                                 NodeCommandRepository nodeCommands,
+                                 ObjectMapper mapper) {
+        this.repository = repository;
+        this.agentRepository = agentRepository;
+        this.runtime = runtime;
+        this.signals = signals;
+        this.nodeService = nodeService;
+        this.nodeCommands = nodeCommands;
+        this.mapper = mapper;
+    }
 
     public OperationEventService(OperationEventRepository repository,
                                  AgentRepository agentRepository,
@@ -37,13 +59,8 @@ public class OperationEventService {
                                  ExecutionNodeService nodeService,
                                  NodeCommandRepository nodeCommands,
                                  ObjectMapper mapper) {
-        this.repository = repository;
-        this.agentRepository = agentRepository;
-        this.codexGateway = codexGateway;
-        this.signals = signals;
-        this.nodeService = nodeService;
-        this.nodeCommands = nodeCommands;
-        this.mapper = mapper;
+        this(repository, agentRepository, new CodexAgentRuntime(codexGateway), signals,
+                nodeService, nodeCommands, mapper);
     }
 
     public synchronized void publishTerminal(OperationRunEntity run) {
@@ -124,10 +141,15 @@ public class OperationEventService {
             return;
         }
 
-        CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                target.getCodexThreadId(), clientMessageId, deliveryPrompt(event));
+        RuntimeDispatchReceipt receipt = runtime.dispatch(
+                new RuntimeSession(runtimeSessionId(target)), clientMessageId, deliveryPrompt(event));
         event.delivered(receipt.queuedSubmissionId(), receipt.turnId());
         repository.save(event);
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        String sessionId = agent.getRuntimeSessionId();
+        return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
     }
 
     private void reconcileQueued(OperationEventEntity event) {

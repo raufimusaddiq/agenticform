@@ -6,6 +6,11 @@ import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.CodexAgentRuntime;
+import com.agenticform.runtime.RuntimeDispatchReceipt;
+import com.agenticform.runtime.RuntimeSession;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -34,9 +39,30 @@ public class AgentMessageService {
     private final AgentGroupRepository groupRepository;
     private final AgentGroupMembershipRepository membershipRepository;
     private final CommunicationRuleService communicationRules;
-    private final CodexGateway codexGateway;
+    private final AgentRuntime runtime;
     private final ExecutionNodeService nodeService;
     private final ObjectMapper mapper;
+
+    @Autowired
+    public AgentMessageService(AgentMessageRepository repository,
+                               AgentMessageDeliveryRepository deliveryRepository,
+                               AgentRepository agentRepository,
+                               AgentGroupRepository groupRepository,
+                               AgentGroupMembershipRepository membershipRepository,
+                               CommunicationRuleService communicationRules,
+                               AgentRuntime runtime,
+                               ExecutionNodeService nodeService,
+                               ObjectMapper mapper) {
+        this.repository = repository;
+        this.deliveryRepository = deliveryRepository;
+        this.agentRepository = agentRepository;
+        this.groupRepository = groupRepository;
+        this.membershipRepository = membershipRepository;
+        this.communicationRules = communicationRules;
+        this.runtime = runtime;
+        this.nodeService = nodeService;
+        this.mapper = mapper;
+    }
 
     public AgentMessageService(AgentMessageRepository repository,
                                AgentMessageDeliveryRepository deliveryRepository,
@@ -47,15 +73,8 @@ public class AgentMessageService {
                                CodexGateway codexGateway,
                                ExecutionNodeService nodeService,
                                ObjectMapper mapper) {
-        this.repository = repository;
-        this.deliveryRepository = deliveryRepository;
-        this.agentRepository = agentRepository;
-        this.groupRepository = groupRepository;
-        this.membershipRepository = membershipRepository;
-        this.communicationRules = communicationRules;
-        this.codexGateway = codexGateway;
-        this.nodeService = nodeService;
-        this.mapper = mapper;
+        this(repository, deliveryRepository, agentRepository, groupRepository, membershipRepository,
+                communicationRules, new CodexAgentRuntime(codexGateway), nodeService, mapper);
     }
 
     public List<AgentMessageEntity> list(UUID projectId, UUID agentId) {
@@ -232,8 +251,8 @@ public class AgentMessageService {
                 if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
                     throw new IllegalStateException("Target agent runtime is not ready");
                 }
-                CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                        target.getCodexThreadId(),
+                RuntimeDispatchReceipt receipt = runtime.dispatch(
+                        new RuntimeSession(runtimeSessionId(target)),
                         "agenticform-message:" + message.getId() + ":" + delivery.getId(),
                         deliveryPrompt(message, source, target));
                 delivery.markDispatched(receipt.queuedSubmissionId(), receipt.turnId());
@@ -243,6 +262,11 @@ public class AgentMessageService {
             delivery.markFailed(safeMessage(error));
             deliveryRepository.save(delivery);
         }
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        String sessionId = agent.getRuntimeSessionId();
+        return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
     }
 
     private void updateAggregate(AgentMessageEntity message, List<AgentMessageDeliveryEntity> deliveries) {

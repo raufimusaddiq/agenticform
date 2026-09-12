@@ -13,6 +13,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 
 - [x] Add `CodexAgentRuntime` adapter over the existing App Server gateway.
 - [x] Route local agent spawn, interrupt, and task dispatch through `AgentRuntime`.
+- [x] Route local queue reconciliation and lifecycle interruption through `AgentRuntime`.
 - [ ] Preserve dynamic Agenticform tools and fail-closed approval behavior.
 - [ ] Preserve runtime-generation fencing and durable remote command recovery.
 - [ ] Add fake-runtime contract coverage proving orchestration does not require Codex.

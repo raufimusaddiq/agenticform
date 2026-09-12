@@ -8,6 +8,11 @@ import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.CodexAgentRuntime;
+import com.agenticform.runtime.RuntimeDispatchReceipt;
+import com.agenticform.runtime.RuntimeSession;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,10 +29,25 @@ public class OperationalIncidentWakeService {
 
     private final OperationalIncidentRepository incidents;
     private final AgentRepository agents;
-    private final CodexGateway codexGateway;
+    private final AgentRuntime runtime;
     private final ExecutionNodeService nodeService;
     private final NodeCommandRepository commands;
     private final ObjectMapper mapper;
+
+    @Autowired
+    public OperationalIncidentWakeService(OperationalIncidentRepository incidents,
+                                          AgentRepository agents,
+                                          AgentRuntime runtime,
+                                          ExecutionNodeService nodeService,
+                                          NodeCommandRepository commands,
+                                          ObjectMapper mapper) {
+        this.incidents = incidents;
+        this.agents = agents;
+        this.runtime = runtime;
+        this.nodeService = nodeService;
+        this.commands = commands;
+        this.mapper = mapper;
+    }
 
     public OperationalIncidentWakeService(OperationalIncidentRepository incidents,
                                           AgentRepository agents,
@@ -35,12 +55,7 @@ public class OperationalIncidentWakeService {
                                           ExecutionNodeService nodeService,
                                           NodeCommandRepository commands,
                                           ObjectMapper mapper) {
-        this.incidents = incidents;
-        this.agents = agents;
-        this.codexGateway = codexGateway;
-        this.nodeService = nodeService;
-        this.commands = commands;
-        this.mapper = mapper;
+        this(incidents, agents, new CodexAgentRuntime(codexGateway), nodeService, commands, mapper);
     }
 
     @Scheduled(fixedDelayString = "${agenticform.scheduler.operational-intelligence-delay-ms:2000}")
@@ -134,10 +149,15 @@ public class OperationalIncidentWakeService {
             return;
         }
 
-        CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                target.getCodexThreadId(), clientMessageId, prompt(incident));
+        RuntimeDispatchReceipt receipt = runtime.dispatch(
+                new RuntimeSession(runtimeSessionId(target)), clientMessageId, prompt(incident));
         incident.delivered(receipt.queuedSubmissionId(), receipt.turnId());
         incidents.save(incident);
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        String sessionId = agent.getRuntimeSessionId();
+        return sessionId == null || sessionId.isBlank() ? agent.getCodexThreadId() : sessionId;
     }
 
     private AgentEntity resolveOperationalAgent(OperationalIncidentEntity incident) {
