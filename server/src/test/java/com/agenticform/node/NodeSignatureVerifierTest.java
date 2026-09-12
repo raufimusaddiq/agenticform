@@ -88,6 +88,39 @@ class NodeSignatureVerifierTest {
         verifyNoInteractions(nonces);
     }
 
+    @Test
+    void rejectsRevokedNodeBeforeNonceConsumption() throws Exception {
+        node.setStatus(ExecutionNodeStatus.REVOKED);
+        String timestamp = Long.toString(Instant.now().toEpochMilli());
+        String nonce = "nonce-0123456789abcdef";
+        String path = "/api/nodes/" + nodeId + "/commands/next";
+        String signature = sign(timestamp, nonce, "GET", path, new byte[0]);
+
+        assertThrows(NodeAuthenticationException.class,
+                () -> verifier.verify(nodeId, timestamp, nonce, signature, "GET", path, new byte[0]));
+        verifyNoInteractions(nonces);
+    }
+
+    @Test
+    void rejectsNonEd25519EnrollmentKey() throws Exception {
+        KeyPair rsa = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        String encoded = Base64.getEncoder().encodeToString(rsa.getPublic().getEncoded());
+        assertThrows(IllegalArgumentException.class, () -> NodeSignatureVerifier.fingerprint(encoded));
+    }
+
+    @Test
+    void rejectsExpiredTimestampBeforeNonceConsumption() throws Exception {
+        byte[] body = new byte[0];
+        String timestamp = Long.toString(Instant.now().minus(Duration.ofMinutes(10)).toEpochMilli());
+        String nonce = "nonce-0123456789abcdef";
+        String path = "/api/nodes/" + nodeId + "/commands/next";
+        String signature = sign(timestamp, nonce, "GET", path, body);
+
+        assertThrows(NodeAuthenticationException.class,
+                () -> verifier.verify(nodeId, timestamp, nonce, signature, "GET", path, body));
+        verifyNoInteractions(nonces);
+    }
+
     private String sign(String timestamp, String nonce, String method, String path, byte[] body) throws Exception {
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(body);
         String canonical = nodeId + "\n" + timestamp + "\n" + nonce + "\n" + method + "\n" + path + "\n"
