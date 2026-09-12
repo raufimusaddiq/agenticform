@@ -11,6 +11,7 @@ import java.util.List;
 public class AgenticformProperties {
     private List<String> projectRoots = new ArrayList<>(List.of("/srv/apps"));
     private URI publicUrl = URI.create("http://localhost:8080");
+    private final ProjectDiscovery projectDiscovery = new ProjectDiscovery();
     private final Codex codex = new Codex();
     private final Workspace workspace = new Workspace();
     private final Ui ui = new Ui();
@@ -22,12 +23,23 @@ public class AgenticformProperties {
     public void setProjectRoots(List<String> projectRoots) { this.projectRoots = projectRoots; }
     public URI getPublicUrl() { return publicUrl; }
     public void setPublicUrl(URI publicUrl) { this.publicUrl = publicUrl; }
+    public ProjectDiscovery getProjectDiscovery() { return projectDiscovery; }
     public Codex getCodex() { return codex; }
     public Workspace getWorkspace() { return workspace; }
     public Ui getUi() { return ui; }
     public GitHub getGithub() { return github; }
     public Node getNode() { return node; }
     public Security getSecurity() { return security; }
+
+    public static class ProjectDiscovery {
+        private int maxDepth = 3;
+        private int maxCandidates = 200;
+
+        public int getMaxDepth() { return maxDepth; }
+        public void setMaxDepth(int maxDepth) { this.maxDepth = maxDepth; }
+        public int getMaxCandidates() { return maxCandidates; }
+        public void setMaxCandidates(int maxCandidates) { this.maxCandidates = maxCandidates; }
+    }
 
     public static class Codex {
         private URI endpoint = URI.create("ws://127.0.0.1:4500");
