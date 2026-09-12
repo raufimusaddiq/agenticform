@@ -127,10 +127,28 @@ public class AgentMessageEntity {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
+    public void markQueued(String queuedSubmissionId) {
+        this.status = AgentMessageStatus.QUEUED;
+        this.codexQueuedSubmissionId = queuedSubmissionId;
+        this.codexTurnId = null;
+        this.lastError = null;
+    }
+
     public void markDispatched(String queuedSubmissionId, String turnId) {
-        this.status = AgentMessageStatus.DISPATCHED;
+        this.status = turnId == null || turnId.isBlank() ? AgentMessageStatus.DISPATCHED : AgentMessageStatus.PROCESSING;
         this.codexQueuedSubmissionId = queuedSubmissionId;
         this.codexTurnId = turnId;
+        this.lastError = null;
+    }
+
+    public void markProcessing(String turnId) {
+        this.status = AgentMessageStatus.PROCESSING;
+        if (turnId != null && !turnId.isBlank()) this.codexTurnId = turnId;
+        this.lastError = null;
+    }
+
+    public void markCompleted() {
+        this.status = AgentMessageStatus.COMPLETED;
         this.lastError = null;
     }
 
