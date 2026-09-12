@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 
 @Service
 public class ExecutionNodeHealthMonitor {
@@ -27,7 +28,8 @@ public class ExecutionNodeHealthMonitor {
     @Transactional
     public void markStaleOffline() {
         Instant cutoff = Instant.now().minus(properties.getNode().getOfflineAfter());
-        for (ExecutionNodeEntity node : nodes.findAllByStatusOrderByName(ExecutionNodeStatus.ONLINE)) {
+        for (ExecutionNodeEntity node : nodes.findAllByStatusInOrderByName(
+                List.of(ExecutionNodeStatus.ONLINE, ExecutionNodeStatus.DRAINING))) {
             if (node.getLastSeenAt() == null || !node.getLastSeenAt().isBefore(cutoff)) continue;
             node.setStatus(ExecutionNodeStatus.OFFLINE);
             nodes.save(node);
