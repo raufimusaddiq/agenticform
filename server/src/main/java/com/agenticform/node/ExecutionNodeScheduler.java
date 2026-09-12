@@ -16,7 +16,8 @@ import java.util.UUID;
 public class ExecutionNodeScheduler {
     private static final List<AgentStatus> OCCUPYING = List.of(
             AgentStatus.STARTING, AgentStatus.IDLE, AgentStatus.WORKING,
-            AgentStatus.WAITING_APPROVAL, AgentStatus.BLOCKED, AgentStatus.DISCONNECTED);
+            AgentStatus.WAITING_APPROVAL, AgentStatus.BLOCKED, AgentStatus.DISCONNECTED,
+            AgentStatus.STOPPING);
 
     private final ExecutionNodeRepository nodes;
     private final AgentRepository agents;
