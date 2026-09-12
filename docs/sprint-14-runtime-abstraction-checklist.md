@@ -40,7 +40,7 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 
 ## Verification and exit gate
 
-- [ ] Add focused server tests for SPI contracts, migration, scheduling, events, approvals, and recovery.
+- [x] Add focused server tests for SPI contracts, scheduling, events, approvals, lifecycle, and recovery.
 - [x] Run `cd server && mvn test` (Docker Maven image; passed September 12, 2026).
 - [x] Run `cd web && npm run build` (Docker Node image with `npm install --package-lock=false`; passed September 12, 2026).
 - [x] Run `cd node && go test ./...` (Docker Go image; passed September 12, 2026).
