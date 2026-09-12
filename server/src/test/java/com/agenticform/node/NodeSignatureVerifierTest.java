@@ -48,11 +48,11 @@ class NodeSignatureVerifierTest {
         String publicKey = Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded());
         node = new ExecutionNodeEntity("test-node", NodeTrustLevel.STANDARD, publicKey,
                 NodeSignatureVerifier.fingerprint(publicKey));
-        when(nodes.findById(nodeId)).thenReturn(Optional.of(node));
     }
 
     @Test
     void acceptsValidSignatureAndConsumesNonce() throws Exception {
+        stubNode();
         byte[] body = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
         String timestamp = Long.toString(Instant.now().toEpochMilli());
         String nonce = "nonce-0123456789abcdef";
@@ -67,6 +67,7 @@ class NodeSignatureVerifierTest {
 
     @Test
     void rejectsReplayAfterValidSignature() throws Exception {
+        stubNode();
         byte[] body = new byte[0];
         String timestamp = Long.toString(Instant.now().toEpochMilli());
         String nonce = "nonce-0123456789abcdef";
@@ -80,6 +81,7 @@ class NodeSignatureVerifierTest {
 
     @Test
     void rejectsInvalidSignatureBeforeNonceConsumption() {
+        stubNode();
         String timestamp = Long.toString(Instant.now().toEpochMilli());
         assertThrows(NodeAuthenticationException.class,
                 () -> verifier.verify(nodeId, timestamp, "nonce-0123456789abcdef",
@@ -91,6 +93,7 @@ class NodeSignatureVerifierTest {
     @Test
     void rejectsRevokedNodeBeforeNonceConsumption() throws Exception {
         node.setStatus(ExecutionNodeStatus.REVOKED);
+        stubNode();
         String timestamp = Long.toString(Instant.now().toEpochMilli());
         String nonce = "nonce-0123456789abcdef";
         String path = "/api/nodes/" + nodeId + "/commands/next";
@@ -110,6 +113,7 @@ class NodeSignatureVerifierTest {
 
     @Test
     void rejectsExpiredTimestampBeforeNonceConsumption() throws Exception {
+        stubNode();
         byte[] body = new byte[0];
         String timestamp = Long.toString(Instant.now().minus(Duration.ofMinutes(10)).toEpochMilli());
         String nonce = "nonce-0123456789abcdef";
@@ -119,6 +123,10 @@ class NodeSignatureVerifierTest {
         assertThrows(NodeAuthenticationException.class,
                 () -> verifier.verify(nodeId, timestamp, nonce, signature, "GET", path, body));
         verifyNoInteractions(nonces);
+    }
+
+    private void stubNode() {
+        when(nodes.findById(nodeId)).thenReturn(Optional.of(node));
     }
 
     private String sign(String timestamp, String nonce, String method, String path, byte[] body) throws Exception {
