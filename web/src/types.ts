@@ -21,6 +21,7 @@ export type AgentStatus =
   | 'BLOCKED'
   | 'DISCONNECTED'
   | 'FAILED'
+  | 'STOPPING'
   | 'STOPPED';
 
 export type AgentQueueMode = 'AUTO' | 'REVIEW_BETWEEN_TASKS' | 'PAUSED';
@@ -53,6 +54,7 @@ export type Agent = {
 export type TaskStatus =
   | 'QUEUED'
   | 'READY'
+  | 'WAITING_DEPENDENCY'
   | 'DISPATCHING'
   | 'DISPATCHED'
   | 'RUNNING'
@@ -89,19 +91,18 @@ export type AgentMessageType =
   | 'INFORMATION'
   | 'BLOCKER';
 
-export type AgentMessageStatus = 'CREATED' | 'DISPATCHED' | 'FAILED';
-export type AgentMessageAudienceType = 'DIRECT' | 'MULTICAST' | 'ROLE' | 'GROUP' | 'PROJECT_BROADCAST';
+export type AgentMessageStatus = 'CREATED' | 'QUEUED' | 'DISPATCHED' | 'PROCESSING' | 'COMPLETED' | 'PARTIAL' | 'FAILED';
 
 export type AgentMessage = {
   id: string;
   projectId: string;
   fromAgentId: string;
   toAgentId: string | null;
-  audienceType: AgentMessageAudienceType;
-  audienceSpec: string | null;
   conversationId: string;
   replyToMessageId: string | null;
   type: AgentMessageType;
+  audienceType: 'DIRECT' | 'MULTICAST' | 'ROLE' | 'GROUP' | 'PROJECT_BROADCAST';
+  audienceSpecJson: string;
   subject: string;
   content: string;
   hopCount: number;
@@ -113,8 +114,6 @@ export type AgentMessage = {
   updatedAt: string;
 };
 
-export type HumanApprovalType = 'COMMAND_EXECUTION' | 'FILE_CHANGE' | 'PERMISSIONS' | 'USER_INPUT' | 'PROTECTED_ACTION';
-export type HumanApprovalRisk = 'LOW' | 'ELEVATED' | 'HIGH';
 export type HumanApprovalStatus =
   | 'PENDING'
   | 'AUTO_APPROVED'
@@ -128,32 +127,8 @@ export type HumanApprovalStatus =
   | 'FAILED'
   | 'ORPHANED';
 export type HumanApprovalDecision = 'APPROVE_ONCE' | 'APPROVE_SESSION' | 'DECLINE' | 'CANCEL';
-
-export type PolicyScopeType = 'GLOBAL' | 'PROJECT' | 'AGENT' | 'TASK';
-export type PolicyEffect = 'ALLOW' | 'REQUIRE_HUMAN' | 'DENY';
-
-export type PolicyRule = {
-  id: string;
-  scopeType: PolicyScopeType;
-  scopeId: string | null;
-  action: string;
-  environment: string;
-  effect: PolicyEffect;
-  description: string;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type PolicyDecision = {
-  effect: PolicyEffect;
-  matchedRuleId: string;
-  matchedScopeType: PolicyScopeType;
-  matchedScopeId: string | null;
-  action: string;
-  environment: string;
-  description: string;
-};
+export type HumanApprovalType = 'COMMAND_EXECUTION' | 'FILE_CHANGE' | 'PERMISSIONS' | 'USER_INPUT' | 'PROTECTED_ACTION';
+export type HumanApprovalRisk = 'LOW' | 'ELEVATED' | 'HIGH';
 
 export type HumanApproval = {
   id: string;
@@ -181,8 +156,33 @@ export type HumanApproval = {
   resolvedAt: string | null;
 };
 
-export type OperationalEnvironmentKind = 'DEVELOPMENT' | 'STAGING' | 'PRODUCTION' | 'OTHER';
+export type PolicyScopeType = 'GLOBAL' | 'PROJECT' | 'AGENT' | 'TASK';
+export type PolicyEffect = 'ALLOW' | 'REQUIRE_HUMAN' | 'DENY';
 
+export type PolicyRule = {
+  id: string;
+  scopeType: PolicyScopeType;
+  scopeId: string | null;
+  action: string;
+  environment: string;
+  effect: PolicyEffect;
+  description: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PolicyDecision = {
+  effect: PolicyEffect;
+  matchedRuleId: string | null;
+  matchedScopeType: PolicyScopeType | null;
+  matchedScopeId: string | null;
+  action: string;
+  environment: string;
+  description: string;
+};
+
+export type OperationalEnvironmentKind = 'LOCAL' | 'DEV' | 'STAGING' | 'PRODUCTION';
 export type OperationalEnvironment = {
   id: string;
   projectId: string;
@@ -207,62 +207,48 @@ export type OperationalService = {
   updatedAt: string;
 };
 
-export type RunbookStepType = 'ASSERT_GIT_CLEAN' | 'ASSERT_GIT_SHA' | 'COMMAND' | 'HTTP_CHECK' | 'SERVICE_CHECK' | 'GITHUB_WORKFLOW';
-
 export type RunbookStep = {
   key: string;
   name: string;
-  type: RunbookStepType;
-  config: Record<string, unknown>;
-  timeoutSeconds: number;
+  type: string;
+  parameters?: Record<string, string>;
+  timeoutSeconds?: number;
+  continueOnFailure?: boolean;
 };
 
 export type OperationalRunbook = {
   id: string;
   projectId: string;
   environmentId: string;
-  environmentKey: string;
   key: string;
   name: string;
+  version: number;
   action: string;
   description: string;
   enabled: boolean;
-  version: number;
-  steps: RunbookStep[];
   createdAt: string;
   updatedAt: string;
 };
 
-export type OperationRunStatus =
-  | 'WAITING_APPROVAL'
-  | 'QUEUED'
-  | 'RUNNING'
-  | 'WAITING_EXTERNAL'
-  | 'SUCCEEDED'
-  | 'FAILED'
-  | 'DENIED'
-  | 'DECLINED'
-  | 'INTERRUPTED';
+export type OperationRunStatus = 'PENDING_APPROVAL' | 'QUEUED' | 'RUNNING' | 'WAITING_EXTERNAL' | 'SUCCEEDED' | 'FAILED' | 'DENIED' | 'CANCELLED';
+export type OperationStepStatus = 'PENDING' | 'RUNNING' | 'WAITING_EXTERNAL' | 'SUCCEEDED' | 'FAILED' | 'SKIPPED';
 
 export type OperationRun = {
   id: string;
   projectId: string;
   runbookId: string;
+  runbookVersion: number;
   environmentId: string;
-  requestedAgentId: string | null;
-  requestedTaskId: string | null;
-  requestedBy: string;
-  action: string;
   environmentKey: string;
+  action: string;
   status: OperationRunStatus;
   policyEffect: PolicyEffect;
   policyRuleId: string | null;
-  runbookSnapshot: string;
-  parametersJson: string;
-  approvedBy: string | null;
+  requestedBy: string;
+  requestedByAgentId: string | null;
+  taskId: string | null;
   lastError: string | null;
   createdAt: string;
-  approvedAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
 };
@@ -272,20 +258,43 @@ export type OperationStepRun = {
   operationRunId: string;
   stepKey: string;
   stepName: string;
-  stepType: RunbookStepType;
-  position: number;
-  status: 'RUNNING' | 'WAITING_EXTERNAL' | 'SUCCEEDED' | 'FAILED';
+  stepType: string;
+  ordinal: number;
+  status: OperationStepStatus;
   summary: string | null;
-  evidence: string | null;
   exitCode: number | null;
   durationMs: number | null;
-  startedAt: string;
+  startedAt: string | null;
   completedAt: string | null;
+};
+
+export type OperationEvent = {
+  id: string;
+  operationRunId: string;
+  eventType: string;
+  fromStatus: string | null;
+  toStatus: string | null;
+  actor: string;
+  detail: string | null;
+  createdAt: string;
 };
 
 export type OperationRunDetail = {
   run: OperationRun;
   steps: OperationStepRun[];
+  events: OperationEvent[];
+};
+
+export type WorkspaceCleanupRecord = {
+  id: string;
+  projectId: string;
+  agentId: string;
+  workingDirectory: string;
+  branch: string | null;
+  outcome: string;
+  reason: string;
+  freedBytes: number;
+  createdAt: string;
 };
 
 export type WorkspaceCleanupInspection = {
@@ -293,16 +302,4 @@ export type WorkspaceCleanupInspection = {
   eligible: boolean;
   reason: string;
   estimatedBytes: number;
-};
-
-export type WorkspaceCleanupRecord = {
-  id: string;
-  projectId: string;
-  agentId: string | null;
-  workingDirectory: string;
-  branch: string | null;
-  outcome: string;
-  reason: string;
-  freedBytes: number | null;
-  createdAt: string;
 };
