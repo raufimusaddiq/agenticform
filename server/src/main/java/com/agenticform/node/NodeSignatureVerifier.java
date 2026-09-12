@@ -34,23 +34,23 @@ public class NodeSignatureVerifier {
     public ExecutionNodeEntity verify(UUID nodeId, String timestamp, String nonce, String signatureBase64,
                                       String method, String path, byte[] body) {
         ExecutionNodeEntity node = nodes.findById(nodeId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown execution node"));
+                .orElseThrow(() -> new NodeAuthenticationException("Unknown execution node"));
         if (node.getStatus() == ExecutionNodeStatus.REVOKED || node.getStatus() == ExecutionNodeStatus.DISABLED) {
-            throw new IllegalStateException("Execution node is not authorized");
+            throw new NodeAuthenticationException("Execution node is not authorized");
         }
         if (nonce == null || !nonce.matches("[A-Za-z0-9._:-]{16,128}")) {
-            throw new IllegalArgumentException("Invalid node request nonce");
+            throw new NodeAuthenticationException("Invalid node request nonce");
         }
 
         Instant requestTime;
         try {
             requestTime = Instant.ofEpochMilli(Long.parseLong(timestamp));
         } catch (Exception error) {
-            throw new IllegalArgumentException("Invalid node request timestamp");
+            throw new NodeAuthenticationException("Invalid node request timestamp");
         }
         Duration maxClockSkew = properties.getNode().getMaxClockSkew();
         if (Duration.between(requestTime, Instant.now()).abs().compareTo(maxClockSkew) > 0) {
-            throw new IllegalArgumentException("Node request timestamp is outside the allowed clock skew");
+            throw new NodeAuthenticationException("Node request timestamp is outside the allowed clock skew");
         }
 
         try {
@@ -63,9 +63,11 @@ public class NodeSignatureVerifier {
             verifier.initVerify(key);
             verifier.update(canonical.getBytes(StandardCharsets.UTF_8));
             byte[] supplied = Base64.getDecoder().decode(signatureBase64);
-            if (!verifier.verify(supplied)) throw new IllegalArgumentException("Invalid node request signature");
-        } catch (IllegalArgumentException error) {
+            if (!verifier.verify(supplied)) throw new NodeAuthenticationException("Invalid node request signature");
+        } catch (NodeAuthenticationException error) {
             throw error;
+        } catch (IllegalArgumentException error) {
+            throw new NodeAuthenticationException("Invalid node request signature encoding");
         } catch (Exception error) {
             throw new IllegalStateException("Unable to verify node request signature", error);
         }
@@ -74,7 +76,7 @@ public class NodeSignatureVerifier {
         int inserted = nonces.insertIfAbsent(UUID.randomUUID(), nodeId, nonce,
                 now.plus(properties.getNode().getRequestNonceTtl()), now);
         if (inserted != 1) {
-            throw new IllegalArgumentException("Replayed node request nonce");
+            throw new NodeAuthenticationException("Replayed node request nonce");
         }
         return node;
     }
