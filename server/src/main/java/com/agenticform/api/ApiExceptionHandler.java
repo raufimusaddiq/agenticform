@@ -1,5 +1,6 @@
 package com.agenticform.api;
 
+import com.agenticform.node.NodeAuthenticationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -12,6 +13,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(NoSuchElementException.class)
     ProblemDetail notFound(NoSuchElementException error) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, error.getMessage());
+    }
+
+    @ExceptionHandler(NodeAuthenticationException.class)
+    ProblemDetail unauthorized(NodeAuthenticationException error) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, error.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
