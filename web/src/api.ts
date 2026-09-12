@@ -1,3 +1,5 @@
+import { getAdminToken } from './auth';
+import type { ExecutionNode, ExecutionNodeStatus, NodeEnrollment, NodeTrustLevel } from './nodeTypes';
 import type {
   Agent,
   AgentMessage,
@@ -27,16 +29,19 @@ import type {
 const base = import.meta.env.VITE_API_BASE_URL ?? '';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAdminToken();
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {})
     }
   });
 
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 401) throw new Error('ADMIN_AUTH_REQUIRED');
     throw new Error(body || `${response.status} ${response.statusText}`);
   }
 
@@ -108,6 +113,7 @@ export const api = {
   messages: () => request<AgentMessage[]>('/api/messages'),
   approvals: () => request<HumanApproval[]>('/api/approvals'),
   policyRules: () => request<PolicyRule[]>('/api/policies/rules'),
+  executionNodes: () => request<ExecutionNode[]>('/api/nodes'),
   operationalEnvironments: () => request<OperationalEnvironment[]>('/api/operations/environments'),
   operationalServices: () => request<OperationalService[]>('/api/operations/services'),
   operationalRunbooks: () => request<OperationalRunbook[]>('/api/operations/runbooks'),
@@ -119,8 +125,13 @@ export const api = {
   workspaceCleanupInspection: (agentId: string) =>
     request<WorkspaceCleanupInspection>(`/api/workspaces/agents/${agentId}/cleanup-inspection`),
 
-  registerProject: (input: { name: string; path: string; defaultBranch: string }) =>
-    request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
+  registerProject: (input: {
+    name: string;
+    sourceType?: 'LOCAL_PATH' | 'GIT';
+    path?: string;
+    repositoryUrl?: string;
+    defaultBranch: string;
+  }) => request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
 
   spawnAgent: (input: {
     projectId: string;
@@ -131,7 +142,21 @@ export const api = {
     branch?: string;
     queueMode: AgentQueueMode;
     humanControlMode: HumanControlMode;
+    executionNodeId?: string;
+    minimumTrust?: NodeTrustLevel;
   }) => request<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(input) }),
+
+  createNodeEnrollment: (name: string, trustLevel: NodeTrustLevel) =>
+    request<NodeEnrollment>('/api/nodes/enrollments', {
+      method: 'POST',
+      body: JSON.stringify({ name, trustLevel })
+    }),
+
+  updateNodeStatus: (nodeId: string, status: ExecutionNodeStatus) =>
+    request<ExecutionNode>(`/api/nodes/${nodeId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status })
+    }),
 
   ensureOperationalAgent: (projectId: string) =>
     request<Agent>('/api/agents/operational/ensure', {
