@@ -28,11 +28,19 @@ public class ExecutionNodeScheduler {
         this.mapper = mapper;
     }
 
-    public ExecutionNodeEntity select(UUID preferredNodeId, NodeTrustLevel minimumTrust, Set<String> requiredCapabilities) {
+    public ExecutionNodeEntity select(UUID preferredNodeId, NodeTrustLevel minimumTrust,
+                                      Set<String> requiredCapabilities) {
+        return select(preferredNodeId, minimumTrust, requiredCapabilities, Set.of());
+    }
+
+    public ExecutionNodeEntity select(UUID preferredNodeId, NodeTrustLevel minimumTrust,
+                                      Set<String> requiredCapabilities, Set<UUID> excludedNodeIds) {
         NodeTrustLevel trust = minimumTrust == null ? NodeTrustLevel.STANDARD : minimumTrust;
         Set<String> capabilities = requiredCapabilities == null ? Set.of("codex", "git") : requiredCapabilities;
+        Set<UUID> excluded = excludedNodeIds == null ? Set.of() : excludedNodeIds;
 
         if (preferredNodeId != null) {
+            if (excluded.contains(preferredNodeId)) throw new IllegalArgumentException("Preferred node is excluded from placement");
             ExecutionNodeEntity node = nodes.findById(preferredNodeId)
                     .orElseThrow(() -> new NoSuchElementException("Execution node not found: " + preferredNodeId));
             validate(node, trust, capabilities);
@@ -40,6 +48,7 @@ public class ExecutionNodeScheduler {
         }
 
         return nodes.findAllByStatusOrderByName(ExecutionNodeStatus.ONLINE).stream()
+                .filter(node -> !excluded.contains(node.getId()))
                 .filter(node -> node.getTrustLevel().atLeast(trust))
                 .filter(node -> supports(node, capabilities))
                 .filter(node -> active(node) < node.getMaxAgents())
