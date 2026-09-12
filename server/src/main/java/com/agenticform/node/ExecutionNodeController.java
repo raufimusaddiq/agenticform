@@ -56,10 +56,14 @@ public class ExecutionNodeController {
         String path = "/api/nodes/" + nodeId + "/heartbeat";
         signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         HeartbeatRequest request = mapper.readValue(body, HeartbeatRequest.class);
+        List<ExecutionNodeService.RuntimeObservation> runtimes = request.runtimes() == null ? List.of()
+                : request.runtimes().stream().map(runtime -> new ExecutionNodeService.RuntimeObservation(
+                        runtime.agentId(), runtime.runtimeGeneration(), runtime.threadId(), runtime.sourceDirectory(),
+                        runtime.workingDirectory(), runtime.branch(), runtime.runtimeStatus())).toList();
         return service.heartbeat(nodeId, new ExecutionNodeService.Heartbeat(
                 request.labelsJson(), request.capabilitiesJson(), request.maxAgents(),
                 request.os(), request.arch(), request.hostname(), request.nodeVersion(), request.codexVersion(),
-                request.cpuCores(), request.memoryMb(), request.diskFreeMb()));
+                request.cpuCores(), request.memoryMb(), request.diskFreeMb(), runtimes));
     }
 
     @GetMapping("/{nodeId}/commands/next")
@@ -83,10 +87,17 @@ public class ExecutionNodeController {
         String path = "/api/nodes/" + nodeId + "/commands/" + commandId + "/complete";
         signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         CompleteCommandRequest request = mapper.readValue(body, CompleteCommandRequest.class);
-        NodeCommandEntity command = service.complete(nodeId, commandId,
+        ExecutionNodeService.CommandCompletion completion = service.complete(nodeId, commandId,
                 request.success(), request.resultJson(), request.error());
-        completions.handle(command, request.success(), request.resultJson(), request.error());
-        return command;
+        if (completion.newlyCompleted()) {
+            completions.handle(completion.command(), request.success(), request.resultJson(), request.error());
+        }
+        return completion.command();
+    }
+
+    @GetMapping("/{nodeId}/runtimes")
+    public List<NodeRuntimeSnapshotEntity> runtimes(@PathVariable UUID nodeId) {
+        return service.runtimes(nodeId);
     }
 
     @PostMapping("/{nodeId}/status")
@@ -96,9 +107,13 @@ public class ExecutionNodeController {
 
     public record CreateEnrollmentRequest(@NotBlank String name, NodeTrustLevel trustLevel) {}
     public record EnrollRequest(@NotBlank String token, @NotBlank String publicKeyBase64) {}
+    public record RuntimeObservationRequest(UUID agentId, long runtimeGeneration, String threadId,
+                                            String sourceDirectory, String workingDirectory, String branch,
+                                            String runtimeStatus) {}
     public record HeartbeatRequest(String labelsJson, String capabilitiesJson, int maxAgents,
                                    String os, String arch, String hostname, String nodeVersion,
-                                   String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb) {}
+                                   String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb,
+                                   List<RuntimeObservationRequest> runtimes) {}
     public record CompleteCommandRequest(boolean success, String resultJson, String error) {}
     public record UpdateStatusRequest(@NotNull ExecutionNodeStatus status) {}
 }
