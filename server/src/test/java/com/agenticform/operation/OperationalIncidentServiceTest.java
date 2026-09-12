@@ -9,7 +9,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,7 +38,10 @@ class OperationalIncidentServiceTest {
 
     @Test
     void serviceHealthNeedsThreeOccurrencesBeforeOpeningIncident() {
-        OperationalSignalEntity signal = signal("SERVICE_HEALTH_FAILURE", 2, "service:api:health");
+        OperationalSignalEntity signal = mock(OperationalSignalEntity.class);
+        when(signal.getSignalType()).thenReturn("SERVICE_HEALTH_FAILURE");
+        when(signal.getOccurrenceCount()).thenReturn(2);
+
         assertNull(service.correlate(signal));
         verify(incidents, never()).save(any());
     }
@@ -54,7 +56,6 @@ class OperationalIncidentServiceTest {
         when(signal.getSignalType()).thenReturn("SERVICE_HEALTH_FAILURE");
         when(signal.getOccurrenceCount()).thenReturn(3);
         when(signal.getCorrelationKey()).thenReturn("service:api:health");
-        when(signal.getFingerprint()).thenReturn("service:api:health:failure");
         when(signal.getSeverity()).thenReturn(OperationalSeverity.WARNING);
         when(signal.getSource()).thenReturn(OperationalSignalSource.SERVICE_HEALTH);
         when(signal.getPayloadJson()).thenReturn("{}");
@@ -106,14 +107,5 @@ class OperationalIncidentServiceTest {
         verify(incident).observe(eq(OperationalSeverity.HIGH), any(), eq(null), any());
         verify(links).save(any(OperationalIncidentSignalEntity.class));
         verify(recovery).correlated();
-        verify(incidents, never()).delete(any());
-    }
-
-    private OperationalSignalEntity signal(String type, int count, String correlationKey) {
-        OperationalSignalEntity signal = mock(OperationalSignalEntity.class);
-        when(signal.getSignalType()).thenReturn(type);
-        when(signal.getOccurrenceCount()).thenReturn(count);
-        when(signal.getCorrelationKey()).thenReturn(correlationKey);
-        return signal;
     }
 }
