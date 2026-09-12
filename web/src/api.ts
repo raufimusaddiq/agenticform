@@ -2,6 +2,7 @@ import { getAdminToken } from './auth';
 import type { ExecutionNode, ExecutionNodeStatus, NodeEnrollment, NodeTrustLevel } from './nodeTypes';
 import type {
   Agent,
+  AgentCapabilityProfile,
   AgentMessage,
   AgentMessageType,
   AgentQueueMode,
@@ -23,7 +24,8 @@ import type {
   Task,
   WorkspaceCleanupInspection,
   WorkspaceCleanupRecord,
-  WorkspaceMode
+  WorkspaceMode,
+  CommunicationRule
 } from './types';
 
 const base = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -108,6 +110,7 @@ export type OperationExternalWait = {
 
 export const api = {
   projects: () => request<Project[]>('/api/projects'),
+  discoverProjects: () => request<Array<{ name: string; path: string; configuredRoot: string; detectedBranch: string | null; registered: boolean }>>('/api/projects/discover'),
   agents: () => request<Agent[]>('/api/agents'),
   tasks: () => request<Task[]>('/api/tasks'),
   messages: () => request<AgentMessage[]>('/api/messages'),
@@ -144,6 +147,7 @@ export const api = {
     humanControlMode: HumanControlMode;
     executionNodeId?: string;
     minimumTrust?: NodeTrustLevel;
+    capabilityProfile?: AgentCapabilityProfile;
   }) => request<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(input) }),
 
   createNodeEnrollment: (name: string, trustLevel: NodeTrustLevel) =>
@@ -199,6 +203,11 @@ export const api = {
     content: string;
     replyToMessageId?: string;
   }) => request<AgentMessage>('/api/messages', { method: 'POST', body: JSON.stringify(input) }),
+
+  communicationRules: () => request<CommunicationRule[]>('/api/communication-rules'),
+  saveCommunicationRule: (input: { fromProjectId: string; toProjectId: string; effect: 'ALLOW' | 'DENY'; enabled: boolean }) =>
+    request<CommunicationRule>('/api/communication-rules', { method: 'PUT', body: JSON.stringify({ ...input, action: 'MESSAGE' }) }),
+  deleteCommunicationRule: (id: string) => request<void>(`/api/communication-rules/${id}`, { method: 'DELETE' }),
 
   decideApproval: (approvalId: string, decision: HumanApprovalDecision) =>
     request<HumanApproval>(`/api/approvals/${approvalId}/decision`, {

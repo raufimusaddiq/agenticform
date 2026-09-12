@@ -126,7 +126,6 @@ class NodeCommandCompletionHandlerTest {
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(9L);
         when(command.getPayloadJson()).thenReturn("{\"stopLifecycle\":true}");
-        when(command.getIdempotencyKey()).thenReturn("stop-cleanup:" + agentId + ":g9");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
         when(agent.ownsRuntime(nodeId, 9L)).thenReturn(true);
 

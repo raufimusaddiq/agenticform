@@ -100,9 +100,9 @@ public class AgentLifecycleService {
             }
         }
         agent.setStatus(AgentStatus.STOPPED);
-        AgentEntity stopped = agents.save(agent);
-        events.publish("agent.stopped", stopped.getProjectId(), stopped.getId());
-        return stopped;
+        agents.save(agent);
+        events.publish("agent.stopped", agent.getProjectId(), agent.getId());
+        return agent;
     }
 
     private AgentEntity stopRemote(AgentEntity agent) {
@@ -128,14 +128,14 @@ public class AgentLifecycleService {
         agent.setActiveTurnId(null);
         if (!activeTurn && !isolated) {
             agent.setStatus(AgentStatus.STOPPED);
-            AgentEntity stopped = agents.save(agent);
-            events.publish("agent.stopped", stopped.getProjectId(), stopped.getId());
-            return stopped;
+            agents.save(agent);
+            events.publish("agent.stopped", agent.getProjectId(), agent.getId());
+            return agent;
         }
         agent.setStatus(AgentStatus.STOPPING);
-        AgentEntity stopping = agents.save(agent);
-        events.publish("agent.stopping", stopping.getProjectId(), stopping.getId());
-        return stopping;
+        agents.save(agent);
+        events.publish("agent.stopping", agent.getProjectId(), agent.getId());
+        return agent;
     }
 
     private void enqueueStopCleanup(AgentEntity agent, String defaultBranch) {

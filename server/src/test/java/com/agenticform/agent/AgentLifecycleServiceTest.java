@@ -60,6 +60,7 @@ class AgentLifecycleServiceTest {
         UUID projectId = UUID.randomUUID();
         UUID taskId = UUID.randomUUID();
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.getId()).thenReturn(agentId);
         when(agent.isSystemManaged()).thenReturn(false);
         when(agent.getStatus()).thenReturn(AgentStatus.WORKING);
         when(agent.getProjectId()).thenReturn(projectId);

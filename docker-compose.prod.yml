@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agenticform}
+      POSTGRES_USER: ${POSTGRES_USER:-agenticform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  init-worktrees:
+    image: alpine:3.22
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p /worktrees && chown -R 10001:10001 /worktrees"]
+    volumes: [worktrees:/worktrees]
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-agenticform}
+      DATABASE_USER: ${POSTGRES_USER:-agenticform}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      AGENTICFORM_PUBLIC_URL: ${AGENTICFORM_PUBLIC_URL:?set AGENTICFORM_PUBLIC_URL}
+      AGENTICFORM_UI_ORIGIN: ${AGENTICFORM_UI_ORIGIN:?set AGENTICFORM_UI_ORIGIN}
+      AGENTICFORM_ADMIN_TOKEN: ${AGENTICFORM_ADMIN_TOKEN:?set AGENTICFORM_ADMIN_TOKEN}
+      AGENTICFORM_PROJECT_ROOT: ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}
+      AGENTICFORM_WORKTREE_ROOT: ${AGENTICFORM_WORKTREE_ROOT:-/srv/agenticform/worktrees}
+      AGENTICFORM_NODE_IMAGE: ${AGENTICFORM_NODE_IMAGE:?set immutable AGENTICFORM_NODE_IMAGE}
+    volumes:
+      - ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}:/srv/apps
+      - worktrees:/srv/agenticform/worktrees
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init-worktrees:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    ports: ["${AGENTICFORM_WEB_PORT:-8080}:8080"]
+    depends_on: [server]
+
+volumes:
+  postgres-data:
+  worktrees:

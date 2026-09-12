@@ -28,6 +28,7 @@ export type AgentQueueMode = 'AUTO' | 'REVIEW_BETWEEN_TASKS' | 'PAUSED';
 export type WorkspaceMode = 'ISOLATED_WORKTREE' | 'SHARED_PROJECT';
 export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
 export type AgentRole = 'GENERAL' | 'OPERATIONAL';
+export type AgentCapabilityProfile = 'IMPLEMENTER' | 'REVIEWER' | 'ARCHITECT' | 'OPS';
 
 export type Agent = {
   id: string;
@@ -43,6 +44,7 @@ export type Agent = {
   queueMode: AgentQueueMode;
   humanControlMode: HumanControlMode;
   role: AgentRole;
+  capabilityProfile: AgentCapabilityProfile;
   systemManaged: boolean;
   executionNodeId: string | null;
   activeTaskId: string | null;
@@ -111,6 +113,17 @@ export type AgentMessage = {
   codexQueuedSubmissionId: string | null;
   codexTurnId: string | null;
   lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CommunicationRule = {
+  id: string;
+  fromProjectId: string;
+  toProjectId: string;
+  action: 'MESSAGE';
+  effect: 'ALLOW' | 'DENY';
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
