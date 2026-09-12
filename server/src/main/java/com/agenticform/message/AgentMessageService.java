@@ -4,14 +4,11 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.runtime.AgentRuntime;
-import com.agenticform.runtime.CodexAgentRuntime;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.runtime.RuntimeType;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -44,7 +41,6 @@ public class AgentMessageService {
     private final ExecutionNodeService nodeService;
     private final ObjectMapper mapper;
 
-    @Autowired
     public AgentMessageService(AgentMessageRepository repository,
                                AgentMessageDeliveryRepository deliveryRepository,
                                AgentRepository agentRepository,
@@ -63,19 +59,6 @@ public class AgentMessageService {
         this.runtime = runtime;
         this.nodeService = nodeService;
         this.mapper = mapper;
-    }
-
-    public AgentMessageService(AgentMessageRepository repository,
-                               AgentMessageDeliveryRepository deliveryRepository,
-                               AgentRepository agentRepository,
-                               AgentGroupRepository groupRepository,
-                               AgentGroupMembershipRepository membershipRepository,
-                               CommunicationRuleService communicationRules,
-                               CodexGateway codexGateway,
-                               ExecutionNodeService nodeService,
-                               ObjectMapper mapper) {
-        this(repository, deliveryRepository, agentRepository, groupRepository, membershipRepository,
-                communicationRules, new CodexAgentRuntime(codexGateway), nodeService, mapper);
     }
 
     public List<AgentMessageEntity> list(UUID projectId, UUID agentId) {

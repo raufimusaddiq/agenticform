@@ -4,7 +4,6 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
@@ -14,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
+import com.agenticform.runtime.AgentRuntime;
 
 import java.util.List;
 import java.util.Map;
@@ -30,7 +30,7 @@ import static org.mockito.Mockito.when;
 class OperationEventServiceTest {
     @Mock OperationEventRepository events;
     @Mock AgentRepository agents;
-    @Mock CodexGateway codexGateway;
+    @Mock AgentRuntime runtime;
     @Mock OperationalSignalService signals;
     @Mock ExecutionNodeService nodeService;
     @Mock NodeCommandRepository commands;
@@ -39,7 +39,7 @@ class OperationEventServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OperationEventService(events, agents, codexGateway, signals,
+        service = new OperationEventService(events, agents, runtime, signals,
                 nodeService, commands, new ObjectMapper());
     }
 

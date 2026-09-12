@@ -2,7 +2,6 @@ package com.agenticform.agent;
 
 import com.agenticform.approval.HumanApprovalRepository;
 import com.agenticform.approval.HumanApprovalStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.event.ControlPlaneEventBus;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.project.ProjectEntity;
@@ -13,6 +12,8 @@ import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
 import com.agenticform.workspace.WorkspaceLifecycleService;
 import com.agenticform.workspace.WorkspaceMode;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.RuntimeSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,7 +39,7 @@ class AgentLifecycleServiceTest {
     @Mock TaskDependencyService dependencies;
     @Mock HumanApprovalRepository approvals;
     @Mock ProjectService projects;
-    @Mock CodexGateway codex;
+    @Mock AgentRuntime runtime;
     @Mock ExecutionNodeService nodes;
     @Mock WorkspaceLifecycleService workspaces;
     @Mock ControlPlaneEventBus events;
@@ -51,7 +52,7 @@ class AgentLifecycleServiceTest {
     @BeforeEach
     void setUp() {
         lifecycle = new AgentLifecycleService(agents, tasks, dependencies, approvals, projects,
-                codex, nodes, workspaces, events);
+                runtime, nodes, workspaces, events);
     }
 
     @Test
@@ -79,7 +80,7 @@ class AgentLifecycleServiceTest {
         verify(task).setStatus(TaskStatus.CANCELLED);
         verify(tasks).save(task);
         verify(dependencies).reconcileDependents(taskId);
-        verify(codex).interruptTurn("thread-1", "turn-1");
+        verify(runtime).interrupt(new RuntimeSession("thread-1"), "turn-1");
         verify(agent).setActiveTaskId(null);
         verify(agent).setActiveTurnId(null);
         verify(agent).setStatus(AgentStatus.STOPPED);

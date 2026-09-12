@@ -4,16 +4,13 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
 import com.agenticform.runtime.AgentRuntime;
-import com.agenticform.runtime.CodexAgentRuntime;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.runtime.RuntimeType;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +32,6 @@ public class OperationalIncidentWakeService {
     private final NodeCommandRepository commands;
     private final ObjectMapper mapper;
 
-    @Autowired
     public OperationalIncidentWakeService(OperationalIncidentRepository incidents,
                                           AgentRepository agents,
                                           AgentRuntime runtime,
@@ -48,15 +44,6 @@ public class OperationalIncidentWakeService {
         this.nodeService = nodeService;
         this.commands = commands;
         this.mapper = mapper;
-    }
-
-    public OperationalIncidentWakeService(OperationalIncidentRepository incidents,
-                                          AgentRepository agents,
-                                          CodexGateway codexGateway,
-                                          ExecutionNodeService nodeService,
-                                          NodeCommandRepository commands,
-                                          ObjectMapper mapper) {
-        this(incidents, agents, new CodexAgentRuntime(codexGateway), nodeService, commands, mapper);
     }
 
     @Scheduled(fixedDelayString = "${agenticform.scheduler.operational-intelligence-delay-ms:2000}")

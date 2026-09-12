@@ -2,13 +2,11 @@ package com.agenticform.agent;
 
 import com.agenticform.approval.HumanApprovalRepository;
 import com.agenticform.approval.HumanApprovalStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.event.ControlPlaneEventBus;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.project.ProjectEntity;
 import com.agenticform.project.ProjectService;
 import com.agenticform.runtime.AgentRuntime;
-import com.agenticform.runtime.CodexAgentRuntime;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.runtime.RuntimeType;
 import com.agenticform.task.TaskDependencyService;
@@ -17,7 +15,6 @@ import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
 import com.agenticform.workspace.WorkspaceLifecycleService;
 import com.agenticform.workspace.WorkspaceMode;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,7 +35,6 @@ public class AgentLifecycleService {
     private final WorkspaceLifecycleService workspaces;
     private final ControlPlaneEventBus events;
 
-    @Autowired
     public AgentLifecycleService(AgentRepository agents, TaskRepository tasks,
                                  TaskDependencyService dependencies,
                                  HumanApprovalRepository approvals,
@@ -55,17 +51,6 @@ public class AgentLifecycleService {
         this.nodes = nodes;
         this.workspaces = workspaces;
         this.events = events;
-    }
-
-    public AgentLifecycleService(AgentRepository agents, TaskRepository tasks,
-                                 TaskDependencyService dependencies,
-                                 HumanApprovalRepository approvals,
-                                 ProjectService projects, CodexGateway codex,
-                                 ExecutionNodeService nodes,
-                                 WorkspaceLifecycleService workspaces,
-                                 ControlPlaneEventBus events) {
-        this(agents, tasks, dependencies, approvals, projects, new CodexAgentRuntime(codex),
-                nodes, workspaces, events);
     }
 
     @Transactional

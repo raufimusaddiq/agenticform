@@ -6,8 +6,8 @@ Scope: make Codex the first runtime adapter. Preserve existing behavior, data, r
 
 - [x] Define initial runtime-neutral type, session, and dispatch models.
 - [x] Add an internal `AgentRuntime` SPI for start, dispatch, resume, and interrupt.
-- [ ] Remove Codex protocol types from core project/task/message/policy/operation paths.
-- [ ] Keep runtime session IDs opaque to core orchestration.
+- [x] Remove `CodexGateway` injection from core project/task/message/operation orchestration; retain Codex-only tool/transport code at the adapter boundary.
+- [x] Keep local runtime session IDs behind `RuntimeSession`; persistence exposes neutral `runtimeSessionId`.
 
 ## Codex adapter
 
