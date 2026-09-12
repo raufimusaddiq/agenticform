@@ -8,6 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class SecurityStartupValidatorTest {
+    private static final String ADMIN_TOKEN = "01234567890123456789012345678901";
+    private static final String IMMUTABLE_IMAGE = "ghcr.io/raufimusaddiq/agenticform-node@sha256:"
+            + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     @Test
     void localhostMayBootstrapWithoutAdminToken() {
         AgenticformProperties properties = new AgenticformProperties();
@@ -17,32 +21,43 @@ class SecurityStartupValidatorTest {
 
     @Test
     void remoteControlPlaneRequiresHttps() {
-        AgenticformProperties properties = new AgenticformProperties();
+        AgenticformProperties properties = secureRemoteProperties();
         properties.setPublicUrl(URI.create("http://agenticform.example.com"));
-        properties.getSecurity().setAdminToken("01234567890123456789012345678901");
         assertThrows(IllegalStateException.class, () -> new SecurityStartupValidator(properties).validate());
     }
 
     @Test
     void remoteControlPlaneRequiresAdminToken() {
-        AgenticformProperties properties = new AgenticformProperties();
-        properties.setPublicUrl(URI.create("https://agenticform.example.com"));
+        AgenticformProperties properties = secureRemoteProperties();
+        properties.getSecurity().setAdminToken("");
         assertThrows(IllegalStateException.class, () -> new SecurityStartupValidator(properties).validate());
     }
 
     @Test
     void weakAdminTokenIsRejected() {
-        AgenticformProperties properties = new AgenticformProperties();
-        properties.setPublicUrl(URI.create("https://agenticform.example.com"));
+        AgenticformProperties properties = secureRemoteProperties();
         properties.getSecurity().setAdminToken("too-short");
         assertThrows(IllegalStateException.class, () -> new SecurityStartupValidator(properties).validate());
     }
 
     @Test
+    void remoteControlPlaneRejectsMutableNodeImageTag() {
+        AgenticformProperties properties = secureRemoteProperties();
+        properties.getNode().setImage("ghcr.io/raufimusaddiq/agenticform-node:latest");
+        assertThrows(IllegalStateException.class, () -> new SecurityStartupValidator(properties).validate());
+    }
+
+    @Test
     void secureRemoteConfigurationPasses() {
+        AgenticformProperties properties = secureRemoteProperties();
+        assertDoesNotThrow(() -> new SecurityStartupValidator(properties).validate());
+    }
+
+    private AgenticformProperties secureRemoteProperties() {
         AgenticformProperties properties = new AgenticformProperties();
         properties.setPublicUrl(URI.create("https://agenticform.example.com"));
-        properties.getSecurity().setAdminToken("01234567890123456789012345678901");
-        assertDoesNotThrow(() -> new SecurityStartupValidator(properties).validate());
+        properties.getSecurity().setAdminToken(ADMIN_TOKEN);
+        properties.getNode().setImage(IMMUTABLE_IMAGE);
+        return properties;
     }
 }
