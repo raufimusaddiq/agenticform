@@ -1,6 +1,8 @@
 package com.agenticform.node;
 
+import com.agenticform.config.AgenticformProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -16,32 +18,45 @@ import java.util.UUID;
 
 @Service
 public class NodeSignatureVerifier {
-    private static final Duration MAX_CLOCK_SKEW = Duration.ofMinutes(5);
     private final ExecutionNodeRepository nodes;
+    private final NodeRequestNonceRepository nonces;
+    private final AgenticformProperties properties;
 
-    public NodeSignatureVerifier(ExecutionNodeRepository nodes) {
+    public NodeSignatureVerifier(ExecutionNodeRepository nodes,
+                                 NodeRequestNonceRepository nonces,
+                                 AgenticformProperties properties) {
         this.nodes = nodes;
+        this.nonces = nonces;
+        this.properties = properties;
     }
 
-    public ExecutionNodeEntity verify(UUID nodeId, String timestamp, String signatureBase64,
+    @Transactional
+    public ExecutionNodeEntity verify(UUID nodeId, String timestamp, String nonce, String signatureBase64,
                                       String method, String path, byte[] body) {
         ExecutionNodeEntity node = nodes.findById(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown execution node"));
         if (node.getStatus() == ExecutionNodeStatus.REVOKED || node.getStatus() == ExecutionNodeStatus.DISABLED) {
             throw new IllegalStateException("Execution node is not authorized");
         }
+        if (nonce == null || !nonce.matches("[A-Za-z0-9._:-]{16,128}")) {
+            throw new IllegalArgumentException("Invalid node request nonce");
+        }
+
         Instant requestTime;
         try {
             requestTime = Instant.ofEpochMilli(Long.parseLong(timestamp));
         } catch (Exception error) {
             throw new IllegalArgumentException("Invalid node request timestamp");
         }
-        if (Duration.between(requestTime, Instant.now()).abs().compareTo(MAX_CLOCK_SKEW) > 0) {
+        Duration maxClockSkew = properties.getNode().getMaxClockSkew();
+        if (Duration.between(requestTime, Instant.now()).abs().compareTo(maxClockSkew) > 0) {
             throw new IllegalArgumentException("Node request timestamp is outside the allowed clock skew");
         }
+
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(body == null ? new byte[0] : body);
-            String canonical = timestamp + "\n" + method.toUpperCase() + "\n" + path + "\n" + HexFormat.of().formatHex(digest);
+            String canonical = nodeId + "\n" + timestamp + "\n" + nonce + "\n"
+                    + method.toUpperCase() + "\n" + path + "\n" + HexFormat.of().formatHex(digest);
             PublicKey key = KeyFactory.getInstance("Ed25519").generatePublic(
                     new X509EncodedKeySpec(Base64.getDecoder().decode(node.getPublicKeyBase64())));
             Signature verifier = Signature.getInstance("Ed25519");
@@ -49,12 +64,19 @@ public class NodeSignatureVerifier {
             verifier.update(canonical.getBytes(StandardCharsets.UTF_8));
             byte[] supplied = Base64.getDecoder().decode(signatureBase64);
             if (!verifier.verify(supplied)) throw new IllegalArgumentException("Invalid node request signature");
-            return node;
         } catch (IllegalArgumentException error) {
             throw error;
         } catch (Exception error) {
             throw new IllegalStateException("Unable to verify node request signature", error);
         }
+
+        Instant now = Instant.now();
+        int inserted = nonces.insertIfAbsent(UUID.randomUUID(), nodeId, nonce,
+                now.plus(properties.getNode().getRequestNonceTtl()), now);
+        if (inserted != 1) {
+            throw new IllegalArgumentException("Replayed node request nonce");
+        }
+        return node;
     }
 
     public static String fingerprint(String publicKeyBase64) {
