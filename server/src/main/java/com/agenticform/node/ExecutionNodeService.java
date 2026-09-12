@@ -1,5 +1,8 @@
 package com.agenticform.node;
 
+import com.agenticform.agent.AgentEntity;
+import com.agenticform.agent.AgentRepository;
+import com.agenticform.agent.AgentStatus;
 import com.agenticform.config.AgenticformProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,25 +12,35 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
 public class ExecutionNodeService {
     public record Enrollment(String token, Instant expiresAt, String setupCommand) {}
     public record EnrollmentResult(UUID nodeId, String name, String fingerprint, NodeTrustLevel trustLevel) {}
+    public record RuntimeObservation(UUID agentId, long runtimeGeneration, String threadId,
+                                     String sourceDirectory, String workingDirectory, String branch,
+                                     String runtimeStatus) {}
     public record Heartbeat(String labelsJson, String capabilitiesJson, int maxAgents,
                             String os, String arch, String hostname, String nodeVersion,
-                            String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb) {}
+                            String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb,
+                            List<RuntimeObservation> runtimes) {}
+    public record CommandCompletion(NodeCommandEntity command, boolean newlyCompleted) {}
 
     private final ExecutionNodeRepository nodes;
     private final NodeEnrollmentTokenRepository tokens;
     private final NodeCommandRepository commands;
+    private final AgentRepository agents;
+    private final NodeRuntimeSnapshotRepository runtimeSnapshots;
     private final AgenticformProperties properties;
     private final ObjectMapper mapper;
     private final SecureRandom random = new SecureRandom();
@@ -35,11 +48,15 @@ public class ExecutionNodeService {
     public ExecutionNodeService(ExecutionNodeRepository nodes,
                                 NodeEnrollmentTokenRepository tokens,
                                 NodeCommandRepository commands,
+                                AgentRepository agents,
+                                NodeRuntimeSnapshotRepository runtimeSnapshots,
                                 AgenticformProperties properties,
                                 ObjectMapper mapper) {
         this.nodes = nodes;
         this.tokens = tokens;
         this.commands = commands;
+        this.agents = agents;
+        this.runtimeSnapshots = runtimeSnapshots;
         this.properties = properties;
         this.mapper = mapper;
     }
@@ -114,7 +131,35 @@ public class ExecutionNodeService {
         node.heartbeat(heartbeat.labelsJson(), heartbeat.capabilitiesJson(), heartbeat.maxAgents(),
                 heartbeat.os(), heartbeat.arch(), heartbeat.hostname(), heartbeat.nodeVersion,
                 heartbeat.codexVersion(), heartbeat.cpuCores(), heartbeat.memoryMb(), heartbeat.diskFreeMb());
-        return nodes.save(node);
+        ExecutionNodeEntity saved = nodes.save(node);
+        reconcileRuntimeInventory(nodeId, heartbeat.runtimes());
+        return saved;
+    }
+
+    private void reconcileRuntimeInventory(UUID nodeId, List<RuntimeObservation> observations) {
+        if (observations == null) return;
+        for (RuntimeObservation observation : observations) {
+            if (observation == null || observation.agentId() == null) continue;
+            AgentEntity agent = agents.findById(observation.agentId()).orElse(null);
+            if (agent == null) continue;
+
+            NodeRuntimeSnapshotEntity snapshot = runtimeSnapshots
+                    .findByNodeIdAndAgentId(nodeId, observation.agentId())
+                    .orElseGet(() -> new NodeRuntimeSnapshotEntity(nodeId, observation.agentId()));
+            String status = agent.ownsRuntime(nodeId, observation.runtimeGeneration()) ? observation.runtimeStatus() : "STALE";
+            snapshot.observe(observation.runtimeGeneration(), observation.threadId(), observation.sourceDirectory(),
+                    observation.workingDirectory(), observation.branch(), status);
+            runtimeSnapshots.save(snapshot);
+
+            if (!agent.ownsRuntime(nodeId, observation.runtimeGeneration())) continue;
+            if (agent.getCodexThreadId() != null && observation.threadId() != null
+                    && !agent.getCodexThreadId().equals(observation.threadId())) {
+                continue;
+            }
+            agent.recoverFromSnapshot(observation.runtimeGeneration(), observation.threadId(),
+                    observation.sourceDirectory(), observation.workingDirectory(), observation.branch());
+            agents.save(agent);
+        }
     }
 
     @Transactional
@@ -131,10 +176,23 @@ public class ExecutionNodeService {
         if (node.getStatus() == ExecutionNodeStatus.REVOKED || node.getStatus() == ExecutionNodeStatus.DISABLED) {
             throw new IllegalStateException("Execution node cannot accept commands: " + node.getStatus());
         }
+        long generation = 0;
+        if (agentId != null) {
+            AgentEntity agent = agents.findById(agentId)
+                    .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
+            if (!nodeId.equals(agent.getExecutionNodeId())) {
+                throw new IllegalStateException("Agent runtime is assigned to a different execution node");
+            }
+            generation = agent.getRuntimeGeneration();
+        }
+        final long runtimeGeneration = generation;
         return commands.findByIdempotencyKey(idempotencyKey).orElseGet(() -> {
             try {
-                return commands.save(new NodeCommandEntity(nodeId, agentId, type, idempotencyKey,
-                        mapper.writeValueAsString(payload == null ? Map.of() : payload)));
+                Map<String, Object> commandPayload = new LinkedHashMap<>();
+                if (payload != null) commandPayload.putAll(payload);
+                commandPayload.put("runtimeGeneration", runtimeGeneration);
+                return commands.save(new NodeCommandEntity(nodeId, agentId, runtimeGeneration, type, idempotencyKey,
+                        mapper.writeValueAsString(commandPayload)));
             } catch (Exception error) {
                 throw new IllegalStateException("Unable to serialize node command", error);
             }
@@ -144,27 +202,66 @@ public class ExecutionNodeService {
     @Transactional
     public NodeCommandEntity leaseNext(UUID nodeId) {
         Instant now = Instant.now();
-        NodeCommandEntity command = commands.findNextAvailableForUpdate(nodeId, now).orElse(null);
-        if (command == null) return null;
-        command.lease(now.plus(properties.getNode().getCommandLease()));
-        return commands.save(command);
+        for (int stale = 0; stale < 100; stale++) {
+            NodeCommandEntity command = commands.findNextAvailableForUpdate(nodeId, now).orElse(null);
+            if (command == null) return null;
+            if (!commandRuntimeCurrent(command)) {
+                command.cancel("Runtime generation is stale; current agent runtime has moved");
+                commands.save(command);
+                continue;
+            }
+            command.lease(now.plus(properties.getNode().getCommandLease()));
+            return commands.save(command);
+        }
+        throw new IllegalStateException("Too many stale node commands require reconciliation");
+    }
+
+    private boolean commandRuntimeCurrent(NodeCommandEntity command) {
+        if (command.getAgentId() == null) return true;
+        AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
+        return agent != null && agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration());
     }
 
     @Transactional
-    public NodeCommandEntity complete(UUID nodeId, UUID commandId, boolean success,
+    public CommandCompletion complete(UUID nodeId, UUID commandId, boolean success,
                                       String resultJson, String error) {
         NodeCommandEntity command = commands.findByIdForUpdate(commandId)
                 .orElseThrow(() -> new NoSuchElementException("Node command not found: " + commandId));
         if (!nodeId.equals(command.getNodeId())) throw new IllegalArgumentException("Node command belongs to another node");
-        if (command.getStatus() == NodeCommandEntity.Status.SUCCEEDED || command.getStatus() == NodeCommandEntity.Status.FAILED) {
-            throw new IllegalStateException("Node command is already terminal");
+
+        String normalizedResult = resultJson == null ? "{}" : resultJson;
+        String normalizedError = error == null || error.isBlank() ? "Node command failed" : error;
+        if (command.getStatus() == NodeCommandEntity.Status.SUCCEEDED) {
+            if (!success || !Objects.equals(command.getResultJson(), normalizedResult)) {
+                throw new IllegalStateException("Conflicting duplicate completion for successful node command");
+            }
+            return new CommandCompletion(command, false);
+        }
+        if (command.getStatus() == NodeCommandEntity.Status.FAILED) {
+            if (success || !Objects.equals(command.getLastError(), normalizedError)) {
+                throw new IllegalStateException("Conflicting duplicate completion for failed node command");
+            }
+            return new CommandCompletion(command, false);
+        }
+        if (command.getStatus() == NodeCommandEntity.Status.CANCELLED) {
+            throw new IllegalStateException("Node command was cancelled as stale");
+        }
+        if (!commandRuntimeCurrent(command)) {
+            command.cancel("Stale runtime completion was fenced");
+            commands.save(command);
+            throw new IllegalStateException("Node command runtime generation is stale");
         }
         if (command.getStatus() != NodeCommandEntity.Status.LEASED) {
             throw new IllegalStateException("Node command is not currently leased");
         }
-        if (success) command.succeed(resultJson == null ? "{}" : resultJson);
-        else command.fail(error == null || error.isBlank() ? "Node command failed" : error);
-        return commands.save(command);
+        if (success) command.succeed(normalizedResult);
+        else command.fail(normalizedError);
+        return new CommandCompletion(commands.save(command), true);
+    }
+
+    public List<NodeRuntimeSnapshotEntity> runtimes(UUID nodeId) {
+        get(nodeId);
+        return runtimeSnapshots.findAllByNodeId(nodeId);
     }
 
     private String hash(String value) {
