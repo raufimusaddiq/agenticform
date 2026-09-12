@@ -43,10 +43,11 @@ public class NodeCodexBridgeController {
     @PostMapping("/notification")
     public void notification(@PathVariable UUID nodeId,
                              @RequestHeader("X-AF-Timestamp") String timestamp,
+                             @RequestHeader("X-AF-Nonce") String nonce,
                              @RequestHeader("X-AF-Signature") String signature,
                              @RequestBody byte[] body) throws Exception {
         String path = "/api/nodes/" + nodeId + "/codex/notification";
-        signatures.verify(nodeId, timestamp, signature, "POST", path, body);
+        signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         BridgeMessage message = mapper.readValue(body, BridgeMessage.class);
         events.handleRemote(nodeId, new CodexJsonRpcClient.Notification(message.method(), message.params()));
     }
@@ -54,10 +55,11 @@ public class NodeCodexBridgeController {
     @PostMapping("/server-request")
     public CompletionStage<JsonNode> serverRequest(@PathVariable UUID nodeId,
                                                     @RequestHeader("X-AF-Timestamp") String timestamp,
+                                                    @RequestHeader("X-AF-Nonce") String nonce,
                                                     @RequestHeader("X-AF-Signature") String signature,
                                                     @RequestBody byte[] body) throws Exception {
         String path = "/api/nodes/" + nodeId + "/codex/server-request";
-        signatures.verify(nodeId, timestamp, signature, "POST", path, body);
+        signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         BridgeMessage message = mapper.readValue(body, BridgeMessage.class);
         requireThreadOwnership(nodeId, message.params());
         JsonNode requestId = message.requestId() == null ? LongNode.valueOf(0L) : message.requestId();
