@@ -5,8 +5,10 @@ import com.agenticform.agent.AgentQueueMode;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.RuntimeDispatchReceipt;
+import com.agenticform.runtime.RuntimeSession;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,16 +21,16 @@ import java.util.UUID;
 public class TaskDispatchService {
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
-    private final CodexGateway codexGateway;
+    private final AgentRuntime runtime;
     private final ExecutionNodeService nodeService;
     private final TaskDependencyService dependencyService;
 
     public TaskDispatchService(TaskRepository taskRepository, AgentRepository agentRepository,
-                               CodexGateway codexGateway, ExecutionNodeService nodeService,
+                               AgentRuntime runtime, ExecutionNodeService nodeService,
                                TaskDependencyService dependencyService) {
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
-        this.codexGateway = codexGateway;
+        this.runtime = runtime;
         this.nodeService = nodeService;
         this.dependencyService = dependencyService;
     }
@@ -127,8 +129,8 @@ public class TaskDispatchService {
                 return;
             }
 
-            CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                    agent.getCodexThreadId(), clientMessageId, task.getPrompt());
+            RuntimeDispatchReceipt receipt = runtime.dispatch(
+                    new RuntimeSession(agent.getRuntimeSessionId()), clientMessageId, task.getPrompt());
             TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
             currentTask.setCodexQueuedSubmissionId(receipt.queuedSubmissionId());
             if (receipt.turnId() != null) currentTask.setCodexTurnId(receipt.turnId());

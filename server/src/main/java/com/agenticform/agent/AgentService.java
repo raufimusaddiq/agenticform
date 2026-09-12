@@ -1,7 +1,8 @@
 package com.agenticform.agent;
 
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.codex.CodexThreadConfiguration;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.node.ExecutionNodeEntity;
 import com.agenticform.node.ExecutionNodeScheduler;
 import com.agenticform.node.ExecutionNodeService;
@@ -43,20 +44,20 @@ public class AgentService {
     private final AgentRepository repository;
     private final ProjectService projectService;
     private final WorkspaceManager workspaceManager;
-    private final CodexGateway codexGateway;
+    private final AgentRuntime runtime;
     private final ExecutionNodeScheduler nodeScheduler;
     private final ExecutionNodeService nodeService;
     private final CodexThreadConfiguration threadConfiguration;
     private final ObjectMapper mapper;
 
     public AgentService(AgentRepository repository, ProjectService projectService,
-                        WorkspaceManager workspaceManager, CodexGateway codexGateway,
+                        WorkspaceManager workspaceManager, AgentRuntime runtime,
                         ExecutionNodeScheduler nodeScheduler, ExecutionNodeService nodeService,
                         CodexThreadConfiguration threadConfiguration, ObjectMapper mapper) {
         this.repository = repository;
         this.projectService = projectService;
         this.workspaceManager = workspaceManager;
-        this.codexGateway = codexGateway;
+        this.runtime = runtime;
         this.nodeScheduler = nodeScheduler;
         this.nodeService = nodeService;
         this.threadConfiguration = threadConfiguration;
@@ -133,10 +134,10 @@ public class AgentService {
                 ? project.getDefaultBranch() : requestedBaseBranch;
         WorkspaceManager.WorkspaceAllocation workspace = workspaceManager.allocate(
                 project, mode, name, requestedBranch, baseBranch);
-        CodexGateway.ThreadHandle thread = codexGateway.startThread(
+        RuntimeSession session = runtime.start(
                 workspace.workingDirectory().toString(), responsibility, capabilityProfile);
         return repository.save(new AgentEntity(
-                project.getId(), name, responsibility, thread.threadId(), mode,
+                project.getId(), name, responsibility, session.id(), mode,
                 project.getRootDirectory(), workspace.workingDirectory().toString(), workspace.branch(),
                 queueMode, humanControlMode, role, systemManaged, null, capabilityProfile));
     }
@@ -209,7 +210,7 @@ public class AgentService {
             return agent;
         }
         try {
-            codexGateway.interruptTurn(agent.getCodexThreadId(), agent.getActiveTurnId());
+            runtime.interrupt(new RuntimeSession(agent.getRuntimeSessionId()), agent.getActiveTurnId());
         } catch (RuntimeException interruptFailure) {
             agent.setStatus(AgentStatus.DISCONNECTED);
             return repository.save(agent);
