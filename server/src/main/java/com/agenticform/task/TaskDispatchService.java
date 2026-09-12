@@ -79,8 +79,9 @@ public class TaskDispatchService {
     public TaskEntity dispatchManually(UUID taskId) {
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new NoSuchElementException("Task not found: " + taskId));
-        AgentEntity agent = agentRepository.findById(task.getAssignedAgentId())
-                .orElseThrow(() -> new NoSuchElementException("Agent not found: " + task.getAssignedAgentId()));
+        UUID assignedAgentId = task.getAssignedAgentId();
+        AgentEntity agent = agentRepository.findById(assignedAgentId)
+                .orElseThrow(() -> new NoSuchElementException("Agent not found: " + assignedAgentId));
         if (agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()) {
             throw new IllegalStateException("System-managed Operational Agent does not accept normal task dispatch");
         }
