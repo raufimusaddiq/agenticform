@@ -161,7 +161,9 @@ public class NodeCommandCompletionHandler {
             agent.setActiveTaskId(null);
             agent.setActiveTurnId(null);
         } else {
-            agent.setStatus(AgentStatus.DISCONNECTED);
+            // Cleanup can be refused for a dirty/unmerged worktree while the node/runtime are still healthy.
+            // Keep the runtime connected and paused so the operator/agent can resolve the workspace and retry.
+            agent.setStatus(AgentStatus.IDLE);
         }
         agents.save(agent);
     }
