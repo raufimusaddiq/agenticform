@@ -18,17 +18,15 @@ public class TaskQueueReconciler {
     private final AgentRepository agentRepository;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final TaskDependencyService dependencies;
-    private final TaskDispatchService dispatch;
     private final ControlPlaneEventBus events;
 
     public TaskQueueReconciler(TaskRepository taskRepository, AgentRepository agentRepository,
                                AgentRuntimeRegistry runtimeRegistry, TaskDependencyService dependencies,
-                               ControlPlaneEventBus events, TaskDispatchService dispatch) {
+                               ControlPlaneEventBus events) {
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
         this.runtimeRegistry = runtimeRegistry;
         this.dependencies = dependencies;
-        this.dispatch = dispatch;
         this.events = events;
     }
 
@@ -37,13 +35,7 @@ public class TaskQueueReconciler {
         // Dependency readiness is derived from durable task state. Re-evaluate waiting tasks so a
         // control-plane restart cannot strand a dependent after the prerequisite already terminated.
         for (TaskEntity task : taskRepository.findTop20ByStatusOrderByUpdatedAtAsc(TaskStatus.WAITING_DEPENDENCY)) {
-            if (task.getKind() == TaskKind.ORCHESTRATION
-                    && task.getLastError() != null
-                    && task.getLastError().startsWith("Waiting for delegated tasks")) {
-                dispatch.reconcileOrchestration(task.getId());
-            } else {
-                dependencies.reconcile(task.getId());
-            }
+            dependencies.reconcile(task.getId());
         }
 
         for (TaskEntity task : taskRepository.findTop20ByStatusOrderByUpdatedAtAsc(TaskStatus.DISPATCHED)) {

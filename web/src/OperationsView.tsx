@@ -47,6 +47,7 @@ export function OperationsView({ projects, agents, projectFilter }: {
   const [parameters, setParameters] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [incidentPrompt, setIncidentPrompt] = useState<{ incident: OperationalIncident; status: OperationalIncidentStatus; summary: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -165,8 +166,8 @@ export function OperationsView({ projects, agents, projectFilter }: {
   async function transitionIncident(incident: OperationalIncident, status: OperationalIncidentStatus) {
     let summary: string | undefined;
     if (status === 'RESOLVED' || status === 'SUPPRESSED') {
-      summary = window.prompt(status === 'RESOLVED' ? 'Resolution summary' : 'Suppression reason')?.trim();
-      if (!summary) return;
+      setIncidentPrompt({ incident, status, summary: '' });
+      return;
     } else {
       summary = status === 'INVESTIGATING' ? 'Operator acknowledged incident for investigation' : 'Mitigation is in progress';
     }
@@ -174,6 +175,7 @@ export function OperationsView({ projects, agents, projectFilter }: {
   }
 
   return <div className="page-stack">
+    {incidentPrompt && <div className="confirm-backdrop" role="presentation" onMouseDown={() => setIncidentPrompt(null)}><section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="incident-prompt-title" onMouseDown={(event) => event.stopPropagation()}><h3 id="incident-prompt-title">{incidentPrompt.status === 'RESOLVED' ? 'Resolution summary' : 'Suppression reason'}</h3><p className="muted">Record why this incident changed state.</p><textarea autoFocus required rows={4} value={incidentPrompt.summary} onChange={(event) => setIncidentPrompt({ ...incidentPrompt, summary: event.target.value })} /><div className="form-actions"><button className="button ghost" onClick={() => setIncidentPrompt(null)}>Cancel</button><button className="button primary" disabled={!incidentPrompt.summary.trim() || busy} onClick={() => { const item = incidentPrompt; setIncidentPrompt(null); void mutate(() => operationalIntelligenceApi.transitionIncident(item.incident.id, item.status, item.summary.trim())); }}>Confirm</button></div></section></div>}
     {error && <div className="error-banner"><strong>Operational action required</strong><span>{error}</span><button onClick={() => setError(null)}>Dismiss</button></div>}
 
     <section className="panel">
