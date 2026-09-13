@@ -44,11 +44,8 @@ export function SecureShell() {
   if (!authenticated) return <Login onLogin={login} error={loginError} />;
 
   return <>
-    <App />
-    <div className="secure-shell-actions">
-      <button className="button secondary" type="button" onClick={() => setNodesOpen(true)}>Execution nodes</button>
-      <button className="button ghost" type="button" onClick={logout}>Sign out</button>
-    </div>
+    <App onOpenNodes={() => setNodesOpen(true)} />
+    <div className="secure-shell-actions"><button className="button ghost" type="button" onClick={logout}>Sign out</button></div>
     {nodesOpen && <NodesPanel onClose={() => setNodesOpen(false)} />}
   </>;
 }

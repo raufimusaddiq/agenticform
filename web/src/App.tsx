@@ -58,7 +58,7 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   );
 }
 
-export default function App() {
+export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -178,6 +178,7 @@ export default function App() {
               <option value="all">All projects</option>
               {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select>
+            {onOpenNodes && <button className="button secondary" onClick={onOpenNodes}>Execution nodes</button>}
             <button className="button secondary" onClick={() => setDialog('task')} disabled={!taskAgents.length}>New task</button>
             <button className="button primary" onClick={() => setDialog('agent')} disabled={!projects.length}>Spawn agent</button>
           </div>
@@ -186,7 +187,7 @@ export default function App() {
         {error && <div className="error-banner"><strong>Action required</strong><span>{error}</span><button onClick={() => setError(null)}>Dismiss</button></div>}
         {loading ? <div className="loading">Loading control-plane state…</div> : (
           <>
-            {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} attention={attention} active={active} queued={queued} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onSpawn={() => setDialog('agent')} />}
+            {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} attention={attention} active={active} queued={queued} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onSpawn={() => setDialog('agent')} />}
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} />}
             {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
@@ -205,12 +206,16 @@ export default function App() {
   );
 }
 
-function Overview({ projects, agents, tasks, attention, active, queued, projectById, agentById, onRegister, onSpawn }: {
+function Overview({ projects, agents, tasks, attention, active, queued, projectById, agentById, onRegister, onOpenNodes, onSpawn }: {
   projects: Project[]; agents: Agent[]; tasks: Task[]; attention: number; active: number; queued: number;
-  projectById: Map<string, Project>; agentById: Map<string, Agent>; onRegister: () => void; onSpawn: () => void;
+  projectById: Map<string, Project>; agentById: Map<string, Agent>; onRegister: () => void; onOpenNodes?: () => void; onSpawn: () => void;
 }) {
   const recent = [...tasks].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 6);
   return <div className="page-stack">
+    {!projects.length && <section className="setup-panel" aria-labelledby="setup-title">
+      <div><p className="eyebrow">First run</p><h2 id="setup-title">Set up a project workspace</h2><p>Register a Git repository, enroll an execution node, then assign the first agent.</p></div>
+      <div className="setup-actions"><button className="button primary" onClick={onRegister}>Register repository</button><button className="button secondary" onClick={onOpenNodes}>Add execution node</button></div>
+    </section>}
     <section className="metrics-strip">
       <div><span>Needs attention</span><strong>{attention}</strong></div>
       <div><span>Working agents</span><strong>{active}</strong></div>
@@ -296,13 +301,15 @@ function Tasks({ tasks, projectById, agentById, onDispatch, onCreate }: { tasks:
 
 function Empty({ title, body }: { title: string; body: string }) { return <div className="empty"><strong>{title}</strong><p>{body}</p></div>; }
 
-function ProjectForm({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: { name: string; path: string; defaultBranch: string }) => void }) {
-  const [name, setName] = useState(''); const [path, setPath] = useState('/srv/apps/'); const [branch, setBranch] = useState('main');
-  return <Modal title="Register project" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ name, path, defaultBranch: branch }); }}>
-    <label>Project name<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Richmod" /></label>
-    <label>Server directory<input required className="mono" value={path} onChange={(e) => setPath(e.target.value)} /></label>
-    <label>Default branch<input required className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} /></label>
-    <p className="form-note">The backend resolves and validates this path against configured project roots.</p><footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Register project</button></footer>
+function ProjectForm({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: { name: string; sourceType: 'LOCAL_PATH' | 'GIT'; path?: string; repositoryUrl?: string; defaultBranch: string }) => void }) {
+  const [sourceType, setSourceType] = useState<'LOCAL_PATH' | 'GIT'>('GIT');
+  const [name, setName] = useState(''); const [path, setPath] = useState('/srv/apps/'); const [repositoryUrl, setRepositoryUrl] = useState(''); const [branch, setBranch] = useState('main');
+  return <Modal title="Register project" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit(sourceType === 'GIT' ? { name, sourceType, repositoryUrl, defaultBranch: branch } : { name, sourceType, path, defaultBranch: branch }); }}>
+    <label>Source<select value={sourceType} onChange={(event) => setSourceType(event.target.value as 'LOCAL_PATH' | 'GIT')}><option value="GIT">Git repository</option><option value="LOCAL_PATH">Server directory</option></select></label>
+    <label>Project name<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="My project" /></label>
+    {sourceType === 'GIT' ? <label>Repository URL<input required type="url" className="mono" value={repositoryUrl} onChange={(e) => setRepositoryUrl(e.target.value)} placeholder="https://github.com/org/repository.git" /><small>Use a credential-free HTTPS URL. Agents clone this repository on the selected node.</small></label> : <label>Server directory<input required className="mono" value={path} onChange={(e) => setPath(e.target.value)} /><small>The backend validates this path against configured project roots.</small></label>}
+    <label>Default branch<input required className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" /></label>
+    <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Register project</button></footer>
   </form></Modal>;
 }
 
