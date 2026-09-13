@@ -37,7 +37,8 @@ Audit baseline: September 13, 2026. Scope covers all persisted agents, tasks, me
 
 - [x] Hide child tasks from the default task list.
 - [x] Expose durable messages and approvals in the UI.
-- [ ] Show task kind, dependency reason, blocker, runtime generation, and next action.
+- [x] Show task kind and specialty in the UI.
+- [ ] Show dependency reason, blocker, runtime generation, and next action.
 - [ ] Add task graph detail view.
 - [ ] Fix SSE authorization/reconnect errors after response commit.
 

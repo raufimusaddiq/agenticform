@@ -319,7 +319,7 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
   return <section className="panel"><div className="section-header"><div><p className="eyebrow">Codex threads</p><h2>Agent roster</h2></div></div>
     {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="data-list">
       {agents.map((agent) => <div className="data-row agent-detail-row human-agent-row" key={agent.id}>
-        <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name} · {label(agent.role)}{agent.systemManaged ? ' · system managed' : ''}</small></div>
+        <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name} · {label(agent.role)}{agent.specialty ? ` · ${agent.specialty}` : ''}{agent.systemManaged ? ' · system managed' : ''}</small></div>
         <Status value={agent.status} />
         <p>{agent.responsibility}</p>
         <div className="control-stack"><small>Human control</small><select className="compact-select" value={agent.humanControlMode} onChange={(event) => onControlMode(agent.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">On the loop</option><option value="IN_THE_LOOP">In the loop</option></select></div>
@@ -335,7 +335,7 @@ function Tasks({ tasks, projectById, agentById, onDispatch, onCreate }: { tasks:
   return <section className="panel"><div className="section-header"><div><p className="eyebrow">Durable orchestration</p><h2>Task queue</h2></div><button className="button primary" onClick={onCreate}>New task</button></div>
     {!tasks.length ? <Empty title="No tasks in this scope" body="Create a task and Agenticform will dispatch it according to the agent queue policy." /> : <div className="data-list">
       {tasks.map((task) => <div className="data-row task-detail-row" key={task.id}>
-        <div><strong>{task.title}</strong><small>{projectById.get(task.projectId)?.name} / {agentById.get(task.assignedAgentId)?.name}</small></div><Status value={task.status} /><span>Priority {task.priority}</span><div className="machine"><code>queue {shortId(task.queuedSubmissionId)}</code><code>turn {shortId(task.turnId)}</code></div>{task.report ? <details><summary>Task report</summary><p>{task.report}</p></details> : task.lastError ? <span className="inline-error" title={task.lastError}>Reconcile issue</span> : <span className="muted">Awaiting report</span>}<button className="button compact secondary" disabled={!['READY', 'BLOCKED'].includes(task.status)} onClick={() => onDispatch(task.id)}>Dispatch</button>
+        <div><strong>{task.title}</strong><small>{projectById.get(task.projectId)?.name} / {agentById.get(task.assignedAgentId)?.name} · {task.kind}</small></div><Status value={task.status} /><span>Priority {task.priority}</span><div className="machine"><code>queue {shortId(task.queuedSubmissionId)}</code><code>turn {shortId(task.turnId)}</code></div>{task.report ? <details><summary>Task report</summary><p>{task.report}</p></details> : task.lastError ? <span className="inline-error" title={task.lastError}>Reconcile issue</span> : <span className="muted">Awaiting report</span>}<button className="button compact secondary" disabled={!['READY', 'BLOCKED'].includes(task.status)} onClick={() => onDispatch(task.id)}>Dispatch</button>
       </div>)}
     </div>}
   </section>;
