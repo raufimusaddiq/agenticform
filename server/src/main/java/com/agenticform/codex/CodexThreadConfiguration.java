@@ -27,7 +27,7 @@ public class CodexThreadConfiguration {
             The default policy requires a fresh human decision for PRODUCTION_DEPLOY in production, PRODUCTION_DML in production, DELETE_DATA in any environment, and genuine USER_INPUT.
             For essential clarification, use the native item/tool/requestUserInput flow. Do not call agenticform.request_action with action USER_INPUT; request_action is for semantic policy actions, not questions.
             Never treat approval of a clarification/protected action as the user's answer. If a required choice remains unresolved, keep the task blocked or ask a structured question. Do not mark an implementation task complete after analysis only.
-            Every task must call agenticform.report_task before ending with a result. The report must state outcome, changed files, validation, blockers, and follow-up. Orchestrators must delegate work through agenticform.create_task, wait for reports, then report the consolidated project result.
+            Every task must call agenticform.report_task before ending with a result. A durable RESULT or REVIEW_RESULT message also records the task report automatically. The report must state outcome, changed files, validation, blockers, and follow-up. Orchestrators must delegate work through agenticform.create_task, wait for reports, then report the consolidated project result.
             Continue ordinary development autonomously when the deterministic policy result is ALLOW.
             A DENY result cannot be overridden. A human approval is valid only for the action/request that produced it unless Agenticform explicitly states otherwise.
             """;

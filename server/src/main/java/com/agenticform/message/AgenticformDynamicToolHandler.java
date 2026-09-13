@@ -381,9 +381,17 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private JsonNode sendMessage(AgentEntity source, JsonNode arguments) {
         UUID targetAgentId = UUID.fromString(requiredText(arguments, "targetAgentId"));
         UUID replyTo = arguments.hasNonNull("replyToMessageId") ? UUID.fromString(arguments.get("replyToMessageId").asText()) : null;
-        AgentMessageEntity message = messageService.send(source.getId(), targetAgentId, messageType(arguments),
-                requiredText(arguments, "subject"), requiredText(arguments, "content"), replyTo);
+        AgentMessageType type = messageType(arguments);
+        String subject = requiredText(arguments, "subject");
+        String content = requiredText(arguments, "content");
+        AgentMessageEntity message = messageService.send(source.getId(), targetAgentId, type, subject, content, replyTo);
+        recordResultReport(source, type, subject, content);
         return success(messagePayload(message, messageService.deliveries(message.getId())).toString());
+    }
+
+    private void recordResultReport(AgentEntity source, AgentMessageType type, String subject, String content) {
+        if (source.getActiveTaskId() == null || (type != AgentMessageType.RESULT && type != AgentMessageType.REVIEW_RESULT)) return;
+        taskService.report(source.getId(), source.getActiveTaskId(), subject + "\n\n" + content);
     }
 
     private JsonNode createTask(AgentEntity source, JsonNode arguments) {
