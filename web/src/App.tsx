@@ -195,7 +195,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
         {error && <div className="error-banner"><strong>Action required</strong><span>{error}</span><button onClick={() => setError(null)}>Dismiss</button></div>}
         {loading ? <div className="loading">Loading control-plane state…</div> : (
           <>
-            {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} attention={attention} active={active} queued={queued} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onSpawn={() => setDialog('agent')} />}
+            {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} approvals={visibleApprovals} attention={attention} active={active} queued={queued} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => setView('approvals')} onOpenAgents={() => setView('agents')} onOpenTasks={() => setView('tasks')} onSpawn={() => setDialog('agent')} />}
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} />}
             {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
@@ -214,21 +214,32 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   );
 }
 
-function Overview({ projects, agents, tasks, attention, active, queued, projectById, agentById, onRegister, onOpenNodes, onSpawn }: {
-  projects: Project[]; agents: Agent[]; tasks: Task[]; attention: number; active: number; queued: number;
-  projectById: Map<string, Project>; agentById: Map<string, Agent>; onRegister: () => void; onOpenNodes?: () => void; onSpawn: () => void;
+function Overview({ projects, agents, tasks, approvals, attention, active, queued, projectById, agentById, onRegister, onOpenNodes, onOpenApprovals, onOpenAgents, onOpenTasks, onSpawn }: {
+  projects: Project[]; agents: Agent[]; tasks: Task[]; approvals: HumanApproval[]; attention: number; active: number; queued: number;
+  projectById: Map<string, Project>; agentById: Map<string, Agent>; onRegister: () => void; onOpenNodes?: () => void; onOpenApprovals: () => void; onOpenAgents: () => void; onOpenTasks: () => void; onSpawn: () => void;
 }) {
   const recent = [...tasks].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 6);
+  const pendingApprovals = approvals.filter((approval) => approval.status === 'PENDING');
+  const unhealthyAgents = agents.filter((agent) => ['WAITING_APPROVAL', 'BLOCKED', 'DISCONNECTED', 'FAILED'].includes(agent.status));
+  const blockedTasks = tasks.filter((task) => ['WAITING_APPROVAL', 'BLOCKED', 'FAILED'].includes(task.status));
   return <div className="page-stack">
     {!projects.length && <section className="setup-panel" aria-labelledby="setup-title">
       <div><p className="eyebrow">First run</p><h2 id="setup-title">Set up a project workspace</h2><p>Register a Git repository, enroll an execution node, then assign the first agent.</p></div>
       <div className="setup-actions"><button className="button primary" onClick={onRegister}>Register repository</button><button className="button secondary" onClick={onOpenNodes}>Add execution node</button></div>
     </section>}
-    <section className="metrics-strip">
-      <div><span>Needs attention</span><strong>{attention}</strong></div>
+    {attention > 0 && <section className="attention-panel" aria-labelledby="attention-title">
+      <div className="attention-heading"><p className="eyebrow">Operator inbox</p><h2 id="attention-title">Needs attention</h2><p>{attention} item{attention === 1 ? '' : 's'} may need an operator decision or recovery action.</p></div>
+      <div className="attention-actions">
+        {pendingApprovals.length > 0 && <button className="attention-item" onClick={onOpenApprovals}><strong>{pendingApprovals.length}</strong><span>Pending approval{pendingApprovals.length === 1 ? '' : 's'}</span></button>}
+        {unhealthyAgents.length > 0 && <button className="attention-item" onClick={onOpenAgents}><strong>{unhealthyAgents.length}</strong><span>Agent issue{unhealthyAgents.length === 1 ? '' : 's'}</span></button>}
+        {blockedTasks.length > 0 && <button className="attention-item" onClick={onOpenTasks}><strong>{blockedTasks.length}</strong><span>Task issue{blockedTasks.length === 1 ? '' : 's'}</span></button>}
+      </div>
+    </section>}
+    <section className="metrics-strip" aria-label="Control plane summary">
       <div><span>Working agents</span><strong>{active}</strong></div>
       <div><span>Queued work</span><strong>{queued}</strong></div>
       <div><span>Registered projects</span><strong>{projects.length}</strong></div>
+      <div><span>Needs attention</span><strong>{attention}</strong></div>
     </section>
 
     <section className="panel">
