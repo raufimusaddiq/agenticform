@@ -78,6 +78,7 @@ export type Task = {
   projectId: string;
   assignedAgentId: string;
   parentTaskId: string | null;
+  workflowId: string;
   title: string;
   prompt: string;
   status: TaskStatus;

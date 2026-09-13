@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.LongNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.UUID;
 
@@ -58,8 +59,16 @@ public class NodeCodexBridgeController {
         signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         BridgeMessage message = mapper.readValue(body, BridgeMessage.class);
         JsonNode requestId = message.requestId() == null ? LongNode.valueOf(0L) : message.requestId();
+        JsonNode params = message.params();
+        if (params != null && params.isObject()) {
+            ObjectNode enriched = (ObjectNode) params.deepCopy();
+            enriched.put("_agenticformNodeId", nodeId.toString());
+            enriched.put("_agenticformRuntimeGeneration", message.runtimeGeneration());
+            enriched.put("_agenticformRuntimeType", message.runtimeType().name());
+            params = enriched;
+        }
         return interactions.begin(nodeId, message.runtimeGeneration(), message.runtimeType(), message.runtimeSessionId(),
-                new CodexJsonRpcClient.ServerRequest(requestId, message.method(), message.params()));
+                new CodexJsonRpcClient.ServerRequest(requestId, message.method(), params));
     }
 
     @GetMapping("/server-request/{interactionId}")

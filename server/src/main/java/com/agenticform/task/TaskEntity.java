@@ -30,6 +30,9 @@ public class TaskEntity {
     @Column(name = "parent_task_id")
     private UUID parentTaskId;
 
+    @Column(name = "workflow_id", nullable = false)
+    private UUID workflowId;
+
     @Column(nullable = false)
     private String title;
 
@@ -77,9 +80,15 @@ public class TaskEntity {
 
     public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority,
                       UUID parentTaskId, TaskKind kind) {
+        this(projectId, assignedAgentId, title, prompt, priority, parentTaskId, kind, UUID.randomUUID());
+    }
+
+    public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority,
+                      UUID parentTaskId, TaskKind kind, UUID workflowId) {
         this.projectId = projectId;
         this.assignedAgentId = assignedAgentId;
         this.parentTaskId = parentTaskId;
+        this.workflowId = workflowId == null ? UUID.randomUUID() : workflowId;
         this.title = title;
         this.prompt = prompt;
         this.priority = priority;
@@ -97,6 +106,7 @@ public class TaskEntity {
     public UUID getProjectId() { return projectId; }
     public UUID getAssignedAgentId() { return assignedAgentId; }
     public UUID getParentTaskId() { return parentTaskId; }
+    public UUID getWorkflowId() { return workflowId; }
     public String getTitle() { return title; }
     public String getPrompt() { return prompt; }
     public TaskStatus getStatus() { return status; }

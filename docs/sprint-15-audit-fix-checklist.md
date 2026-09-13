@@ -13,7 +13,7 @@ Audit baseline: September 13, 2026. Scope covers all persisted agents, tasks, me
 - [x] Require completed review evidence before Orchestrator completion.
 - [x] Preserve parent task context and parent linkage for delegated work.
 - [x] Add active-scope deduplication for equivalent delegated tasks.
-- [ ] Add explicit workflow phase transitions and canonical workflow IDs.
+- [x] Add task kinds as explicit workflow phases and canonical workflow IDs.
 - [ ] Reconcile provably stale historical tasks without rewriting uncertain history.
 
 ## Generic agent roster
@@ -28,7 +28,7 @@ Audit baseline: September 13, 2026. Scope covers all persisted agents, tasks, me
 
 - [x] Preserve runtime generation and task dependency gates.
 - [x] Preserve stale-turn cleanup before redispatch.
-- [ ] Fence every dynamic-tool call by `(agent, task, runtime generation)` with a structured stale result.
+- [x] Fence every remote dynamic-tool call by `(agent, runtime generation)` with a structured stale result.
 - [ ] Stop old Codex threads after terminal task state.
 - [ ] Deduplicate retry tasks after runtime failure.
 - [ ] Revoke/clean the historical node identity after operator confirmation.

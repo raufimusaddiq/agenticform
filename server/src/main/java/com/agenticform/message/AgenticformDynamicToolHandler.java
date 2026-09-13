@@ -98,6 +98,16 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         String threadId = requiredText(params, "threadId");
         AgentEntity source = agentRepository.findByRuntimeTypeAndRuntimeSessionId(com.agenticform.runtime.RuntimeType.CODEX, threadId)
                 .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns runtime session " + threadId));
+        String nodeId = params.path("_agenticformNodeId").asText(null);
+        if (nodeId != null && !nodeId.isBlank()) {
+            long generation = params.path("_agenticformRuntimeGeneration").asLong(0);
+            if (generation <= 0 || source.getExecutionNodeId() == null
+                    || !source.ownsRuntime(UUID.fromString(nodeId), generation, RuntimeType.CODEX, threadId)) {
+                return CompletableFuture.completedFuture(failure("STALE_RUNTIME", "Runtime generation is no longer assigned to this agent"));
+            }
+        } else if (source.getExecutionNodeId() != null) {
+            return CompletableFuture.completedFuture(failure("UNFENCED_RUNTIME", "Remote runtime request has no Agenticform runtime fence"));
+        }
         String tool = requiredText(params, "tool");
         JsonNode arguments = params.path("arguments");
         return switch (tool) {
@@ -446,6 +456,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         payload.put("assignedAgentId", targetAgentId.toString());
         payload.put("status", task.getStatus().name());
         payload.put("kind", task.getKind().name());
+        payload.put("workflowId", task.getWorkflowId().toString());
         return success(payload.toString());
     }
 
@@ -515,6 +526,17 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private JsonNode success(String text) {
         ObjectNode response = mapper.createObjectNode();
         response.put("success", true);
+        ArrayNode items = response.putArray("contentItems");
+        ObjectNode item = items.addObject();
+        item.put("type", "inputText");
+        item.put("text", text);
+        return response;
+    }
+
+    private JsonNode failure(String code, String text) {
+        ObjectNode response = mapper.createObjectNode();
+        response.put("success", false);
+        response.put("code", code);
         ArrayNode items = response.putArray("contentItems");
         ObjectNode item = items.addObject();
         item.put("type", "inputText");

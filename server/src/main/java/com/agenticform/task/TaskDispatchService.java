@@ -76,6 +76,8 @@ public class TaskDispatchService {
             prompt = TaskContextCompactor.inherit(parent, prompt);
         }
         TaskKind kind = requestedKind == null ? kindFor(agent) : requestedKind;
+        UUID workflowId = parentTaskId == null ? null : taskRepository.findById(parentTaskId)
+                .map(TaskEntity::getWorkflowId).orElseThrow(() -> new NoSuchElementException("Parent task not found: " + parentTaskId));
         if (kind == TaskKind.OPERATIONS || agent.getRole() == AgentRole.OPERATIONAL) {
             throw new IllegalArgumentException("Operational work must use the operational handoff");
         }
@@ -97,7 +99,7 @@ public class TaskDispatchService {
                         || candidate.getStatus() == TaskStatus.WAITING_APPROVAL)
                 .findFirst().orElse(null);
         if (existing != null) return existing;
-        TaskEntity task = taskRepository.save(new TaskEntity(agent.getProjectId(), agentId, title, prompt, priority, parentTaskId, kind));
+        TaskEntity task = taskRepository.save(new TaskEntity(agent.getProjectId(), agentId, title, prompt, priority, parentTaskId, kind, workflowId));
         if (dependencies != null) {
             for (TaskDependencyService.DependencyRequest dependency : dependencies) {
                 if (dependency == null || dependency.taskId() == null) {
