@@ -244,6 +244,39 @@ public class TaskDispatchService {
     }
 
     @Transactional
+    public void reconcileOrchestration(UUID taskId) {
+        TaskEntity task = taskRepository.findById(taskId).orElse(null);
+        if (task == null || task.getKind() != TaskKind.ORCHESTRATION
+                || task.getStatus() != TaskStatus.WAITING_DEPENDENCY) return;
+        List<TaskEntity> descendants = descendants(taskId);
+        boolean allTerminal = !descendants.isEmpty() && descendants.stream().allMatch(child ->
+                child.getStatus() == TaskStatus.COMPLETED
+                        || child.getStatus() == TaskStatus.BLOCKED
+                        || child.getStatus() == TaskStatus.FAILED
+                        || child.getStatus() == TaskStatus.CANCELLED);
+        if (allTerminal) {
+            task.setStatus(TaskStatus.READY);
+            task.setLastError(null);
+            taskRepository.save(task);
+        }
+    }
+
+    public boolean hasDescendants(UUID taskId) {
+        return !descendants(taskId).isEmpty();
+    }
+
+    @Transactional
+    public void reconcileOrchestrationParents(UUID childTaskId) {
+        TaskEntity child = taskRepository.findById(childTaskId).orElse(null);
+        if (child == null || child.getParentTaskId() == null) return;
+        UUID parentId = child.getParentTaskId();
+        while (parentId != null) {
+            reconcileOrchestration(parentId);
+            parentId = taskRepository.findById(parentId).map(TaskEntity::getParentTaskId).orElse(null);
+        }
+    }
+
+    @Transactional
     public TaskEntity dispatchManually(UUID taskId) {
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new NoSuchElementException("Task not found: " + taskId));
