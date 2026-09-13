@@ -225,7 +225,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
           <>
             {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} messages={visibleMessages} approvals={visibleApprovals} attention={attention} active={active} queued={queued} connection={connection} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => setView('approvals')} onOpenAgents={() => setView('agents')} onOpenTasks={() => setView('tasks')} onSpawn={() => setDialog('agent')} />}
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} onEnsureSystemAgents={(projectId) => void mutate(() => api.ensureOperationalAgent(projectId))} />}
-            {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} />}
+            {view === 'agents' && <Agents agents={visibleAgents} tasks={visibleTasks} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
             {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} communicationRules={communicationRules} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} onSaveRule={async (input) => { await mutate(() => api.saveCommunicationRule(input)); }} onDeleteRule={async (id) => { await mutate(() => api.deleteCommunicationRule(id)); }} />}
             {view === 'operations' && <OperationsView projects={projects} agents={agents} projectFilter={projectFilter} />}
@@ -246,76 +246,28 @@ function Overview({ projects, agents, tasks, messages, approvals, attention, act
   projects: Project[]; agents: Agent[]; tasks: Task[]; messages: AgentMessage[]; approvals: HumanApproval[]; attention: number; active: number; queued: number; connection: ConnectionState;
   projectById: Map<string, Project>; agentById: Map<string, Agent>; onRegister: () => void; onOpenNodes?: () => void; onOpenApprovals: () => void; onOpenAgents: () => void; onOpenTasks: () => void; onSpawn: () => void;
 }) {
-  const recent = [...tasks].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 6);
+  const recent = [...tasks].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 8);
   const pendingApprovals = approvals.filter((approval) => approval.status === 'PENDING');
   const unhealthyAgents = agents.filter((agent) => ['WAITING_APPROVAL', 'BLOCKED', 'DISCONNECTED', 'FAILED'].includes(agent.status));
   const blockedTasks = tasks.filter((task) => ['WAITING_APPROVAL', 'BLOCKED', 'FAILED'].includes(task.status));
-  const statusGroups = [
-    ['Working', agents.filter((agent) => agent.status === 'WORKING').length, 'status-working'],
-    ['Waiting', agents.filter((agent) => ['WAITING_APPROVAL', 'BLOCKED'].includes(agent.status)).length, 'status-waiting_approval'],
-    ['Disconnected', agents.filter((agent) => ['DISCONNECTED', 'FAILED'].includes(agent.status)).length, 'status-disconnected'],
-    ['Idle', agents.filter((agent) => ['IDLE', 'STOPPED'].includes(agent.status)).length, 'status-idle']
-  ] as const;
+  const running = agents.filter((agent) => agent.status === 'WORKING');
+  const queue = [['Running', tasks.filter((task) => ['RUNNING', 'DISPATCHING', 'DISPATCHED'].includes(task.status)).length], ['Waiting', tasks.filter((task) => ['QUEUED', 'READY', 'WAITING_DEPENDENCY'].includes(task.status)).length], ['Needs approval', tasks.filter((task) => task.status === 'WAITING_APPROVAL').length], ['Blocked / paused', tasks.filter((task) => ['BLOCKED', 'PAUSED'].includes(task.status)).length], ['Completed', tasks.filter((task) => task.status === 'COMPLETED').length], ['Failed / cancelled', tasks.filter((task) => ['FAILED', 'CANCELLED'].includes(task.status)).length]];
   const activity = [
     ...tasks.map((task) => ({ id: `task-${task.id}`, title: task.title, detail: `Task ${label(task.status)}`, status: task.status, at: task.updatedAt })),
     ...approvals.map((approval) => ({ id: `approval-${approval.id}`, title: approval.summary, detail: `Approval ${label(approval.status)}`, status: approval.status, at: approval.resolvedAt ?? approval.createdAt })),
     ...messages.map((message) => ({ id: `message-${message.id}`, title: message.subject, detail: `Message ${label(message.status)}`, status: message.status, at: message.updatedAt }))
   ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8);
-  return <div className="page-stack">
+  const attentionRows = [...pendingApprovals.map((approval) => ({ id: `approval-${approval.id}`, title: approval.summary, agent: agentById.get(approval.agentId)?.name ?? shortId(approval.agentId), reason: 'Approval required', open: onOpenApprovals })), ...blockedTasks.map((task) => ({ id: `task-${task.id}`, title: task.title, agent: agentById.get(task.assignedAgentId)?.name ?? 'Unknown agent', reason: label(task.status), open: onOpenTasks })), ...unhealthyAgents.map((agent) => ({ id: `agent-${agent.id}`, title: agent.name, agent: agent.name, reason: label(agent.status), open: onOpenAgents }))].slice(0, 8);
+  return <div className="workbench-page">
     {!projects.length && <section className="setup-panel" aria-labelledby="setup-title">
       <div><p className="eyebrow">First run</p><h2 id="setup-title">Set up a project workspace</h2><p>Register a Git repository, enroll an execution node, then assign the first agent.</p></div>
       <div className="setup-actions"><button className="button primary" onClick={onRegister}>Register repository</button><button className="button secondary" onClick={onOpenNodes}>Add execution node</button></div>
     </section>}
-    {attention > 0 && <section className="attention-panel" aria-labelledby="attention-title">
-      <div className="attention-heading"><p className="eyebrow">Operator inbox</p><h2 id="attention-title">Needs attention</h2><p>{attention} item{attention === 1 ? '' : 's'} may need an operator decision or recovery action.</p></div>
-      <div className="attention-actions">
-        {pendingApprovals.length > 0 && <button className="attention-item" onClick={onOpenApprovals}><strong>{pendingApprovals.length}</strong><span>Pending approval{pendingApprovals.length === 1 ? '' : 's'}</span></button>}
-        {unhealthyAgents.length > 0 && <button className="attention-item" onClick={onOpenAgents}><strong>{unhealthyAgents.length}</strong><span>Agent issue{unhealthyAgents.length === 1 ? '' : 's'}</span></button>}
-        {blockedTasks.length > 0 && <button className="attention-item" onClick={onOpenTasks}><strong>{blockedTasks.length}</strong><span>Task issue{blockedTasks.length === 1 ? '' : 's'}</span></button>}
-      </div>
-    </section>}
-    <section className="metrics-strip" aria-label="Control plane summary">
-      <div><span>Working agents</span><strong>{active}</strong></div>
-      <div><span>Queued work</span><strong>{queued}</strong></div>
-      <div><span>Registered projects</span><strong>{projects.length}</strong></div>
-      <div><span>Needs attention</span><strong>{attention}</strong></div>
-    </section>
-
-    <section className="overview-grid" aria-label="Live observability">
-      <article className="panel signal-board">
-        <div className="section-header"><div><p className="eyebrow">Live roster</p><h2>Agent state</h2></div><ConnectionStatus state={connection} /></div>
-        <div className="signal-list">{statusGroups.map(([name, count, className]) => <div className="signal-row" key={name}><span className={`signal-marker ${className}`} /><span>{name}</span><strong>{count}</strong><div className="signal-track"><span className={className} style={{ width: `${agents.length ? Math.max(4, count / agents.length * 100) : 0}%` }} /></div></div>)}</div>
-        <div className="signal-footer"><span>Queue depth</span><strong>{queued}</strong><span>Attention</span><strong className={attention ? 'attention-number' : ''}>{attention}</strong></div>
-      </article>
-      <article className="panel activity-board">
-        <div className="section-header"><div><p className="eyebrow">Durable evidence</p><h2>Recent activity</h2></div><span className="muted">{activity.length} events</span></div>
-        {!activity.length ? <Empty title="No activity yet" body="Task transitions, approvals, and agent messages will appear here." /> : <div className="activity-list">{activity.map((item) => <div className="activity-row" key={item.id}><span className={`activity-marker status-${item.status.toLowerCase()}`} /><div><strong>{item.title}</strong><small>{item.detail}</small></div><time title={new Date(item.at).toLocaleString()}>{relativeTime(item.at)}</time></div>)}</div>}
-      </article>
-    </section>
-
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Operational state</p><h2>Agents</h2></div>{projects.length ? <button className="button secondary" onClick={onSpawn}>Spawn agent</button> : <button className="button primary" onClick={onRegister}>Register project</button>}</div>
-      {!agents.length ? <Empty title="No agents available" body="Register a project and spawn an agent with a bounded responsibility." /> : <div className="data-list">
-        {agents.map((agent) => <div className="data-row agent-row" key={agent.id}>
-          <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name ?? 'Unknown project'} · {label(agent.role)}{agent.systemManaged ? ' · system managed' : ''}</small></div>
-          <Status value={agent.status} />
-          <p>{agent.responsibility}</p>
-          <div className="machine"><code>{agent.branch ?? agent.workingDirectory}</code><HumanControlIndicator mode={agent.humanControlMode} /></div>
-        </div>)}
-      </div>}
-    </section>
-
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Latest changes</p><h2>Recent tasks</h2></div></div>
-      {!recent.length ? <Empty title="No tasks yet" body="Create work for an agent to begin exercising the queue and event bridge." /> : <div className="data-list">
-        {recent.map((task) => <div className="data-row task-row" key={task.id}>
-          <div><strong>{task.title}</strong><small>{agentById.get(task.assignedAgentId)?.name ?? 'Unknown agent'}</small></div>
-          <Status value={task.status} />
-          <span className="muted">{projectById.get(task.projectId)?.name}</span>
-          <time>{new Date(task.updatedAt).toLocaleString()}</time>
-        </div>)}
-      </div>}
-    </section>
+    <section className="workbench-section"><div className="section-header"><h2>Needs attention</h2>{attention > 0 && <button className="button ghost" onClick={onOpenApprovals}>{attention} need attention · Review all</button>}</div>{!attentionRows.length ? <Empty title="No action required" body="Approvals, failures, and blocked work appear here." /> : <div className="workbench-table attention-table"><div className="table-head"><span>Item / task</span><span>Agent</span><span>Reason</span><span>Action</span></div>{attentionRows.map((row) => <button className="table-row" key={row.id} onClick={row.open}><span>{row.title}</span><span>{row.agent}</span><span>{row.reason}</span><span>Open</span></button>)}</div>}</section>
+    <section className="workbench-section"><div className="section-header"><h2>Running</h2><button className="button ghost" onClick={projects.length ? onSpawn : onRegister}>{projects.length ? 'Spawn agent' : 'Register project'}</button></div>{!running.length ? <Empty title="No active agents" body="Running agents appear here." /> : <div className="workbench-table"><div className="table-head"><span>Agent</span><span>Project</span><span>Current task</span><span>Elapsed</span></div>{running.map((agent) => <div className="table-row" key={agent.id}><span>{agent.name}</span><span>{projectById.get(agent.projectId)?.name ?? 'Unknown project'}</span><span>{agent.activeTaskId ? tasks.find((task) => task.id === agent.activeTaskId)?.title ?? 'Working' : 'Working'}</span><time title={new Date(agent.updatedAt).toLocaleString()}>{relativeTime(agent.updatedAt)}</time></div>)}</div>}</section>
+    <section className="workbench-section"><div className="section-header"><h2>Queue</h2></div><div className="queue-line">{queue.map(([name, count]) => <span key={name}>{name} <strong>{count}</strong></span>)}</div></section>
+    <section className="workbench-section"><div className="section-header"><h2>Recent activity</h2></div>{!activity.length ? <Empty title="No activity yet" body="Task transitions, approvals, and messages appear here." /> : <div className="activity-list">{activity.map((item) => <div className="activity-row" key={item.id}><time title={new Date(item.at).toLocaleString()}>{new Date(item.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><strong>{item.title}</strong><span>{item.detail}</span></div>)}</div>}</section>
+    <section className="workbench-section"><div className="section-header"><h2>System health</h2></div><div className="health-list"><div><span>Control plane</span><ConnectionStatus state={connection} /></div><div><span>Agents</span><strong>{active} working / {agents.filter((agent) => ['WAITING_APPROVAL', 'BLOCKED'].includes(agent.status)).length} waiting</strong></div><div><span>Queue</span><strong>{queued} waiting</strong></div><div><span>Projects</span><strong>{projects.length} registered</strong></div></div></section>
   </div>;
 }
 
@@ -331,25 +283,24 @@ function Projects({ projects, agents, tasks, candidates, onRegister, onDiscover,
   const [selectedId, setSelectedId] = useState<string | null>(projects[0]?.id ?? null);
   const selected = projects.find((project) => project.id === selectedId);
   return <section className="panel"><div className="section-header"><div><h2>Projects</h2></div><div className="form-actions"><button className="button secondary" onClick={onDiscover}>Scan roots</button><button className="button primary" onClick={onRegister}>Register project</button></div></div>
-    {!projects.length ? <Empty title="No projects registered" body="Register a repository under an allowed server root." /> : <div className="split-workbench"><div className="data-list">
+    {!projects.length ? <Empty title="No projects registered" body="Register a repository under an allowed server root." /> : <div className="split-workbench"><div className="workbench-table project-table"><div className="table-head"><span>Project</span><span>Repository / directory</span><span>Branch</span><span>Agents</span><span>Active work</span><span>Health</span></div>
       {projects.map((project) => {
         const projectAgents = agents.filter((agent) => agent.projectId === project.id);
         const ops = projectAgents.find((agent) => agent.role === 'OPERATIONAL');
         const orchestrator = projectAgents.find((agent) => agent.role === 'ORCHESTRATOR');
         const openTasks = tasks.filter((task) => task.projectId === project.id && !['COMPLETED', 'CANCELLED'].includes(task.status));
         const unhealthy = projectAgents.some((agent) => ['FAILED', 'DISCONNECTED', 'BLOCKED'].includes(agent.status));
-        return <div className={`data-row project-row workbench-row${selectedId === project.id ? ' selected' : ''}`} key={project.id} role="button" tabIndex={0} onClick={() => setSelectedId(project.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedId(project.id); }}>
-          <div><strong>{project.name}</strong><code>{project.sourceType === 'GIT' ? project.repositoryUrl : project.rootDirectory}</code></div>
-          <span>{project.defaultBranch}</span><span>{projectAgents.length} agents</span><span>{openTasks.length} active tasks</span><span>{ops && orchestrator ? 'System agents ready' : 'System agents pending'}</span><Status value={unhealthy ? 'FAILED' : 'IDLE'} />{(!ops || !orchestrator) && <button className="button compact secondary" onClick={() => onEnsureSystemAgents(project.id)}>Enable system agents</button>}
-        </div>;
+        return <button className={`table-row${selectedId === project.id ? ' selected' : ''}`} key={project.id} onClick={() => setSelectedId(project.id)}>
+          <span>{project.name}</span><code title={(project.sourceType === 'GIT' ? project.repositoryUrl : project.rootDirectory) ?? undefined}>{project.sourceType === 'GIT' ? project.repositoryUrl : project.rootDirectory}</code><code>{project.defaultBranch}</code><span>{projectAgents.length}</span><span>{openTasks.length}</span><Status value={unhealthy ? 'FAILED' : 'IDLE'} />
+        </button>;
       })}
-    </div><aside className="inspector">{selected ? <><h3>{selected.name}</h3><dl><dt>Source</dt><dd>{selected.sourceType}</dd><dt>Location</dt><dd><code>{selected.sourceType === 'GIT' ? selected.repositoryUrl : selected.rootDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.defaultBranch}</code></dd><dt>Agents</dt><dd>{agents.filter((agent) => agent.projectId === selected.id).length}</dd><dt>Open tasks</dt><dd>{tasks.filter((task) => task.projectId === selected.id && !['COMPLETED', 'CANCELLED'].includes(task.status)).length}</dd></dl></> : <p className="muted">Select a project.</p>}</aside></div>}
+    </div><aside className="inspector">{selected ? <><h3>{selected.name}</h3><dl><dt>Source</dt><dd>{selected.sourceType}</dd><dt>Location</dt><dd><code>{selected.sourceType === 'GIT' ? selected.repositoryUrl : selected.rootDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.defaultBranch}</code></dd><dt>Agents</dt><dd>{agents.filter((agent) => agent.projectId === selected.id).length}</dd><dt>Open tasks</dt><dd>{tasks.filter((task) => task.projectId === selected.id && !['COMPLETED', 'CANCELLED'].includes(task.status)).length}</dd><dt>System agents</dt><dd>{(() => { const scoped = agents.filter((agent) => agent.projectId === selected.id); return scoped.some((agent) => agent.role === 'OPERATIONAL') && scoped.some((agent) => agent.role === 'ORCHESTRATOR') ? 'Ready' : 'Not provisioned'; })()}</dd></dl>{(() => { const scoped = agents.filter((agent) => agent.projectId === selected.id); return (!scoped.some((agent) => agent.role === 'OPERATIONAL') || !scoped.some((agent) => agent.role === 'ORCHESTRATOR')) && <button className="button compact secondary" onClick={() => onEnsureSystemAgents(selected.id)}>Enable system agents</button>; })()}</> : <p className="muted">Select a project.</p>}</aside></div>}
     {candidates.length > 0 && <div className="data-list"><div className="section-header"><div><p className="eyebrow">Discovery results</p><h2>Repositories</h2></div></div>{candidates.map((candidate) => <div className="data-row" key={candidate.path}><div><strong>{candidate.name}</strong><code>{candidate.path}</code></div><span>{candidate.detectedBranch || 'main'}</span><span>{candidate.registered ? 'Registered' : 'Unregistered'}</span>{!candidate.registered && <button className="button compact secondary" onClick={() => onRegisterCandidate(candidate)}>Register</button>}</div>)}</div>}
   </section>;
 }
 
-function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }: {
-  agents: Agent[];
+function Agents({ agents, tasks, projectById, onControlMode, onQueueMode, onIntervene }: {
+  agents: Agent[]; tasks: Task[];
   projectById: Map<string, Project>;
   onControlMode: (id: string, mode: HumanControlMode) => void;
   onQueueMode: (id: string, mode: AgentQueueMode) => void;
@@ -360,46 +311,17 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
   const [selectedId, setSelectedId] = useState<string | null>(agents[0]?.id ?? null);
   const selected = agents.find((agent) => agent.id === selectedId);
   return <section className="panel"><div className="section-header"><div><h2>Agents</h2></div></div>
-    <div className="inline-summary"><span><i className="summary-mark mark-live" />{working} working</span><span><i className="summary-mark mark-warning" />{blocked} attention</span><span>{agents.length} total</span></div>
-    {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="split-workbench"><div className="data-list">
-      {agents.map((agent) => <div className={`data-row agent-detail-row human-agent-row workbench-row${selectedId === agent.id ? ' selected' : ''}`} key={agent.id} role="button" tabIndex={0} onClick={() => setSelectedId(agent.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedId(agent.id); }}>
-        <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name} · {label(agent.role)}{agent.specialty ? ` · ${agent.specialty}` : ''}{agent.systemManaged ? ' · system managed' : ''}</small></div>
-        <Status value={agent.status} />
-        <p>{agent.responsibility}</p>
-        <div className="control-stack"><small>Human control</small><select className="compact-select" value={agent.humanControlMode} onChange={(event) => onControlMode(agent.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">On the loop</option><option value="IN_THE_LOOP">In the loop</option></select></div>
-        <div className="control-stack"><small>Queue</small><select className="compact-select" value={agent.queueMode} onChange={(event) => onQueueMode(agent.id, event.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></div>
-        <div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small><code title={agent.runtimeSessionId}>{shortId(agent.runtimeSessionId)}</code><HumanControlIndicator mode={agent.humanControlMode} /></div>
-        <button className="button compact secondary" onClick={() => onIntervene(agent.id)} disabled={agent.queueMode === 'PAUSED' && !agent.activeTurnId}>Intervene</button>
-      </div>)}
-    </div><aside className="inspector">{selected ? <><h3>{selected.name}</h3><Status value={selected.status} /><dl><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name ?? 'Unknown project'}</dd><dt>Responsibility</dt><dd>{selected.responsibility}</dd><dt>Capability</dt><dd>{selected.capabilityProfile}</dd><dt>Runtime session</dt><dd><code>{shortId(selected.runtimeSessionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.activeTurnId)}</code></dd><dt>Directory</dt><dd><code>{selected.workingDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.branch ?? 'shared workspace'}</code></dd><dt>Execution node</dt><dd><code>{shortId(selected.executionNodeId)}</code></dd><dt>Supervision</dt><dd><HumanControlIndicator mode={selected.humanControlMode} /></dd></dl></> : <p className="muted">Select an agent.</p>}</aside></div>}
+    <div className="inline-summary"><span>{working} working</span><span>{blocked} attention</span><span>{agents.length} total</span></div>
+    {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="split-workbench"><div className="workbench-table agent-table"><div className="table-head"><span>Agent</span><span>State</span><span>Current work</span><span>Project</span><span>Supervision</span></div>{agents.map((agent) => <button className={`table-row${selectedId === agent.id ? ' selected' : ''}`} key={agent.id} onClick={() => setSelectedId(agent.id)}><span>{agent.name}</span><Status value={agent.status} /><span>{tasks.find((task) => task.id === agent.activeTaskId)?.title ?? '-'}</span><span>{projectById.get(agent.projectId)?.name ?? 'Unknown project'}</span><HumanControlIndicator mode={agent.humanControlMode} /></button>)}</div><aside className="inspector">{selected ? <><h3>Selected agent</h3><Status value={selected.status} /><dl><dt>Current task</dt><dd>{tasks.find((task) => task.id === selected.activeTaskId)?.title ?? '-'}</dd><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name ?? 'Unknown project'}</dd><dt>Supervision</dt><dd><select className="compact-select" value={selected.humanControlMode} onChange={(event) => onControlMode(selected.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop</option><option value="IN_THE_LOOP">Human in the loop</option></select></dd><dt>Responsibility</dt><dd>{selected.responsibility}</dd><dt>Capability</dt><dd>{selected.capabilityProfile}</dd><dt>Runtime</dt><dd>{selected.runtimeType}</dd><dt>Session</dt><dd><code>{shortId(selected.runtimeSessionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.activeTurnId)}</code></dd><dt>Directory</dt><dd><code>{selected.workingDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.branch ?? 'shared workspace'}</code></dd><dt>Execution node</dt><dd><code>{shortId(selected.executionNodeId)}</code></dd><dt>Queue mode</dt><dd><select className="compact-select" value={selected.queueMode} onChange={(event) => onQueueMode(selected.id, event.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></dd></dl><button className="button secondary" onClick={() => onIntervene(selected.id)} disabled={selected.queueMode === 'PAUSED' && !selected.activeTurnId}>Intervene</button></> : <p className="muted">Select an agent.</p>}</aside></div>}
   </section>;
 }
 
 function Tasks({ tasks, projectById, agentById, onDispatch, onCreate }: { tasks: Task[]; projectById: Map<string, Project>; agentById: Map<string, Agent>; onDispatch: (id: string) => void; onCreate: () => void }) {
-  const queueGroups = [
-    ['Running', tasks.filter((task) => ['RUNNING', 'DISPATCHING', 'DISPATCHED'].includes(task.status)).length],
-    ['Waiting', tasks.filter((task) => ['QUEUED', 'READY', 'WAITING_DEPENDENCY'].includes(task.status)).length],
-    ['Needs approval', tasks.filter((task) => task.status === 'WAITING_APPROVAL').length],
-    ['Blocked / paused', tasks.filter((task) => ['BLOCKED', 'PAUSED'].includes(task.status)).length],
-    ['Completed', tasks.filter((task) => task.status === 'COMPLETED').length],
-    ['Failed / cancelled', tasks.filter((task) => ['FAILED', 'CANCELLED'].includes(task.status)).length]
-  ] as const;
-  const roots = tasks.filter((task) => !task.parentTaskId);
-  const childrenByParent = new Map<string, Task[]>();
-  tasks.filter((task) => task.parentTaskId).forEach((task) => {
-    const children = childrenByParent.get(task.parentTaskId!) ?? [];
-    children.push(task);
-    childrenByParent.set(task.parentTaskId!, children);
-  });
-  return <section className="panel"><div className="section-header"><div><p className="eyebrow">Durable orchestration</p><h2>Task queue</h2></div><button className="button primary" onClick={onCreate}>New task</button></div>
-    <div className="queue-summary">{queueGroups.map(([name, count]) => <div key={name}><span>{name}</span><strong>{count}</strong></div>)}</div>
-    {!roots.length ? <Empty title="No tasks in this scope" body="Create a task and Agenticform will dispatch it according to the agent queue policy." /> : <div className="data-list">
-      {roots.map((task) => { const agent = agentById.get(task.assignedAgentId); const children = childrenByParent.get(task.id) ?? []; return <div className="data-row task-detail-row" key={task.id}>
-        <div><strong>{task.title}</strong><small>{projectById.get(task.projectId)?.name} / {agent?.name} · {task.kind} · workflow {shortId(task.workflowId)}</small></div><Status value={task.status} /><span>Priority {task.priority}</span><div className="machine"><code>queue {shortId(task.queuedSubmissionId)}</code><code>turn {shortId(task.turnId)}</code><code>runtime g{agent?.runtimeGeneration ?? '-'}</code></div>{task.report ? <details><summary>Task report</summary><p>{task.report}</p></details> : task.lastError ? <div className="inline-error" title={task.lastError}><strong>{task.blocker ?? task.dependencyReason ?? 'Workflow issue'}</strong><small>{task.nextAction}</small></div> : <span className="muted">{task.nextAction ?? 'Awaiting report'}</span>}<button className="button compact secondary" disabled={!['READY', 'BLOCKED'].includes(task.status)} onClick={() => onDispatch(task.id)}>Dispatch</button>
-        <details><summary>Task graph ({children.length} child tasks)</summary><div className="task-graph">{children.length ? children.map((child) => <div key={child.id}><strong>{child.title}</strong><Status value={child.status} /><small>{child.kind} · {shortId(child.id)}</small></div>) : <span className="muted">No delegated tasks</span>}</div></details>
-      </div>; })}
-    </div>}
-  </section>;
+  const [filter, setFilter] = useState('ALL'); const [selectedId, setSelectedId] = useState<string | null>(tasks[0]?.id ?? null);
+  const categories: Record<string, string[]> = { ALL: [], RUNNING: ['RUNNING', 'DISPATCHING', 'DISPATCHED'], WAITING: ['QUEUED', 'READY', 'WAITING_DEPENDENCY'], WAITING_APPROVAL: ['WAITING_APPROVAL'], BLOCKED: ['BLOCKED', 'PAUSED'], COMPLETED: ['COMPLETED'], FAILED: ['FAILED', 'CANCELLED'] };
+  const visible = filter === 'ALL' ? tasks : tasks.filter((task) => categories[filter].includes(task.status)); const selected = tasks.find((task) => task.id === selectedId);
+  const nextAction = (task: Task) => task.status === 'WAITING_APPROVAL' ? 'Review approval' : task.status === 'WAITING_DEPENDENCY' ? 'Wait dependency' : task.status === 'FAILED' ? 'Inspect failure' : task.status === 'BLOCKED' ? 'Review blocker' : '-';
+  return <section className="panel"><div className="section-header"><h2>Tasks</h2><button className="button primary" onClick={onCreate}>New task</button></div><div className="filter-tabs">{[['ALL','All'],['RUNNING','Running'],['WAITING','Waiting'],['WAITING_APPROVAL','Needs approval'],['BLOCKED','Blocked'],['COMPLETED','Completed'],['FAILED','Failed']].map(([value, text]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{text}</button>)}</div>{!visible.length ? <Empty title="No tasks in this view" body="Choose another state or create a task." /> : <div className="split-workbench"><div className="workbench-table task-table"><div className="table-head"><span>Task</span><span>State</span><span>Agent</span><span>Project</span><span>Next action</span></div>{visible.map((task) => <button className={`table-row${selectedId === task.id ? ' selected' : ''}`} key={task.id} onClick={() => setSelectedId(task.id)}><span>{task.title}</span><Status value={task.status} /><span>{agentById.get(task.assignedAgentId)?.name ?? 'Unknown agent'}</span><span>{projectById.get(task.projectId)?.name ?? 'Unknown project'}</span><span>{nextAction(task)}</span></button>)}</div><aside className="inspector">{selected ? <><h3>Selected task</h3><Status value={selected.status} /><dl><dt>Assigned agent</dt><dd>{agentById.get(selected.assignedAgentId)?.name ?? 'Unknown agent'}</dd><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name}</dd><dt>Priority</dt><dd>{selected.priority}</dd><dt>Next action</dt><dd>{nextAction(selected)}</dd><dt>Workflow</dt><dd><code>{shortId(selected.workflowId)}</code></dd><dt>Parent task</dt><dd><code>{shortId(selected.parentTaskId)}</code></dd><dt>Queue submission</dt><dd><code>{shortId(selected.queuedSubmissionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.turnId)}</code></dd></dl>{selected.report && <><h3>Report</h3><p>{selected.report}</p></>}{selected.lastError && <><h3>Failure</h3><p className="inline-error">{selected.lastError}</p></>}<button className="button secondary" disabled={!['READY', 'BLOCKED'].includes(selected.status)} onClick={() => onDispatch(selected.id)}>Dispatch</button></> : <p className="muted">Select a task.</p>}</aside></div>}</section>;
 }
 
 function Empty({ title, body }: { title: string; body: string }) { return <div className="empty"><strong>{title}</strong><p>{body}</p></div>; }
