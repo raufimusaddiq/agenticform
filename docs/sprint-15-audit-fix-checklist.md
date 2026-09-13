@@ -47,6 +47,6 @@ Audit baseline: September 13, 2026. Scope covers all persisted agents, tasks, me
 - [x] Go node tests pass.
 - [x] Maven tests pass with host-network Maven container.
 - [x] Web type-check and production build pass with Node 22.
-- [ ] Build release images.
+- [x] Build release images in CI.
 - [ ] Deploy and smoke-test the Sprint 15 stack.
-- [ ] Push the verified commit to `feat/seamless-self-hosted-alpha`.
+- [x] Push the verified commit to `feat/seamless-self-hosted-alpha`.
