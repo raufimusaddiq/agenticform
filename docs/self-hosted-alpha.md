@@ -62,4 +62,12 @@ docker compose up -d
 
 Publish only the web port (`AGENTICFORM_WEB_PORT`, default `8080`). Terminate TLS at Caddy, Traefik, Nginx, or Cloudflare. Proxy `/`, `/api/`, and `/actuator/` to the web service. Preserve HTTP/1.1 streaming and disable buffering for `/api/events/stream`; the bundled web proxy already forwards it to the control plane.
 
+For an existing Traefik Docker network, do not publish the web port. Set `AGENTICFORM_HOST` and run the production stack with the Traefik overlay:
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
+```
+
+The overlay joins the web container to `traefik_default` by default and requests a Let's Encrypt certificate through the existing `letsencrypt` resolver. Set `TRAEFIK_NETWORK` only when the proxy uses another external Docker network.
+
 Use `GET /actuator/health` for readiness/liveness and `GET /actuator/info` for release metadata. The browser origin must match `AGENTICFORM_UI_ORIGIN`. Nodes require outbound HTTPS to `AGENTICFORM_PUBLIC_URL`; no inbound node port, SSH, or exposed Codex App Server is used.

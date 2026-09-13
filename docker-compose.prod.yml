@@ -50,7 +50,6 @@ services:
   web:
     image: ${AGENTICFORM_WEB_IMAGE:?set AGENTICFORM_WEB_IMAGE to a published release image}
     restart: unless-stopped
-    ports: ["${AGENTICFORM_WEB_PORT:-8080}:8080"]
     depends_on:
       server:
         condition: service_healthy

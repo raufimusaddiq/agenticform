@@ -1,0 +1,16 @@
+services:
+  web:
+    networks: [default, traefik]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik_default}
+      traefik.http.routers.agenticform.rule: Host(`${AGENTICFORM_HOST:?set AGENTICFORM_HOST}`)
+      traefik.http.routers.agenticform.entrypoints: websecure
+      traefik.http.routers.agenticform.tls: "true"
+      traefik.http.routers.agenticform.tls.certresolver: letsencrypt
+      traefik.http.services.agenticform.loadbalancer.server.port: "8080"
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik_default}
