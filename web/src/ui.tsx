@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 export type ConnectionState = 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'DISCONNECTED' | 'AUTH_REQUIRED';
 
 const statusLabels: Record<string, string> = {
+  READY: 'Queued',
   WAITING_APPROVAL: 'Needs approval',
   WAITING_DEPENDENCY: 'Waiting on dependency',
   WAITING_EXTERNAL: 'Waiting on external system',

@@ -13,11 +13,13 @@ import com.agenticform.runtime.RuntimeType;
 import com.agenticform.task.TaskWorkflowGate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.scheduling.annotation.Scheduled;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -199,6 +201,29 @@ public class AgentMessageService {
         return repository.save(message);
     }
 
+    @Transactional
+    @Scheduled(fixedDelayString = "${agenticform.scheduler.message-reconcile-delay-ms:10000}")
+    public void reconcileStaleDeliveries() {
+        Instant cutoff = Instant.now().minus(Duration.ofMinutes(2));
+        for (AgentMessageStatus status : List.of(AgentMessageStatus.QUEUED,
+                AgentMessageStatus.DISPATCHED, AgentMessageStatus.PROCESSING)) {
+            for (AgentMessageDeliveryEntity delivery : deliveryRepository.findTop50ByStatusOrderByCreatedAtAsc(status)) {
+                if (delivery.getUpdatedAt() == null || delivery.getUpdatedAt().isAfter(cutoff)
+                        || delivery.getAttemptCount() >= 3) continue;
+                AgentEntity target = agent(delivery.getToAgentId());
+                if (target.getStatus() != AgentStatus.IDLE) continue;
+                AgentMessageEntity message = repository.findById(delivery.getMessageId()).orElse(null);
+                if (message == null) continue;
+                AgentEntity source = agent(message.getFromAgentId());
+                delivery.resetForRetry();
+                deliveryRepository.save(delivery);
+                dispatch(message, delivery, source, target);
+                updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(message.getId()));
+                repository.save(message);
+            }
+        }
+    }
+
     private List<AgentEntity> resolveAudience(AgentEntity source, AudienceRequest audience,
                                               AgentMessageEntity parent, AgentMessageType messageType) {
         AgentMessageAudienceType type = audience == null || audience.type() == null
@@ -261,7 +286,8 @@ public class AgentMessageService {
                     throw new IllegalStateException("Target remote runtime is not ready");
                 }
                 var command = nodeService.enqueue(target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
-                        "message:" + message.getId() + ":" + target.getId() + ":g" + target.getRuntimeGeneration(), Map.of(
+                        "message:" + message.getId() + ":" + target.getId() + ":g" + target.getRuntimeGeneration()
+                                + ":a" + (delivery.getAttemptCount() + 1), Map.of(
                                 "messageId", message.getId().toString(),
                                 "conversationId", message.getConversationId().toString(),
                                 "runtimeType", runtimeType(target).name(),

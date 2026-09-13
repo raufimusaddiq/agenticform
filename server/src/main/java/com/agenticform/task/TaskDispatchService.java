@@ -197,6 +197,11 @@ public class TaskDispatchService {
         return childAgent != null
                 && childAgent.getCapabilityProfile() == AgentCapabilityProfile.IMPLEMENTER
                 && !report.contains("changed files: none")
+                && !report.matches("(?s).*\\bblock(?:ed)?\\b.*")
+                && !report.contains("no sha")
+                && !report.contains("no commit")
+                && !report.contains("uncommitted")
+                && report.contains("validation")
                 && (report.contains("changed files") || report.contains("implemented"));
     }
 
@@ -207,6 +212,11 @@ public class TaskDispatchService {
                 && childAgent != null
                 && childAgent.getCapabilityProfile() == AgentCapabilityProfile.REVIEWER
                 && !report.contains("fail")
+                && !report.matches("(?s).*\\bblock(?:ed)?\\b.*")
+                && !report.contains("no sha")
+                && !report.contains("no commit")
+                && !report.contains("uncommitted")
+                && report.contains("validation")
                 && (report.contains("review") || report.contains("validation") || report.contains("approved"));
     }
 

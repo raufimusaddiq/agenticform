@@ -41,7 +41,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/nodes/*/commands/*/complete").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/nodes/*/codex/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/nodes/*/codex/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/nodes/*/git-credential").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/nodes/*/git-credential/**").permitAll()
                         .anyRequest().hasRole("ADMIN"))
                 .exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, error) ->
                         response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Admin authentication required")))

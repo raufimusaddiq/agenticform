@@ -505,7 +505,18 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 					base = baseBranch
 				}
 			}
-			if err := runGit(repoRoot, "worktree", "add", "-b", branch, workingDirectory, base); err != nil {
+			// A linked worktree stores its index under repoRoot/.git/worktrees, outside
+			// the Codex workspace-write root. Use a shared clone so all Git metadata
+			// remains inside the agent workspace and commits work in the sandbox.
+			if err := runGit(repoRoot, "clone", "--shared", "--no-checkout", repoRoot, workingDirectory); err != nil {
+				return nil, err
+			}
+			if err := runGit(workingDirectory, "remote", "set-url", "origin", repositoryURL); err != nil {
+				_ = os.RemoveAll(workingDirectory)
+				return nil, err
+			}
+			if err := runGit(workingDirectory, "checkout", "-b", branch, base); err != nil {
+				_ = os.RemoveAll(workingDirectory)
 				return nil, err
 			}
 		}
@@ -638,22 +649,34 @@ func (d *daemonRuntime) cleanupWorkspace(command nodeCommand, payload map[string
 	if strings.TrimSpace(string(status)) != "" {
 		return nil, errors.New("worktree is dirty; cleanup refused")
 	}
+	cloneMetadata, cloneErr := os.Stat(filepath.Join(record.WorkingDirectory, ".git"))
+	isIsolatedClone := cloneErr == nil && cloneMetadata.IsDir()
 	if record.Branch != "" {
 		defaultBranch := stringValue(payload, "defaultBranch")
 		target := "origin/HEAD"
 		if defaultBranch != "" {
 			target = "origin/" + defaultBranch
 		}
-		cmd := exec.Command("git", "-C", record.SourceDirectory, "merge-base", "--is-ancestor", record.Branch, target)
+		gitDirectory := record.SourceDirectory
+		if isIsolatedClone {
+			gitDirectory = record.WorkingDirectory
+		}
+		cmd := exec.Command("git", "-C", gitDirectory, "merge-base", "--is-ancestor", record.Branch, target)
 		if err := cmd.Run(); err != nil {
 			return nil, errors.New("worktree branch is not proven merged into the default branch")
 		}
 	}
-	if err := runGit(record.SourceDirectory, "worktree", "remove", record.WorkingDirectory); err != nil {
-		return nil, err
-	}
-	if record.Branch != "" {
-		_ = runGit(record.SourceDirectory, "branch", "-d", record.Branch)
+	if isIsolatedClone {
+		if err := os.RemoveAll(record.WorkingDirectory); err != nil {
+			return nil, fmt.Errorf("remove isolated clone: %w", err)
+		}
+	} else {
+		if err := runGit(record.SourceDirectory, "worktree", "remove", record.WorkingDirectory); err != nil {
+			return nil, err
+		}
+		if record.Branch != "" {
+			_ = runGit(record.SourceDirectory, "branch", "-d", record.Branch)
+		}
 	}
 	if err := d.deleteRuntime(command.AgentID, command.RuntimeGeneration); err != nil {
 		return nil, err

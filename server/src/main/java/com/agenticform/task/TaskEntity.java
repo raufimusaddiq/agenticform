@@ -130,7 +130,7 @@ public class TaskEntity {
 
     public String getNextAction() {
         return switch (status) {
-            case READY -> "Dispatch when the assigned agent is ready";
+            case READY -> "Queued for automatic dispatch when the assigned agent is idle";
             case DISPATCHING, DISPATCHED -> "Wait for runtime acceptance/start";
             case RUNNING -> "Wait for task report or blocker";
             case WAITING_DEPENDENCY -> "Resolve prerequisite or delegated task";

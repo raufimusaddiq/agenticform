@@ -4,6 +4,11 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.config.AgenticformProperties;
 import com.agenticform.runtime.RuntimeType;
+import com.agenticform.event.ControlPlaneEventBus;
+import com.agenticform.task.TaskDependencyService;
+import com.agenticform.task.TaskEntity;
+import com.agenticform.task.TaskRepository;
+import com.agenticform.task.TaskStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +18,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -26,7 +32,11 @@ class ExecutionNodeRecoveryTest {
     @Mock NodeEnrollmentTokenRepository tokens;
     @Mock NodeCommandRepository commands;
     @Mock AgentRepository agents;
+    @Mock TaskEntity task;
+    @Mock TaskRepository tasks;
+    @Mock TaskDependencyService taskDependencies;
     @Mock NodeRuntimeSnapshotRepository snapshots;
+    @Mock ControlPlaneEventBus events;
     @Mock NodeCommandEntity command;
     @Mock AgentEntity agent;
 
@@ -34,8 +44,8 @@ class ExecutionNodeRecoveryTest {
 
     @BeforeEach
     void setUp() {
-        service = new ExecutionNodeService(nodes, tokens, commands, agents, snapshots,
-                new AgenticformProperties(), new ObjectMapper());
+        service = new ExecutionNodeService(nodes, tokens, commands, agents, tasks, taskDependencies, snapshots,
+                new AgenticformProperties(), new ObjectMapper(), events);
     }
 
     @Test
@@ -111,5 +121,39 @@ class ExecutionNodeRecoveryTest {
 
         verify(agent).recoverFromSnapshot(4L, "session-4", "/repo", "/work", "agent/work");
         verify(agents).save(agent);
+    }
+
+    @Test
+    void idleHeartbeatReconcilesStaleTaskAndFreesAgent() {
+        UUID nodeId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        ExecutionNodeEntity node = org.mockito.Mockito.mock(ExecutionNodeEntity.class);
+        ExecutionNodeService.Heartbeat heartbeat = new ExecutionNodeService.Heartbeat(1, "{}", "{}", 1,
+                "linux", "amd64", "node", "test", 1, 1L, 1L,
+                java.util.List.of(new ExecutionNodeService.RuntimeObservation(agentId, RuntimeType.CODEX, 4L,
+                        "session-4", "/repo", "/work", "agent/work", "IDLE")));
+
+        when(nodes.findById(nodeId)).thenReturn(Optional.of(node));
+        when(nodes.save(node)).thenReturn(node);
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntimeAssignment(nodeId, 4L, RuntimeType.CODEX)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, "session-4")).thenReturn(true);
+        when(agent.getActiveTaskId()).thenReturn(taskId);
+        when(tasks.findById(taskId)).thenReturn(Optional.of(task));
+        when(task.getStatus()).thenReturn(TaskStatus.DISPATCHED);
+        when(task.getUpdatedAt()).thenReturn(Instant.now().minusSeconds(60));
+        when(task.getReport()).thenReturn(null);
+        when(snapshots.findByNodeIdAndAgentId(nodeId, agentId)).thenReturn(Optional.empty());
+
+        service.heartbeat(nodeId, heartbeat);
+
+        verify(task).setStatus(TaskStatus.BLOCKED);
+        verify(task).setLastError("Runtime reported IDLE without a terminal task event or task report");
+        verify(tasks).save(task);
+        verify(taskDependencies).reconcileDependents(taskId);
+        verify(agent).setStatus(com.agenticform.agent.AgentStatus.IDLE);
+        verify(agent).setActiveTaskId(null);
+        verify(agent).setActiveTurnId(null);
     }
 }
