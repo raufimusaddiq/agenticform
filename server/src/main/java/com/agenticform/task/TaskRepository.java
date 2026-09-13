@@ -14,4 +14,5 @@ public interface TaskRepository extends JpaRepository<TaskEntity, UUID> {
     List<TaskEntity> findAllByAssignedAgentIdOrderByCreatedAtAsc(UUID assignedAgentId);
     Optional<TaskEntity> findByTurnId(String turnId);
     boolean existsByAssignedAgentIdAndStatusIn(UUID agentId, Collection<TaskStatus> statuses);
+    List<TaskEntity> findAllByParentTaskIdOrderByCreatedAtAsc(UUID parentTaskId);
 }

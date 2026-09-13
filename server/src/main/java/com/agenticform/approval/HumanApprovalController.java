@@ -24,8 +24,8 @@ public class HumanApprovalController {
     }
 
     @GetMapping
-    public List<HumanApprovalEntity> list(@RequestParam(required = false) UUID projectId,
-                                          @RequestParam(required = false) HumanApprovalStatus status) {
+    public List<HumanApprovalEntity> list(@RequestParam(name = "projectId", required = false) UUID projectId,
+                                          @RequestParam(name = "status", required = false) HumanApprovalStatus status) {
         return service.list(projectId, status);
     }
 

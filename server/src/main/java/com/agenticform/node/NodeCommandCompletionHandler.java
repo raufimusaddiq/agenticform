@@ -7,6 +7,7 @@ import com.agenticform.agent.AgentStatus;
 import com.agenticform.message.AgentMessageDeliveryEntity;
 import com.agenticform.message.AgentMessageDeliveryRepository;
 import com.agenticform.task.TaskEntity;
+import com.agenticform.task.TaskDispatchService;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
 import org.springframework.stereotype.Service;
@@ -93,12 +94,13 @@ public class NodeCommandCompletionHandler {
 
         String clientMessageId = "agenticform-task:" + task.getId() + ":g" + command.getRuntimeGeneration();
         NodeCommandEntity dispatch = nodes.enqueue(command.getNodeId(), agent.getId(), "DISPATCH_TASK",
-                "dispatch-task:" + task.getId() + ":g" + command.getRuntimeGeneration(), Map.of(
+                "dispatch-task:" + task.getId() + ":g" + command.getRuntimeGeneration()
+                        + ":a" + (task.getUpdatedAt() == null ? System.nanoTime() : task.getUpdatedAt().toEpochMilli()), Map.of(
                         "taskId", task.getId().toString(),
                         "runtimeSessionId", runtimeSessionId,
                         "runtimeType", runtimeType.name(),
                         "clientMessageId", clientMessageId,
-                        "prompt", task.getPrompt()));
+                        "prompt", TaskDispatchService.promptWithCompletionContract(task.getPrompt())));
         task.setQueuedSubmissionId("node-command:" + dispatch.getId());
         task.setTurnId(null);
         task.setStatus(TaskStatus.DISPATCHED);

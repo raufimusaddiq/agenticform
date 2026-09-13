@@ -3,9 +3,21 @@ import App from './App';
 import { api } from './api';
 import { clearAdminToken, getAdminToken, setAdminToken } from './auth';
 import type { ExecutionNode, ExecutionNodeStatus, NodeEnrollment, NodeTrustLevel } from './nodeTypes';
+import { LoadingState, Status } from './ui';
 import './nodes.css';
 
 const trustLevels: NodeTrustLevel[] = ['UNTRUSTED', 'STANDARD', 'TRUSTED', 'PRIVILEGED'];
+
+type RuntimeReadiness = { available?: boolean; authenticated?: boolean; version?: string };
+
+function runtimeReadiness(node: ExecutionNode, runtime: string): RuntimeReadiness {
+  try {
+    const capabilities = JSON.parse(node.capabilitiesJson) as { runtimes?: Record<string, RuntimeReadiness> };
+    return capabilities.runtimes?.[runtime] ?? {};
+  } catch {
+    return {};
+  }
+}
 
 export function SecureShell() {
   const [authenticated, setAuthenticated] = useState(Boolean(getAdminToken()));
@@ -33,11 +45,8 @@ export function SecureShell() {
   if (!authenticated) return <Login onLogin={login} error={loginError} />;
 
   return <>
-    <App />
-    <div className="secure-shell-actions">
-      <button className="button secondary" type="button" onClick={() => setNodesOpen(true)}>Execution nodes</button>
-      <button className="button ghost" type="button" onClick={logout}>Sign out</button>
-    </div>
+    <App onOpenNodes={() => setNodesOpen(true)} />
+    <div className="secure-shell-actions"><button className="button ghost" type="button" onClick={logout}>Sign out</button></div>
     {nodesOpen && <NodesPanel onClose={() => setNodesOpen(false)} />}
   </>;
 }
@@ -172,22 +181,31 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
 
       <section className="node-list">
         <div className="section-header"><div><p className="eyebrow">Capacity</p><h3>Registered nodes</h3></div><button className="button ghost" onClick={() => void refresh()}>Refresh</button></div>
-        {loading ? <div className="loading">Loading nodes…</div> : !nodes.length ? <div className="empty-state">No execution nodes enrolled.</div> : nodes.map((node) => <article className="node-card" key={node.id}>
-          <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} · {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><span className={`status status-${node.status.toLowerCase()}`}>{node.status.toLowerCase()}</span></div>
-          <div className="node-facts">
-            <span><small>Trust</small>{node.trustLevel}</span>
-            <span><small>Capacity</small>{node.maxAgents} agents</span>
-            <span><small>Disk free</small>{node.diskFreeMb == null ? '—' : `${Math.round(node.diskFreeMb / 1024)} GB`}</span>
-          </div>
-          <code className="fingerprint">{node.fingerprint}</code>
-          <div className="node-actions">
-            {node.status === 'ONLINE' && <button className="button secondary" onClick={() => void status(node.id, 'DRAINING')}>Drain</button>}
-            {node.status === 'DRAINING' && <button className="button secondary" onClick={() => void status(node.id, 'ONLINE')}>Resume</button>}
-            {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => void status(node.id, 'DISABLED')}>Disable</button>}
-            {node.status === 'DISABLED' && <button className="button secondary" onClick={() => void status(node.id, 'OFFLINE')}>Enable</button>}
-            {node.status !== 'REVOKED' && <button className="button danger" onClick={() => void status(node.id, 'REVOKED')}>Revoke</button>}
-          </div>
-        </article>)}
+        {loading ? <LoadingState label="Loading execution nodes" /> : !nodes.length ? <div className="empty-state">No execution nodes enrolled.</div> : nodes.map((node) => {
+          const codex = runtimeReadiness(node, 'CODEX');
+          const runtimeMessage = node.status !== 'ONLINE' ? `Node ${node.status.toLowerCase()}`
+            : !codex.available ? 'Codex runtime missing'
+              : !codex.authenticated ? 'Codex authentication required'
+                : node.protocolCompatible === false ? 'Node protocol incompatible' : 'Ready';
+          return <article className="node-card" key={node.id}>
+            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} / {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><Status value={node.status} /></div>
+            <div className="node-facts">
+              <span><small>Trust</small>{node.trustLevel}</span>
+              <span><small>Capacity</small>{node.maxAgents} agents</span>
+              <span><small>Disk free</small>{node.diskFreeMb == null ? '-' : `${Math.round(node.diskFreeMb / 1024)} GB`}</span>
+              <span><small>Runtime</small>{codex.available ? `Codex ${codex.version || 'installed'}` : 'Not ready'}</span>
+            </div>
+            <p className={runtimeMessage === 'Ready' ? 'runtime-ready' : 'runtime-warning'}>{runtimeMessage}</p>
+            <code className="fingerprint">{node.fingerprint}</code>
+            <div className="node-actions">
+              {node.status === 'ONLINE' && <button className="button secondary" onClick={() => void status(node.id, 'DRAINING')}>Drain</button>}
+              {node.status === 'DRAINING' && <button className="button secondary" onClick={() => void status(node.id, 'ONLINE')}>Resume</button>}
+              {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => { if (window.confirm(`Disable ${node.name}? Existing work will not be started on this node.`)) void status(node.id, 'DISABLED'); }}>Disable</button>}
+              {node.status === 'DISABLED' && <button className="button secondary" onClick={() => void status(node.id, 'OFFLINE')}>Enable</button>}
+              {node.status !== 'REVOKED' && <button className="button danger" onClick={() => { if (window.confirm(`Revoke ${node.name}? This action cannot be undone from the UI.`)) void status(node.id, 'REVOKED'); }}>Revoke</button>}
+            </div>
+          </article>;
+        })}
       </section>
     </section>
   </div>;

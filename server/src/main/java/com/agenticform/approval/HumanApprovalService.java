@@ -8,7 +8,10 @@ import com.agenticform.node.RemoteInteractionContext;
 import com.agenticform.policy.PolicyEffect;
 import com.agenticform.policy.PolicyPreauthorizationService;
 import com.agenticform.runtime.RuntimeApprovalRequest;
+import com.agenticform.task.TaskRepository;
+import com.agenticform.task.TaskStatus;
 import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -32,13 +35,15 @@ public class HumanApprovalService {
     private final RemoteInteractionContext remoteContext;
     private final RemoteInteractionService remoteInteractions;
     private final ObjectMapper mapper;
+    private final TaskRepository taskRepository;
     private final Map<UUID, CompletableFuture<JsonNode>> pendingResponses = new ConcurrentHashMap<>();
 
+    @Autowired
     public HumanApprovalService(HumanApprovalRepository repository, AgentRepository agentRepository,
                                 HumanApprovalPolicy policy, PolicyPreauthorizationService preauthorizations,
                                 RemoteInteractionContext remoteContext,
                                 RemoteInteractionService remoteInteractions,
-                                ObjectMapper mapper) {
+                                ObjectMapper mapper, TaskRepository taskRepository) {
         this.repository = repository;
         this.agentRepository = agentRepository;
         this.policy = policy;
@@ -46,6 +51,37 @@ public class HumanApprovalService {
         this.remoteContext = remoteContext;
         this.remoteInteractions = remoteInteractions;
         this.mapper = mapper;
+        this.taskRepository = taskRepository;
+    }
+
+    public HumanApprovalService(HumanApprovalRepository repository, AgentRepository agentRepository,
+                                HumanApprovalPolicy policy, PolicyPreauthorizationService preauthorizations,
+                                RemoteInteractionContext remoteContext,
+                                RemoteInteractionService remoteInteractions,
+                                ObjectMapper mapper) {
+        this(repository, agentRepository, policy, preauthorizations, remoteContext, remoteInteractions, mapper, null);
+    }
+
+    public CompletionStage<JsonNode> receiveClarification(RuntimeApprovalRequest request,
+                                                           AgentEntity agent, JsonNode arguments) {
+        if (agent.getActiveTaskId() == null) throw new IllegalStateException("Human clarification requires an active task");
+        ObjectNode payload = (ObjectNode) arguments.deepCopy();
+        ArrayNode questions = payload.putArray("questions");
+        ObjectNode question = questions.addObject();
+        question.put("id", "clarification");
+        question.put("header", "Clarification");
+        question.put("question", requiredText(arguments, "question"));
+        question.put("isOther", true);
+        question.put("isSecret", false);
+        String summary = requiredText(arguments, "summary");
+        HumanApprovalEntity approval = new HumanApprovalEntity(
+                agent.getProjectId(), agent.getId(), request.requestId(), "agenticform/request_human_clarification",
+                HumanApprovalType.USER_INPUT, agent.getHumanControlMode(), HumanApprovalRisk.ELEVATED,
+                HumanApprovalStatus.PENDING, request.runtimeSessionId(), null, null, summary, toJson(payload));
+        approval.attachPolicy("USER_INPUT", "*", PolicyEffect.REQUIRE_HUMAN, null);
+        UUID remoteInteractionId = remoteContext.currentInteractionId();
+        if (remoteInteractionId != null) approval.attachRemoteInteraction(remoteInteractionId);
+        return waitForHuman(approval, agent);
     }
 
     @PostConstruct
@@ -157,6 +193,12 @@ public class HumanApprovalService {
         approval = repository.save(approval);
         agent.setStatus(AgentStatus.WAITING_APPROVAL);
         agentRepository.save(agent);
+        if (taskRepository != null && agent.getActiveTaskId() != null) {
+            taskRepository.findById(agent.getActiveTaskId()).ifPresent(task -> {
+                task.setStatus(TaskStatus.WAITING_APPROVAL);
+                taskRepository.save(task);
+            });
+        }
 
         CompletableFuture<JsonNode> response = new CompletableFuture<>();
         pendingResponses.put(approval.getId(), response);
@@ -248,6 +290,14 @@ public class HumanApprovalService {
         agentRepository.findById(agentId).ifPresent(agent -> {
             agent.setStatus(agent.getActiveTurnId() == null ? AgentStatus.IDLE : AgentStatus.WORKING);
             agentRepository.save(agent);
+            if (taskRepository != null && agent.getActiveTaskId() != null) {
+                taskRepository.findById(agent.getActiveTaskId()).ifPresent(task -> {
+                    if (task.getStatus() == TaskStatus.WAITING_APPROVAL) {
+                        task.setStatus(TaskStatus.RUNNING);
+                        taskRepository.save(task);
+                    }
+                });
+            }
         });
     }
 

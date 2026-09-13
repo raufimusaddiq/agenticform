@@ -119,6 +119,42 @@ public class AgentRuntimeRecoveryService {
     }
 
     @Transactional
+    public AgentEntity restart(UUID agentId) {
+        AgentEntity agent = agents.findById(agentId)
+                .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
+        if (agent.getExecutionNodeId() == null) throw new IllegalStateException("Only remote runtimes can be restarted");
+        if (agent.getActiveTaskId() != null || agent.getActiveTurnId() != null) {
+            throw new IllegalStateException("Restart requires an idle agent with no active task or turn");
+        }
+        if (approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)) {
+            throw new IllegalStateException("Resolve or cancel the pending human approval before restarting this runtime");
+        }
+
+        ProjectEntity project = projects.get(agent.getProjectId());
+        long generation = agent.getRuntimeGeneration() + 1;
+        String branch = "restart/" + safe(agent.getName()) + "-" + agent.getId().toString().substring(0, 8) + "-g" + generation;
+        UUID nodeId = agent.getExecutionNodeId();
+        agent.reassignRuntime(nodeId, branch);
+        agents.save(agent);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("agentId", agent.getId().toString());
+        payload.put("runtimeType", agent.getRuntimeType().name());
+        payload.put("projectId", project.getId().toString());
+        payload.put("projectSlug", project.getSlug());
+        payload.put("repositoryUrl", project.getRepositoryUrl());
+        payload.put("defaultBranch", project.getDefaultBranch());
+        payload.put("baseBranch", project.getDefaultBranch());
+        payload.put("workspaceMode", agent.getWorkspaceMode().name());
+        payload.put("agentName", agent.getName());
+        payload.put("requestedBranch", branch);
+        payload.put("runtimeStartParams", runtimeRegistry.get(agent.getRuntimeType()).startParameters("", agent.getResponsibility(), agent.getCapabilityProfile()));
+        nodeService.enqueue(nodeId, agent.getId(), "START_AGENT",
+                "restart-agent:" + agent.getId() + ":g" + generation, payload);
+        return agent;
+    }
+
+    @Transactional
     public AgentEntity cleanup(UUID agentId) {
         AgentEntity agent = agents.findById(agentId)
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));

@@ -131,6 +131,13 @@ public class TaskDependencyService {
         return evaluate(taskId).state() == State.READY;
     }
 
+    public void requireReady(UUID taskId) {
+        Evaluation evaluation = evaluate(taskId);
+        if (evaluation.state() != State.READY) {
+            throw new IllegalStateException("Task dependencies are not satisfied: " + evaluation.reason());
+        }
+    }
+
     private boolean wouldCreateCycle(UUID taskId, UUID dependsOnTaskId) {
         ArrayDeque<UUID> pending = new ArrayDeque<>();
         Set<UUID> visited = new HashSet<>();

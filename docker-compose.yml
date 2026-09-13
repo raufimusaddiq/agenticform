@@ -3,10 +3,10 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: agenticform
-      POSTGRES_USER: agenticform
-      POSTGRES_PASSWORD: agenticform
+      POSTGRES_USER: ${POSTGRES_USER:-agenticform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agenticform}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${AGENTICFORM_POSTGRES_PORT:-5432}:5432"
     volumes:
       - agenticform-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -15,5 +15,50 @@ services:
       timeout: 3s
       retries: 10
 
+  init-worktrees:
+    image: alpine:3.22
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p /worktrees && chown -R 10001:10001 /worktrees"]
+    volumes: [worktrees:/worktrees]
+
+  server:
+    image: ${AGENTICFORM_SERVER_IMAGE:?set AGENTICFORM_SERVER_IMAGE to a published release image}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-agenticform}
+      DATABASE_USER: ${POSTGRES_USER:-agenticform}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-agenticform}
+      AGENTICFORM_PUBLIC_URL: ${AGENTICFORM_PUBLIC_URL:-http://localhost:8080}
+      AGENTICFORM_UI_ORIGIN: ${AGENTICFORM_UI_ORIGIN:-http://localhost:8080}
+      AGENTICFORM_ADMIN_TOKEN: ${AGENTICFORM_ADMIN_TOKEN:?set AGENTICFORM_ADMIN_TOKEN in .env}
+      AGENTICFORM_PROJECT_ROOT: ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}
+      AGENTICFORM_WORKTREE_ROOT: /srv/agenticform/worktrees
+      AGENTICFORM_NODE_IMAGE: ${AGENTICFORM_NODE_IMAGE:-ghcr.io/raufimusaddiq/agenticform-node:latest}
+      AGENTICFORM_VERSION: ${AGENTICFORM_VERSION:?set AGENTICFORM_VERSION to the matching release tag}
+    volumes:
+      - ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}:/srv/apps
+      - worktrees:/srv/agenticform/worktrees
+    expose: ["8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init-worktrees:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health | grep -q 'UP'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  web:
+    image: ${AGENTICFORM_WEB_IMAGE:?set AGENTICFORM_WEB_IMAGE to a published release image}
+    restart: unless-stopped
+    ports:
+      - "${AGENTICFORM_WEB_PORT:-8080}:8080"
+    depends_on:
+      server:
+        condition: service_healthy
+
 volumes:
   agenticform-postgres:
+  worktrees:

@@ -20,6 +20,11 @@ import com.agenticform.operation.OperationalSignalEntity;
 import com.agenticform.operation.OperationalSignalService;
 import com.agenticform.policy.PolicyRuleEntity;
 import com.agenticform.policy.PolicyRuleService;
+import com.agenticform.task.TaskDispatchService;
+import com.agenticform.task.TaskDependencyService;
+import com.agenticform.task.TaskDependencyType;
+import com.agenticform.task.TaskEntity;
+import com.agenticform.task.TaskKind;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -51,6 +56,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private final AgentCapabilityPolicy capabilityPolicy;
     private final OperationalSignalService operationalSignals;
     private final OperationalIncidentService operationalIncidents;
+    private final TaskDispatchService taskService;
     private final ObjectMapper mapper;
 
     public AgenticformDynamicToolHandler(CodexJsonRpcClient client, AgentRepository agentRepository,
@@ -61,6 +67,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                                          AgentCapabilityPolicy capabilityPolicy,
                                          OperationalSignalService operationalSignals,
                                          OperationalIncidentService operationalIncidents,
+                                         TaskDispatchService taskService,
                                          ObjectMapper mapper) {
         this.client = client;
         this.agentRepository = agentRepository;
@@ -72,6 +79,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         this.capabilityPolicy = capabilityPolicy;
         this.operationalSignals = operationalSignals;
         this.operationalIncidents = operationalIncidents;
+        this.taskService = taskService;
         this.mapper = mapper;
     }
 
@@ -90,12 +98,26 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         String threadId = requiredText(params, "threadId");
         AgentEntity source = agentRepository.findByRuntimeTypeAndRuntimeSessionId(com.agenticform.runtime.RuntimeType.CODEX, threadId)
                 .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns runtime session " + threadId));
+        String nodeId = params.path("_agenticformNodeId").asText(null);
+        if (nodeId != null && !nodeId.isBlank()) {
+            long generation = params.path("_agenticformRuntimeGeneration").asLong(0);
+            if (generation <= 0 || source.getExecutionNodeId() == null
+                    || !source.ownsRuntime(UUID.fromString(nodeId), generation, RuntimeType.CODEX, threadId)) {
+                return CompletableFuture.completedFuture(failure("STALE_RUNTIME", "Runtime generation is no longer assigned to this agent"));
+            }
+        } else if (source.getExecutionNodeId() != null) {
+            return CompletableFuture.completedFuture(failure("UNFENCED_RUNTIME", "Remote runtime request has no Agenticform runtime fence"));
+        }
         String tool = requiredText(params, "tool");
         JsonNode arguments = params.path("arguments");
         return switch (tool) {
             case "list_agents" -> {
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.READ);
                 yield CompletableFuture.completedFuture(listAgents(source));
+            }
+            case "list_messages" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
+                yield CompletableFuture.completedFuture(listMessages(source, arguments));
             }
             case "send_message" -> {
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
@@ -141,6 +163,20 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
                 yield CompletableFuture.completedFuture(updateIncident(source, arguments));
             }
+            case "create_task" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.ORCHESTRATE);
+                yield CompletableFuture.completedFuture(createTask(source, arguments));
+            }
+            case "report_task" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
+                yield CompletableFuture.completedFuture(reportTask(source, arguments));
+            }
+            case "request_human_clarification" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
+                yield approvalService.receiveClarification(new RuntimeApprovalRequest(
+                        request.id().isTextual() ? request.id().asText() : request.id().toString(), RuntimeType.CODEX,
+                        threadId, request.method(), arguments), source, arguments);
+            }
             case "request_action" -> approvalService.receiveDeclaredAction(new RuntimeApprovalRequest(
                     request.id().isTextual() ? request.id().asText() : request.id().toString(), RuntimeType.CODEX,
                     threadId, request.method(), params), source, arguments);
@@ -160,6 +196,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             row.put("name", agent.getName());
             row.put("role", agent.getRole().name());
             row.put("capabilityProfile", agent.getCapabilityProfile().name());
+            if (agent.getSpecialty() != null) row.put("specialty", agent.getSpecialty());
             ArrayNode capabilities = row.putArray("capabilities");
             agent.getCapabilityProfile().capabilities().stream().map(Enum::name).sorted().forEach(capabilities::add);
             row.put("systemManaged", agent.isSystemManaged());
@@ -174,6 +211,25 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         payload.put("projectId", source.getProjectId().toString());
         payload.put("fanoutLimit", AgentMessageService.MAX_FANOUT);
         payload.set("agents", rows);
+        return success(payload.toString());
+    }
+
+    private JsonNode listMessages(AgentEntity source, JsonNode arguments) {
+        boolean pendingOnly = arguments.path("pendingOnly").asBoolean(true);
+        ArrayNode rows = mapper.createArrayNode();
+        messageService.inbox(source.getId(), pendingOnly).forEach(item -> {
+            ObjectNode row = rows.addObject();
+            row.put("messageId", item.messageId().toString());
+            row.put("fromAgentId", item.fromAgentId().toString());
+            row.put("subject", item.subject());
+            row.put("content", item.content());
+            row.put("type", item.type().name());
+            row.put("deliveryStatus", item.status().name());
+            row.put("createdAt", item.createdAt().toString());
+        });
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("pendingOnly", pendingOnly);
+        payload.set("messages", rows);
         return success(payload.toString());
     }
 
@@ -366,9 +422,52 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private JsonNode sendMessage(AgentEntity source, JsonNode arguments) {
         UUID targetAgentId = UUID.fromString(requiredText(arguments, "targetAgentId"));
         UUID replyTo = arguments.hasNonNull("replyToMessageId") ? UUID.fromString(arguments.get("replyToMessageId").asText()) : null;
-        AgentMessageEntity message = messageService.send(source.getId(), targetAgentId, messageType(arguments),
-                requiredText(arguments, "subject"), requiredText(arguments, "content"), replyTo);
+        AgentMessageType type = messageType(arguments);
+        String subject = requiredText(arguments, "subject");
+        String content = requiredText(arguments, "content");
+        if (source.getRole() == AgentRole.ORCHESTRATOR && replyTo == null
+                && type != AgentMessageType.RESULT && type != AgentMessageType.REVIEW_RESULT
+                && type != AgentMessageType.BLOCKER && messageService.hasPendingInbox(source.getId())) {
+            throw new IllegalStateException("Pending inbound agent message exists; inspect agenticform.list_messages and process it before sending a follow-up");
+        }
+        AgentMessageEntity message = messageService.send(source.getId(), targetAgentId, type, subject, content, replyTo);
+        recordResultReport(source, type, subject, content);
+        if (type == AgentMessageType.BLOCKER) taskService.block(source.getId(), subject + "\n\n" + content);
         return success(messagePayload(message, messageService.deliveries(message.getId())).toString());
+    }
+
+    private void recordResultReport(AgentEntity source, AgentMessageType type, String subject, String content) {
+        if (source.getActiveTaskId() == null || (type != AgentMessageType.RESULT && type != AgentMessageType.REVIEW_RESULT)) return;
+        taskService.report(source.getId(), source.getActiveTaskId(), subject + "\n\n" + content);
+    }
+
+    private JsonNode createTask(AgentEntity source, JsonNode arguments) {
+        UUID targetAgentId = UUID.fromString(requiredText(arguments, "agentId"));
+        AgentEntity target = agentRepository.findById(targetAgentId)
+                .orElseThrow(() -> new NoSuchElementException("Target agent not found: " + targetAgentId));
+        if (!source.getProjectId().equals(target.getProjectId())) throw new IllegalArgumentException("Delegated task must stay within one project");
+        if (target.getRole() == AgentRole.OPERATIONAL) throw new IllegalArgumentException("Use handoff_to_operations for operational work");
+        UUID dependsOn = arguments.hasNonNull("dependsOnTaskId") ? UUID.fromString(arguments.get("dependsOnTaskId").asText()) : null;
+        TaskEntity task = taskService.create(targetAgentId, requiredText(arguments, "title"), requiredText(arguments, "prompt"),
+                arguments.path("priority").asInt(0), dependsOn == null ? List.of() : List.of(new TaskDependencyService.DependencyRequest(dependsOn, TaskDependencyType.REQUIRES_SUCCESS)), source.getActiveTaskId(),
+                arguments.hasNonNull("kind") ? TaskKind.valueOf(arguments.get("kind").asText().toUpperCase()) : null);
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("taskId", task.getId().toString());
+        payload.put("assignedAgentId", targetAgentId.toString());
+        payload.put("status", task.getStatus().name());
+        payload.put("kind", task.getKind().name());
+        payload.put("workflowId", task.getWorkflowId().toString());
+        return success(payload.toString());
+    }
+
+    private JsonNode reportTask(AgentEntity source, JsonNode arguments) {
+        UUID taskId = source.getActiveTaskId();
+        if (taskId == null) throw new IllegalStateException("No active task to report");
+        TaskEntity task = taskService.report(source.getId(), taskId, requiredText(arguments, "report"));
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("taskId", task.getId().toString());
+        payload.put("reported", true);
+        return success(payload.toString());
     }
 
     private JsonNode broadcastMessage(AgentEntity source, JsonNode arguments) {
@@ -427,6 +526,17 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private JsonNode success(String text) {
         ObjectNode response = mapper.createObjectNode();
         response.put("success", true);
+        ArrayNode items = response.putArray("contentItems");
+        ObjectNode item = items.addObject();
+        item.put("type", "inputText");
+        item.put("text", text);
+        return response;
+    }
+
+    private JsonNode failure(String code, String text) {
+        ObjectNode response = mapper.createObjectNode();
+        response.put("success", false);
+        response.put("code", code);
         ArrayNode items = response.putArray("contentItems");
         ObjectNode item = items.addObject();
         item.put("type", "inputText");

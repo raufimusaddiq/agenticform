@@ -27,6 +27,12 @@ public class TaskEntity {
     @Column(name = "assigned_agent_id", nullable = false)
     private UUID assignedAgentId;
 
+    @Column(name = "parent_task_id")
+    private UUID parentTaskId;
+
+    @Column(name = "workflow_id", nullable = false)
+    private UUID workflowId;
+
     @Column(nullable = false)
     private String title;
 
@@ -40,6 +46,10 @@ public class TaskEntity {
     @Column(nullable = false)
     private int priority;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private TaskKind kind;
+
     @Column(name = "queued_submission_id")
     private String queuedSubmissionId;
 
@@ -48,6 +58,9 @@ public class TaskEntity {
 
     @Column(name = "last_error", columnDefinition = "text")
     private String lastError;
+
+    @Column(columnDefinition = "text")
+    private String report;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -58,11 +71,28 @@ public class TaskEntity {
     protected TaskEntity() {}
 
     public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority) {
+        this(projectId, assignedAgentId, title, prompt, priority, null);
+    }
+
+    public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority, UUID parentTaskId) {
+        this(projectId, assignedAgentId, title, prompt, priority, parentTaskId, TaskKind.GENERAL);
+    }
+
+    public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority,
+                      UUID parentTaskId, TaskKind kind) {
+        this(projectId, assignedAgentId, title, prompt, priority, parentTaskId, kind, UUID.randomUUID());
+    }
+
+    public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority,
+                      UUID parentTaskId, TaskKind kind, UUID workflowId) {
         this.projectId = projectId;
         this.assignedAgentId = assignedAgentId;
+        this.parentTaskId = parentTaskId;
+        this.workflowId = workflowId == null ? UUID.randomUUID() : workflowId;
         this.title = title;
         this.prompt = prompt;
         this.priority = priority;
+        this.kind = kind == null ? TaskKind.GENERAL : kind;
         this.status = TaskStatus.READY;
     }
 
@@ -75,18 +105,46 @@ public class TaskEntity {
     public UUID getId() { return id; }
     public UUID getProjectId() { return projectId; }
     public UUID getAssignedAgentId() { return assignedAgentId; }
+    public UUID getParentTaskId() { return parentTaskId; }
+    public UUID getWorkflowId() { return workflowId; }
     public String getTitle() { return title; }
     public String getPrompt() { return prompt; }
     public TaskStatus getStatus() { return status; }
     public int getPriority() { return priority; }
+    public TaskKind getKind() { return kind; }
     public String getQueuedSubmissionId() { return queuedSubmissionId; }
     public String getTurnId() { return turnId; }
     public String getLastError() { return lastError; }
+    public String getReport() { return report; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+    public String getDependencyReason() {
+        return status == TaskStatus.WAITING_DEPENDENCY ? lastError : null;
+    }
+
+    public String getBlocker() {
+        if (status == TaskStatus.BLOCKED) return lastError;
+        return report != null && report.startsWith("BLOCKER:") ? report : null;
+    }
+
+    public String getNextAction() {
+        return switch (status) {
+            case READY -> "Dispatch when the assigned agent is ready";
+            case DISPATCHING, DISPATCHED -> "Wait for runtime acceptance/start";
+            case RUNNING -> "Wait for task report or blocker";
+            case WAITING_DEPENDENCY -> "Resolve prerequisite or delegated task";
+            case WAITING_APPROVAL -> "Resolve the pending approval";
+            case BLOCKED -> "Review blocker, then redispatch or change scope";
+            case COMPLETED -> "No action";
+            case FAILED -> "Inspect failure, then retry only after reconciliation";
+            case CANCELLED, PAUSED, QUEUED -> "Resume or cancel deliberately";
+        };
+    }
 
     public void setStatus(TaskStatus status) { this.status = status; }
     public void setQueuedSubmissionId(String value) { this.queuedSubmissionId = value; }
     public void setTurnId(String value) { this.turnId = value; }
     public void setLastError(String value) { this.lastError = value; }
+    public void setReport(String value) { this.report = value; }
 }

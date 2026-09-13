@@ -18,6 +18,15 @@ management:
     web:
       exposure:
         include: health,info
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: Agenticform
+    version: ${AGENTICFORM_VERSION:development}
+    edition: Self-Hosted Alpha
 
 agenticform:
   public-url: ${AGENTICFORM_PUBLIC_URL:http://localhost:8080}

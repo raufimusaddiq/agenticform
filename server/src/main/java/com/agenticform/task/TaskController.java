@@ -27,7 +27,7 @@ public class TaskController {
     }
 
     @GetMapping
-    public List<TaskEntity> list(@RequestParam(required = false) UUID projectId) {
+    public List<TaskEntity> list(@RequestParam(name = "projectId", required = false) UUID projectId) {
         return service.list(projectId);
     }
 
@@ -38,7 +38,7 @@ public class TaskController {
                 : request.dependencies().stream()
                 .map(dep -> new TaskDependencyService.DependencyRequest(dep.dependsOnTaskId(), dep.type()))
                 .toList();
-        return service.create(request.agentId(), request.title(), request.prompt(), request.priority(), dependencyRequests);
+        return service.create(request.agentId(), request.title(), request.prompt(), request.priority(), dependencyRequests, null, request.kind());
     }
 
     @PostMapping("/{taskId}/dispatch")
@@ -67,7 +67,8 @@ public class TaskController {
             @NotBlank String title,
             @NotBlank String prompt,
             int priority,
-            List<DependencyRequest> dependencies
+            List<DependencyRequest> dependencies,
+            TaskKind kind
     ) {}
 
     public record DependencyRequest(@NotNull UUID dependsOnTaskId, TaskDependencyType type) {}

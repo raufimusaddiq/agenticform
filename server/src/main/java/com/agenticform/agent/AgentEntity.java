@@ -33,6 +33,9 @@ public class AgentEntity {
     @Column(nullable = false, columnDefinition = "text")
     private String responsibility;
 
+    @Column(length = 64)
+    private String specialty;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "runtime_type", nullable = false, length = 32)
     private RuntimeType runtimeType;
@@ -111,7 +114,7 @@ public class AgentEntity {
                        AgentRole role, boolean systemManaged) {
         this(projectId, name, responsibility, runtimeSessionId, workspaceMode, sourceDirectory, workingDirectory,
                 branch, queueMode, humanControlMode, role, systemManaged, null,
-                role == AgentRole.OPERATIONAL || systemManaged ? AgentCapabilityProfile.OPS : AgentCapabilityProfile.IMPLEMENTER);
+                systemProfile(role, systemManaged));
     }
 
     public AgentEntity(UUID projectId, String name, String responsibility, String runtimeSessionId,
@@ -120,7 +123,7 @@ public class AgentEntity {
                        AgentRole role, boolean systemManaged, UUID executionNodeId) {
         this(projectId, name, responsibility, runtimeSessionId, workspaceMode, sourceDirectory, workingDirectory,
                 branch, queueMode, humanControlMode, role, systemManaged, executionNodeId,
-                role == AgentRole.OPERATIONAL || systemManaged ? AgentCapabilityProfile.OPS : AgentCapabilityProfile.IMPLEMENTER);
+                systemProfile(role, systemManaged));
     }
 
     public AgentEntity(UUID projectId, String name, String responsibility, String runtimeSessionId,
@@ -141,7 +144,7 @@ public class AgentEntity {
         this.role = role == null ? AgentRole.GENERAL : role;
         this.systemManaged = systemManaged;
         this.capabilityProfile = this.role == AgentRole.OPERATIONAL || systemManaged
-                ? AgentCapabilityProfile.OPS
+                ? systemProfile(this.role, true)
                 : (capabilityProfile == null ? AgentCapabilityProfile.IMPLEMENTER : capabilityProfile);
         this.executionNodeId = executionNodeId;
         this.runtimeGeneration = executionNodeId == null ? 0 : 1;
@@ -158,6 +161,7 @@ public class AgentEntity {
     public UUID getProjectId() { return projectId; }
     public String getName() { return name; }
     public String getResponsibility() { return responsibility; }
+    public String getSpecialty() { return specialty; }
     public RuntimeType getRuntimeType() { return runtimeType; }
     public String getRuntimeSessionId() { return runtimeSessionId; }
     public String getRuntimeProfileId() { return runtimeProfileId; }
@@ -190,13 +194,15 @@ public class AgentEntity {
     }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
+    public void setSpecialty(String specialty) { this.specialty = specialty == null || specialty.isBlank() ? null : specialty.trim().toUpperCase(); }
 
     public void setCapabilityProfile(AgentCapabilityProfile capabilityProfile) {
         if (role == AgentRole.OPERATIONAL || systemManaged) {
-            if (capabilityProfile != AgentCapabilityProfile.OPS) {
-                throw new IllegalArgumentException("System-managed Operational Agent capability profile is fixed to OPS");
+            AgentCapabilityProfile required = systemProfile(role, true);
+            if (capabilityProfile != required) {
+                throw new IllegalArgumentException("System-managed agent capability profile is fixed to " + required);
             }
-            this.capabilityProfile = AgentCapabilityProfile.OPS;
+            this.capabilityProfile = required;
             return;
         }
         this.capabilityProfile = capabilityProfile == null ? AgentCapabilityProfile.IMPLEMENTER : capabilityProfile;
@@ -251,5 +257,11 @@ public class AgentEntity {
         if (status == AgentStatus.DISCONNECTED || status == AgentStatus.STARTING) {
             status = activeTurnId == null ? AgentStatus.IDLE : AgentStatus.WORKING;
         }
+    }
+
+    private static AgentCapabilityProfile systemProfile(AgentRole role, boolean systemManaged) {
+        if (role == AgentRole.OPERATIONAL) return AgentCapabilityProfile.OPS;
+        if (systemManaged && role == AgentRole.ORCHESTRATOR) return AgentCapabilityProfile.ORCHESTRATOR;
+        return systemManaged ? AgentCapabilityProfile.OPS : AgentCapabilityProfile.IMPLEMENTER;
     }
 }

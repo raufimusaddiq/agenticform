@@ -8,6 +8,7 @@ It is designed around these core concepts:
 - **Agents** — Codex sessions with explicit responsibility, role, workspace ownership, and optional execution-node placement.
 - **Tasks** — durable units of work assigned to coding/general agents.
 - **Agent communication fabric** — durable direct, multicast, role, group, and project-broadcast communication with per-recipient delivery state.
+- **Orchestrator** — one system-managed agent per project that owns the human-facing task pipe, delegation, and consolidated reports.
 - **Operational Agent** — one system-managed agent per project that owns CI/CD and operational reasoning without holding production credentials.
 - **Execution nodes** — outbound-only workers enrolled with one-time tokens and long-lived Ed25519 device identities.
 - **Runtime generation fencing** — remote agent runtimes are versioned so a stale/reconnected node cannot mutate a newer replacement runtime.
@@ -71,6 +72,19 @@ Defaults:
 - coding worktree cleanup retention: `24h`
 
 The UI asks for `AGENTICFORM_ADMIN_TOKEN` and retains it only in browser `sessionStorage`. It talks only to Agenticform APIs; it never connects directly to Codex App Server.
+
+## Self-Hosted Alpha
+
+Published-image installation uses the root `docker-compose.yml` and `.env.example`:
+
+```bash
+cp .env.example .env
+# Set AGENTICFORM_ADMIN_TOKEN and POSTGRES_PASSWORD in .env.
+docker compose pull
+docker compose up -d
+```
+
+Open the configured public URL, sign in with the single-owner admin token, register a project, then enroll a node from **Execution nodes**. Public deployments require HTTPS and an immutable `AGENTICFORM_NODE_IMAGE` digest. See [Self-Hosted Alpha](docs/self-hosted-alpha.md) for update, backup/restore, proxy, networking, and runtime-readiness guidance.
 
 ## Distributed execution nodes
 
@@ -168,6 +182,7 @@ https://github.com/owner/repository.git
 - [Durable recovery and GitHub webhooks](docs/recovery.md)
 - [Distributed Agent Fabric](docs/distributed-agent-fabric.md)
 - [UI/UX specification](docs/ui-ux.md)
+- [Self-Hosted Alpha](docs/self-hosted-alpha.md)
 
 ## Current architecture
 

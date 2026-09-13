@@ -8,6 +8,7 @@ import com.agenticform.message.AgentMessageDeliveryEntity;
 import com.agenticform.message.AgentMessageDeliveryRepository;
 import com.agenticform.message.AgentMessageService;
 import com.agenticform.task.TaskDependencyService;
+import com.agenticform.task.TaskDispatchService;
 import com.agenticform.task.TaskEntity;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
@@ -30,6 +31,7 @@ public class CodexEventBridge {
     private final AgentMessageDeliveryRepository messageDeliveries;
     private final AgentMessageService messageService;
     private final TaskDependencyService taskDependencies;
+    private final TaskDispatchService taskDispatch;
     private final ControlPlaneEventBus events;
 
     public CodexEventBridge(CodexJsonRpcClient client, TaskRepository taskRepository,
@@ -37,6 +39,7 @@ public class CodexEventBridge {
                             AgentMessageDeliveryRepository messageDeliveries,
                             AgentMessageService messageService,
                             TaskDependencyService taskDependencies,
+                            TaskDispatchService taskDispatch,
                             ControlPlaneEventBus events) {
         this.client = client;
         this.taskRepository = taskRepository;
@@ -44,6 +47,7 @@ public class CodexEventBridge {
         this.messageDeliveries = messageDeliveries;
         this.messageService = messageService;
         this.taskDependencies = taskDependencies;
+        this.taskDispatch = taskDispatch;
         this.events = events;
     }
 
@@ -164,13 +168,25 @@ public class CodexEventBridge {
         if (terminal(task.getStatus()) || !matchesTurn(task.getTurnId(), turnId)
                 || !authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, agent)) return;
         String turnStatus = params.path("turn").path("status").asText();
-        task.setStatus("completed".equalsIgnoreCase(turnStatus) ? TaskStatus.COMPLETED : TaskStatus.FAILED);
+        if (task.getStatus() == TaskStatus.BLOCKED) {
+            task.setLastError(task.getLastError() == null ? "Agent reported a blocker" : task.getLastError());
+        } else if ("completed".equalsIgnoreCase(turnStatus) && (task.getReport() == null || task.getReport().isBlank())) {
+            boolean orchestratorWaiting = task.getKind() == com.agenticform.task.TaskKind.ORCHESTRATION
+                    && taskDispatch.hasDescendants(task.getId());
+            task.setStatus(orchestratorWaiting ? TaskStatus.WAITING_DEPENDENCY : TaskStatus.BLOCKED);
+            task.setLastError(orchestratorWaiting
+                    ? "Waiting for delegated tasks before orchestrator continuation"
+                    : "Agent completed without submitting a task report");
+        } else {
+            task.setStatus("completed".equalsIgnoreCase(turnStatus) ? TaskStatus.COMPLETED : TaskStatus.FAILED);
+        }
         taskRepository.save(task);
         agent.setStatus(AgentStatus.IDLE);
         agent.setActiveTaskId(null);
         agent.setActiveTurnId(null);
         agentRepository.save(agent);
         taskDependencies.reconcileDependents(task.getId());
+        taskDispatch.reconcileOrchestrationParents(task.getId());
         events.publish("task.terminal", task.getProjectId(), task.getId());
     }
 

@@ -1,8 +1,12 @@
 package com.agenticform.config;
 
+import com.agenticform.AgenticformApplication;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.context.ConfigurableApplicationContext;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -27,9 +31,18 @@ class FlywayMigrationSmokeTest {
                 .load();
 
         configuration.clean();
-        var migrated = configuration.migrate();
-        assertTrue(migrated.success, "baseline migration should succeed");
-        assertEquals(1, migrated.migrationsExecuted, "expected exactly one baseline migration");
+        SpringApplication application = new SpringApplication(AgenticformApplication.class);
+        application.setWebApplicationType(WebApplicationType.SERVLET);
+        try (ConfigurableApplicationContext ignored = application.run(
+                "--spring.datasource.url=" + url,
+                "--spring.datasource.username=" + user,
+                "--spring.datasource.password=" + password,
+                "--server.port=0",
+                "--agenticform.public-url=http://localhost:8080",
+                "--agenticform.ui.origin=http://localhost:5173",
+                "--agenticform.security.admin-token=0123456789abcdef0123456789abcdef")) {
+            // Startup must run Flyway before Hibernate validates mapped tables.
+        }
         try (Connection connection = DriverManager.getConnection(url, user, password);
              PreparedStatement query = connection.prepareStatement(
                      "SELECT column_default FROM information_schema.columns "

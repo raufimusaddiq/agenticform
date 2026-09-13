@@ -25,8 +25,8 @@ public class AgentMessageController {
     }
 
     @GetMapping
-    public List<AgentMessageEntity> list(@RequestParam(required = false) UUID projectId,
-                                         @RequestParam(required = false) UUID agentId) {
+    public List<AgentMessageEntity> list(@RequestParam(name = "projectId", required = false) UUID projectId,
+                                         @RequestParam(name = "agentId", required = false) UUID agentId) {
         return service.list(projectId, agentId);
     }
 

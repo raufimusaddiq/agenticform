@@ -26,6 +26,7 @@ import java.util.UUID;
 @Service
 public class AgentService {
     private static final String OPERATIONAL_AGENT_NAME = "Operations";
+    private static final String ORCHESTRATOR_AGENT_NAME = "Orchestrator";
     private static final String OPERATIONAL_RESPONSIBILITY = """
             You are the system-managed Operational Agent for this project.
             Own operational reasoning and coordination: inspect CI/CD state, release readiness, immutable image availability,
@@ -40,6 +41,15 @@ public class AgentService {
             Use registered Agenticform runbooks for operational effects. A runbook request is itself policy-evaluated; do not
             separately request the same semantic action before requesting the runbook. Obey ALLOW / REQUIRE_HUMAN / DENY.
             After operations, inspect evidence and communicate concise results or blockers back to the requesting agent.
+            """;
+    private static final String ORCHESTRATOR_RESPONSIBILITY = """
+            You are the system-managed Orchestrator for this project.
+            Own the user-facing workflow: understand the assigned request, delegate architecture, matching implementers,
+            tests, and review work,
+            track dependencies, collect durable reports, and return one concise consolidated result.
+
+            Use Agenticform list_agents, create_task, send_message, and report_task. Do not edit application code,
+            deploy, or bypass policy. Delegate operational work through the Operational Agent.
             """;
 
     private final AgentRepository repository;
@@ -72,36 +82,53 @@ public class AgentService {
     public AgentEntity spawn(SpawnAgent command) {
         ProjectEntity project = projectService.get(command.projectId());
         if (!project.isEnabled()) throw new IllegalStateException("Project is disabled");
-        ensureOperationalAgentInternal(project);
-        AgentCapabilityProfile profile = command.capabilityProfile() == null
-                ? AgentCapabilityProfile.IMPLEMENTER : command.capabilityProfile();
+        ensureProjectAgentsInternal(project);
+        AgentTemplate template = command.templateId() == null || command.templateId().isBlank()
+                ? null : AgentTemplate.find(command.templateId());
+        AgentCapabilityProfile profile = template == null
+                ? command.capabilityProfile() == null ? AgentCapabilityProfile.IMPLEMENTER : command.capabilityProfile()
+                : template.getCapabilityProfile();
+        String name = command.name() == null || command.name().isBlank()
+                ? template == null ? "Agent" : template.getDisplayName() : command.name();
+        String responsibility = command.responsibility() == null || command.responsibility().isBlank()
+                ? template == null ? "Inspect the repository, follow project policy, and report blockers." : template.getResponsibility()
+                : command.responsibility();
         RuntimeType runtimeType = command.runtimeType();
 
+        AgentEntity spawned;
         if (project.getSourceType() == ProjectSourceType.GIT) {
-            return createRemoteAgent(project, command.name(), command.responsibility(),
+            spawned = createRemoteAgent(project, name, responsibility,
                     command.workspaceMode() == null ? WorkspaceMode.ISOLATED_WORKTREE : command.workspaceMode(),
                     command.baseBranch(), command.branch(),
                     command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode(),
                     command.humanControlMode() == null ? HumanControlMode.ON_THE_LOOP : command.humanControlMode(),
                     AgentRole.GENERAL, false, command.executionNodeId(), command.minimumTrust(), profile, runtimeType, command.runtimeProfileId());
-        }
-
+        } else {
         if (command.executionNodeId() != null) {
             throw new IllegalArgumentException("LOCAL_PATH projects cannot be placed on remote execution nodes; register a GIT project source");
         }
-        return createLocalAgent(project, command.name(), command.responsibility(),
+        spawned = createLocalAgent(project, name, responsibility,
                 command.workspaceMode() == null ? WorkspaceMode.ISOLATED_WORKTREE : command.workspaceMode(),
                 command.baseBranch(), command.branch(),
                 command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode(),
                 command.humanControlMode() == null ? HumanControlMode.ON_THE_LOOP : command.humanControlMode(),
                 AgentRole.GENERAL, false, profile, runtimeType, command.runtimeProfileId());
+        }
+        if (template != null) spawned.setSpecialty(template.getSpecialty());
+        return repository.save(spawned);
     }
 
     @Transactional
     public AgentEntity ensureOperationalAgent(UUID projectId) {
         ProjectEntity project = projectService.get(projectId);
         if (!project.isEnabled()) throw new IllegalStateException("Project is disabled");
-        return ensureOperationalAgentInternal(project);
+        return ensureProjectAgentsInternal(project);
+    }
+
+    private synchronized AgentEntity ensureProjectAgentsInternal(ProjectEntity project) {
+        AgentEntity operational = ensureOperationalAgentInternal(project);
+        ensureOrchestratorAgentInternal(project);
+        return operational;
     }
 
     private synchronized AgentEntity ensureOperationalAgentInternal(ProjectEntity project) {
@@ -120,6 +147,25 @@ public class AgentService {
                 WorkspaceMode.SHARED_PROJECT, project.getDefaultBranch(), null,
                 AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
                 AgentRole.OPERATIONAL, true, AgentCapabilityProfile.OPS, RuntimeType.CODEX, null);
+    }
+
+    private synchronized AgentEntity ensureOrchestratorAgentInternal(ProjectEntity project) {
+        return repository.findByProjectIdAndRole(project.getId(), AgentRole.ORCHESTRATOR)
+                .orElseGet(() -> createOrchestratorAgent(project));
+    }
+
+    private AgentEntity createOrchestratorAgent(ProjectEntity project) {
+        if (project.getSourceType() == ProjectSourceType.GIT) {
+            return createRemoteAgent(project, ORCHESTRATOR_AGENT_NAME, ORCHESTRATOR_RESPONSIBILITY,
+                    WorkspaceMode.SHARED_PROJECT, project.getDefaultBranch(), null,
+                    AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
+                    AgentRole.ORCHESTRATOR, true, null, NodeTrustLevel.STANDARD,
+                    AgentCapabilityProfile.ORCHESTRATOR, RuntimeType.CODEX, null);
+        }
+        return createLocalAgent(project, ORCHESTRATOR_AGENT_NAME, ORCHESTRATOR_RESPONSIBILITY,
+                WorkspaceMode.SHARED_PROJECT, project.getDefaultBranch(), null,
+                AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
+                AgentRole.ORCHESTRATOR, true, AgentCapabilityProfile.ORCHESTRATOR, RuntimeType.CODEX, null);
     }
 
     private AgentEntity createLocalAgent(ProjectEntity project, String name, String responsibility,
@@ -234,5 +280,5 @@ public class AgentService {
                              String baseBranch, String branch, AgentQueueMode queueMode,
                              HumanControlMode humanControlMode, UUID executionNodeId,
                              NodeTrustLevel minimumTrust, AgentCapabilityProfile capabilityProfile,
-                             RuntimeType runtimeType, String runtimeProfileId) {}
+                             RuntimeType runtimeType, String runtimeProfileId, String templateId) {}
 }
