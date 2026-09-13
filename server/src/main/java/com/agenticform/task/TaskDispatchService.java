@@ -51,8 +51,8 @@ public class TaskDispatchService {
                              List<TaskDependencyService.DependencyRequest> dependencies) {
         AgentEntity agent = agentRepository.findById(agentId)
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
-        if (agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()) {
-            throw new IllegalArgumentException("System-managed Operational Agent does not accept normal tasks; use agent-to-agent operational handoff");
+        if (agent.getRole() == AgentRole.OPERATIONAL) {
+            throw new IllegalArgumentException("Operational Agent does not accept normal tasks; use agent-to-agent operational handoff");
         }
         TaskEntity task = taskRepository.save(new TaskEntity(agent.getProjectId(), agentId, title, prompt, priority));
         if (dependencies != null) {
@@ -88,7 +88,7 @@ public class TaskDispatchService {
                 continue;
             }
             AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-            if (agent == null || agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()
+            if (agent == null || agent.getRole() == AgentRole.OPERATIONAL
                     || agent.getQueueMode() != AgentQueueMode.AUTO || agent.getStatus() != AgentStatus.IDLE) continue;
             dispatch(task, agent);
         }
@@ -101,8 +101,8 @@ public class TaskDispatchService {
         UUID assignedAgentId = task.getAssignedAgentId();
         AgentEntity agent = agentRepository.findById(assignedAgentId)
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + assignedAgentId));
-        if (agent.getRole() == AgentRole.OPERATIONAL || agent.isSystemManaged()) {
-            throw new IllegalStateException("System-managed Operational Agent does not accept normal task dispatch");
+        if (agent.getRole() == AgentRole.OPERATIONAL) {
+            throw new IllegalStateException("Operational Agent does not accept normal task dispatch");
         }
         if (agent.getStatus() != AgentStatus.IDLE) throw new IllegalStateException("Agent is not idle");
         if (task.getStatus() != TaskStatus.READY && task.getStatus() != TaskStatus.BLOCKED

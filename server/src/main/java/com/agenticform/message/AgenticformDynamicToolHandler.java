@@ -399,7 +399,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         AgentEntity target = agentRepository.findById(targetAgentId)
                 .orElseThrow(() -> new NoSuchElementException("Target agent not found: " + targetAgentId));
         if (!source.getProjectId().equals(target.getProjectId())) throw new IllegalArgumentException("Delegated task must stay within one project");
-        if (target.getRole() == AgentRole.OPERATIONAL || target.isSystemManaged()) throw new IllegalArgumentException("Use handoff_to_operations for operational work");
+        if (target.getRole() == AgentRole.OPERATIONAL) throw new IllegalArgumentException("Use handoff_to_operations for operational work");
         UUID dependsOn = arguments.hasNonNull("dependsOnTaskId") ? UUID.fromString(arguments.get("dependsOnTaskId").asText()) : null;
         TaskEntity task = taskService.create(targetAgentId, requiredText(arguments, "title"), requiredText(arguments, "prompt"),
                 arguments.path("priority").asInt(0), dependsOn == null ? List.of() : List.of(new TaskDependencyService.DependencyRequest(dependsOn, TaskDependencyType.REQUIRES_SUCCESS)));
