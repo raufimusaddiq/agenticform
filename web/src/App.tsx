@@ -5,7 +5,7 @@ import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
 import { OperationsView } from './OperationsView';
 import { PolicyView } from './PolicyView';
-import { ConnectionStatus, HumanControlIndicator, Status, label, shortId, type ConnectionState } from './ui';
+import { ConnectionStatus, HumanControlIndicator, LoadingState, Status, label, shortId, type ConnectionState } from './ui';
 import type {
   Agent,
   AgentCapabilityProfile,
@@ -221,7 +221,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
         </header>
 
         {error && <div className="error-banner" role="alert"><strong>Action required</strong><span>{error}</span><button type="button" onClick={() => setError(null)}>Dismiss</button></div>}
-        {loading ? <div className="loading">Loading control-plane state…</div> : (
+        {loading ? <LoadingState label="Loading control-plane state" /> : (
           <>
             {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} messages={visibleMessages} approvals={visibleApprovals} attention={attention} active={active} queued={queued} connection={connection} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => setView('approvals')} onOpenAgents={() => setView('agents')} onOpenTasks={() => setView('tasks')} onSpawn={() => setDialog('agent')} />}
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} onEnsureSystemAgents={(projectId) => void mutate(() => api.ensureOperationalAgent(projectId))} />}
@@ -289,7 +289,7 @@ function Overview({ projects, agents, tasks, messages, approvals, attention, act
       </article>
       <article className="panel activity-board">
         <div className="section-header"><div><p className="eyebrow">Durable evidence</p><h2>Recent activity</h2></div><span className="muted">{activity.length} events</span></div>
-        {!activity.length ? <Empty title="No activity yet" body="Task transitions, approvals, and agent messages will appear here." /> : <div className="activity-list">{activity.map((item) => <div className="activity-row" key={item.id}><span className={`activity-marker status-${item.status.toLowerCase()}`} /><div><strong>{item.title}</strong><small>{item.detail}</small></div><time>{relativeTime(item.at)}</time></div>)}</div>}
+        {!activity.length ? <Empty title="No activity yet" body="Task transitions, approvals, and agent messages will appear here." /> : <div className="activity-list">{activity.map((item) => <div className="activity-row" key={item.id}><span className={`activity-marker status-${item.status.toLowerCase()}`} /><div><strong>{item.title}</strong><small>{item.detail}</small></div><time title={new Date(item.at).toLocaleString()}>{relativeTime(item.at)}</time></div>)}</div>}
       </article>
     </section>
 

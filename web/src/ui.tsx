@@ -35,3 +35,7 @@ export function ConnectionStatus({ state }: { state: ConnectionState }) {
 export function HumanControlIndicator({ mode }: { mode: 'IN_THE_LOOP' | 'ON_THE_LOOP' }) {
   return <span className={`human-control human-control-${mode.toLowerCase()}`}><span aria-hidden="true" />{label(mode)}</span>;
 }
+
+export function LoadingState({ label: text = 'Loading' }: { label?: string }) {
+  return <div className="loading-state" role="status" aria-live="polite"><span className="loading-line loading-line-wide" /><span className="loading-line" /><small>{text}</small></div>;
+}

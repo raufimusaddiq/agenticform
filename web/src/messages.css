@@ -1,4 +1,9 @@
 .messages-layout { grid-template-columns: minmax(0, 1.65fr) minmax(320px, .75fr); align-items: start; }
+.communication-workspace { display: grid; grid-template-columns: minmax(220px, .34fr) minmax(0, 1fr); min-height: 480px; }
+.conversation-index { min-width: 0; border-right: 1px solid var(--border); }
+.conversation-list { display: grid; }
+.conversation-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 13px 15px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--muted); text-align: left; cursor: pointer; }
+.conversation-item:hover { background: var(--surface-hover); color: var(--text); }.conversation-item.active { background: rgb(154 215 205 / .09); box-shadow: inset 2px 0 var(--accent); color: var(--text); }.conversation-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }.conversation-item span, .conversation-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }.conversation-item small { color: var(--subtle); font-family: "SFMono-Regular", Consolas, monospace; }.conversation-thread { min-width: 0; }.message-timeline { display: grid; }.message-timeline .message-row { padding: 18px 20px; }.rules-panel { overflow: hidden; }.rules-panel > summary { list-style: none; cursor: pointer; }.rules-panel > summary::-webkit-details-marker { display: none; }.rules-panel[open] > summary { border-bottom: 1px solid var(--border); }.rules-panel > form, .rules-panel > .data-list { padding-inline: 16px; }.rules-panel > form { padding-top: 16px; padding-bottom: 16px; }
 .compose-panel { position: sticky; top: 24px; }
 .compose-panel form { display: grid; gap: 15px; padding: 17px; }
 .compose-panel label { display: grid; gap: 7px; color: #bcc3cd; font-size: 12px; font-weight: 650; }
@@ -20,4 +25,5 @@
 .status-created, .status-dispatched { color: var(--muted); }
 .status-dispatched .status-dot { background: #677181; border-color: #677181; }
 @media (max-width: 1120px) { .messages-layout { grid-template-columns: 1fr; }.compose-panel { position: static; } }
+@media (max-width: 760px) { .communication-workspace { grid-template-columns: 1fr; }.conversation-index { border-right: 0; border-bottom: 1px solid var(--border); max-height: 230px; overflow: auto; }.conversation-item { grid-template-columns: minmax(0, 1fr) auto; }.message-timeline .message-row { padding: 15px; } }
 @media (max-width: 680px) { .message-meta { grid-template-columns: 1fr; align-items: start; }.message-meta > .status, .message-meta > .message-type { justify-self: start; } }
