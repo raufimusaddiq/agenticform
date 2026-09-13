@@ -22,6 +22,7 @@ export type ExecutionNode = {
   revokedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  protocolCompatible?: boolean;
 };
 
 export type NodeEnrollment = {

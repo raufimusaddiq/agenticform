@@ -7,6 +7,17 @@ import './nodes.css';
 
 const trustLevels: NodeTrustLevel[] = ['UNTRUSTED', 'STANDARD', 'TRUSTED', 'PRIVILEGED'];
 
+type RuntimeReadiness = { available?: boolean; authenticated?: boolean; version?: string };
+
+function runtimeReadiness(node: ExecutionNode, runtime: string): RuntimeReadiness {
+  try {
+    const capabilities = JSON.parse(node.capabilitiesJson) as { runtimes?: Record<string, RuntimeReadiness> };
+    return capabilities.runtimes?.[runtime] ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export function SecureShell() {
   const [authenticated, setAuthenticated] = useState(Boolean(getAdminToken()));
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -172,22 +183,31 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
 
       <section className="node-list">
         <div className="section-header"><div><p className="eyebrow">Capacity</p><h3>Registered nodes</h3></div><button className="button ghost" onClick={() => void refresh()}>Refresh</button></div>
-        {loading ? <div className="loading">Loading nodes…</div> : !nodes.length ? <div className="empty-state">No execution nodes enrolled.</div> : nodes.map((node) => <article className="node-card" key={node.id}>
-          <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} · {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><span className={`status status-${node.status.toLowerCase()}`}>{node.status.toLowerCase()}</span></div>
-          <div className="node-facts">
-            <span><small>Trust</small>{node.trustLevel}</span>
-            <span><small>Capacity</small>{node.maxAgents} agents</span>
-            <span><small>Disk free</small>{node.diskFreeMb == null ? '—' : `${Math.round(node.diskFreeMb / 1024)} GB`}</span>
-          </div>
-          <code className="fingerprint">{node.fingerprint}</code>
-          <div className="node-actions">
-            {node.status === 'ONLINE' && <button className="button secondary" onClick={() => void status(node.id, 'DRAINING')}>Drain</button>}
-            {node.status === 'DRAINING' && <button className="button secondary" onClick={() => void status(node.id, 'ONLINE')}>Resume</button>}
-            {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => void status(node.id, 'DISABLED')}>Disable</button>}
-            {node.status === 'DISABLED' && <button className="button secondary" onClick={() => void status(node.id, 'OFFLINE')}>Enable</button>}
-            {node.status !== 'REVOKED' && <button className="button danger" onClick={() => void status(node.id, 'REVOKED')}>Revoke</button>}
-          </div>
-        </article>)}
+        {loading ? <div className="loading">Loading nodes…</div> : !nodes.length ? <div className="empty-state">No execution nodes enrolled.</div> : nodes.map((node) => {
+          const codex = runtimeReadiness(node, 'CODEX');
+          const runtimeMessage = node.status !== 'ONLINE' ? `Node ${node.status.toLowerCase()}`
+            : !codex.available ? 'Codex runtime missing'
+              : !codex.authenticated ? 'Codex authentication required'
+                : node.protocolCompatible === false ? 'Node protocol incompatible' : 'Ready';
+          return <article className="node-card" key={node.id}>
+            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} · {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><span className={`status status-${node.status.toLowerCase()}`}>{node.status.toLowerCase()}</span></div>
+            <div className="node-facts">
+              <span><small>Trust</small>{node.trustLevel}</span>
+              <span><small>Capacity</small>{node.maxAgents} agents</span>
+              <span><small>Disk free</small>{node.diskFreeMb == null ? '—' : `${Math.round(node.diskFreeMb / 1024)} GB`}</span>
+              <span><small>Runtime</small>{codex.available ? `Codex ${codex.version || 'installed'}` : 'Not ready'}</span>
+            </div>
+            <p className={runtimeMessage === 'Ready' ? 'runtime-ready' : 'runtime-warning'}>{runtimeMessage}</p>
+            <code className="fingerprint">{node.fingerprint}</code>
+            <div className="node-actions">
+              {node.status === 'ONLINE' && <button className="button secondary" onClick={() => void status(node.id, 'DRAINING')}>Drain</button>}
+              {node.status === 'DRAINING' && <button className="button secondary" onClick={() => void status(node.id, 'ONLINE')}>Resume</button>}
+              {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => void status(node.id, 'DISABLED')}>Disable</button>}
+              {node.status === 'DISABLED' && <button className="button secondary" onClick={() => void status(node.id, 'OFFLINE')}>Enable</button>}
+              {node.status !== 'REVOKED' && <button className="button danger" onClick={() => void status(node.id, 'REVOKED')}>Revoke</button>}
+            </div>
+          </article>;
+        })}
       </section>
     </section>
   </div>;

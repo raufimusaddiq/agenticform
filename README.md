@@ -72,6 +72,19 @@ Defaults:
 
 The UI asks for `AGENTICFORM_ADMIN_TOKEN` and retains it only in browser `sessionStorage`. It talks only to Agenticform APIs; it never connects directly to Codex App Server.
 
+## Self-Hosted Alpha
+
+Published-image installation uses the root `docker-compose.yml` and `.env.example`:
+
+```bash
+cp .env.example .env
+# Set AGENTICFORM_ADMIN_TOKEN and POSTGRES_PASSWORD in .env.
+docker compose pull
+docker compose up -d
+```
+
+Open the configured public URL, sign in with the single-owner admin token, register a project, then enroll a node from **Execution nodes**. Public deployments require HTTPS and an immutable `AGENTICFORM_NODE_IMAGE` digest. See [Self-Hosted Alpha](docs/self-hosted-alpha.md) for update, backup/restore, proxy, networking, and runtime-readiness guidance.
+
 ## Distributed execution nodes
 
 Open **Execution nodes** in the authenticated UI, choose a node name/trust level, and generate the single-use setup command. Run that command as a non-root user on the target server or workstation.
@@ -168,6 +181,7 @@ https://github.com/owner/repository.git
 - [Durable recovery and GitHub webhooks](docs/recovery.md)
 - [Distributed Agent Fabric](docs/distributed-agent-fabric.md)
 - [UI/UX specification](docs/ui-ux.md)
+- [Self-Hosted Alpha](docs/self-hosted-alpha.md)
 
 ## Current architecture
 

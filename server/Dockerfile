@@ -6,7 +6,10 @@ COPY server/src src
 RUN mvn -B -q -DskipTests package
 
 FROM eclipse-temurin:21-jre
-RUN useradd --system --create-home --uid 10001 agenticform
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --uid 10001 agenticform
 USER agenticform
 WORKDIR /app
 COPY --from=build /build/target/*.jar app.jar

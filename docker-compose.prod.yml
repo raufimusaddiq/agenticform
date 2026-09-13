@@ -20,9 +20,7 @@ services:
     volumes: [worktrees:/worktrees]
 
   server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
+    image: ${AGENTICFORM_SERVER_IMAGE:-ghcr.io/raufimusaddiq/agenticform-server:${AGENTICFORM_VERSION:-latest}}
     restart: unless-stopped
     environment:
       DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-agenticform}
@@ -34,6 +32,7 @@ services:
       AGENTICFORM_PROJECT_ROOT: ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}
       AGENTICFORM_WORKTREE_ROOT: ${AGENTICFORM_WORKTREE_ROOT:-/srv/agenticform/worktrees}
       AGENTICFORM_NODE_IMAGE: ${AGENTICFORM_NODE_IMAGE:?set immutable AGENTICFORM_NODE_IMAGE}
+      AGENTICFORM_VERSION: ${AGENTICFORM_VERSION:-latest}
     volumes:
       - ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}:/srv/apps
       - worktrees:/srv/agenticform/worktrees
@@ -42,14 +41,19 @@ services:
         condition: service_healthy
       init-worktrees:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health | grep -q 'UP'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   web:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
+    image: ${AGENTICFORM_WEB_IMAGE:-ghcr.io/raufimusaddiq/agenticform-web:${AGENTICFORM_VERSION:-latest}}
     restart: unless-stopped
     ports: ["${AGENTICFORM_WEB_PORT:-8080}:8080"]
-    depends_on: [server]
+    depends_on:
+      server:
+        condition: service_healthy
 
 volumes:
   postgres-data:
