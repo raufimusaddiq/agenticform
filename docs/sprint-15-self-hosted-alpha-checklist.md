@@ -27,13 +27,12 @@ Scope: ship the supported path for daily self-hosted use. Alpha may break betwee
 
 ## Verification
 
-- [ ] `docker compose --env-file .env.example config` after supplying required secrets.
-- [ ] `cd server && mvn test`
-- [ ] `cd web && npm run build`
-- [ ] `cd node && go test ./...`
+- [x] `docker compose --env-file .env.example config` after supplying required secrets.
+- [x] `cd server && mvn test` (PR #17 CI, September 13, 2026).
+- [x] `cd web && npm run build` (PR #17 CI, September 13, 2026).
+- [x] `cd node && go test ./...` (PR #17 CI, September 13, 2026).
 - [ ] Deploy the release path against real repositories and nodes; record dogfood findings before claiming Alpha exit.
 
 ## Exit gate
 
 - [ ] Clean-server installation, first useful agent, approval/message/operation loop, restart/reconnect, and backup/restore are exercised as the documented operator path.
-
