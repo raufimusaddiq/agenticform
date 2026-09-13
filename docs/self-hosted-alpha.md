@@ -47,16 +47,14 @@ Run from the directory containing `.env`:
 
 ```bash
 mkdir -p backups
-docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc > "backups/agenticform-$(date +%F).dump"
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "backups/agenticform-$(date +%F).dump"
 ```
 
 Restore only into a stopped/recreated Alpha database. Keep the old volume until verification completes:
 
 ```bash
-docker compose down
-docker volume rm agenticform_agenticform-postgres
-docker compose up -d postgres
-cat backups/agenticform-YYYY-MM-DD.dump | docker compose exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists
+docker compose stop server web
+cat backups/agenticform-YYYY-MM-DD.dump | docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner'
 docker compose up -d
 ```
 
