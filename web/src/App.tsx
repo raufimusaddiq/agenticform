@@ -199,7 +199,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
         {loading ? <div className="loading">Loading control-plane state…</div> : (
           <>
             {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} approvals={visibleApprovals} attention={attention} active={active} queued={queued} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => setView('approvals')} onOpenAgents={() => setView('agents')} onOpenTasks={() => setView('tasks')} onSpawn={() => setDialog('agent')} />}
-            {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} />}
+            {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} onEnsureSystemAgents={(projectId) => void mutate(() => api.ensureOperationalAgent(projectId))} />}
             {view === 'agents' && <Agents agents={visibleAgents} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
             {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} communicationRules={communicationRules} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} onSaveRule={async (input) => { await mutate(() => api.saveCommunicationRule(input)); }} onDeleteRule={async (id) => { await mutate(() => api.deleteCommunicationRule(id)); }} />}
@@ -271,17 +271,18 @@ function Overview({ projects, agents, tasks, approvals, attention, active, queue
   </div>;
 }
 
-function Projects({ projects, agents, tasks, candidates, onRegister, onDiscover, onRegisterCandidate }: { projects: Project[]; agents: Agent[]; tasks: Task[]; candidates: ProjectCandidate[]; onRegister: () => void; onDiscover: () => void; onRegisterCandidate: (candidate: ProjectCandidate) => void }) {
+function Projects({ projects, agents, tasks, candidates, onRegister, onDiscover, onRegisterCandidate, onEnsureSystemAgents }: { projects: Project[]; agents: Agent[]; tasks: Task[]; candidates: ProjectCandidate[]; onRegister: () => void; onDiscover: () => void; onRegisterCandidate: (candidate: ProjectCandidate) => void; onEnsureSystemAgents: (projectId: string) => void }) {
   return <section className="panel"><div className="section-header"><div><p className="eyebrow">Approved roots</p><h2>Projects</h2></div><div className="form-actions"><button className="button secondary" onClick={onDiscover}>Scan roots</button><button className="button primary" onClick={onRegister}>Register project</button></div></div>
     {!projects.length ? <Empty title="No projects registered" body="Register a repository under an allowed server root." /> : <div className="data-list">
       {projects.map((project) => {
         const projectAgents = agents.filter((agent) => agent.projectId === project.id);
         const ops = projectAgents.find((agent) => agent.role === 'OPERATIONAL');
+        const orchestrator = projectAgents.find((agent) => agent.role === 'ORCHESTRATOR');
         const openTasks = tasks.filter((task) => task.projectId === project.id && !['COMPLETED', 'CANCELLED'].includes(task.status));
         const unhealthy = projectAgents.some((agent) => ['FAILED', 'DISCONNECTED', 'BLOCKED'].includes(agent.status));
         return <div className="data-row project-row" key={project.id}>
-          <div><strong>{project.name}</strong><code>{project.rootDirectory}</code></div>
-          <span>{project.defaultBranch}</span><span>{projectAgents.length} agents</span><span>{openTasks.length} active tasks</span><span>{ops ? 'Ops ready' : 'Ops pending'}</span><Status value={unhealthy ? 'FAILED' : 'IDLE'} />
+          <div><strong>{project.name}</strong><code>{project.sourceType === 'GIT' ? project.repositoryUrl : project.rootDirectory}</code></div>
+          <span>{project.defaultBranch}</span><span>{projectAgents.length} agents</span><span>{openTasks.length} active tasks</span><span>{ops && orchestrator ? 'System agents ready' : 'System agents pending'}</span><Status value={unhealthy ? 'FAILED' : 'IDLE'} />{(!ops || !orchestrator) && <button className="button compact secondary" onClick={() => onEnsureSystemAgents(project.id)}>Enable system agents</button>}
         </div>;
       })}
     </div>}
