@@ -138,6 +138,7 @@ public class TaskDispatchService {
                                 "clientMessageId", clientMessageId,
                                 "prompt", task.getPrompt()));
                 task.setQueuedSubmissionId("node-command:" + command.getId());
+                task.setTurnId(null);
                 task.setStatus(TaskStatus.DISPATCHED);
                 taskRepository.save(task);
                 agent.setStatus(AgentStatus.WORKING);
