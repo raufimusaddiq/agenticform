@@ -24,7 +24,7 @@ export function shortId(value: string | null | undefined) {
 
 export function Status({ value, children }: { value: string; children?: ReactNode }) {
   const text = children ?? label(value);
-  return <span className={`status status-${value.toLowerCase()}`} aria-label={text}><span className="status-dot" aria-hidden="true" />{text}</span>;
+  return <span className={`status status-${value.toLowerCase()}`} aria-label={typeof text === 'string' ? text : label(value)}><span className="status-dot" aria-hidden="true" />{text}</span>;
 }
 
 export function ConnectionStatus({ state }: { state: ConnectionState }) {
