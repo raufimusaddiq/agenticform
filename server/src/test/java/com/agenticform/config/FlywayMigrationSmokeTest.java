@@ -32,11 +32,12 @@ class FlywayMigrationSmokeTest {
 
         configuration.clean();
         SpringApplication application = new SpringApplication(AgenticformApplication.class);
-        application.setWebApplicationType(WebApplicationType.NONE);
+        application.setWebApplicationType(WebApplicationType.SERVLET);
         try (ConfigurableApplicationContext ignored = application.run(
                 "--spring.datasource.url=" + url,
                 "--spring.datasource.username=" + user,
                 "--spring.datasource.password=" + password,
+                "--server.port=0",
                 "--agenticform.public-url=http://localhost:8080",
                 "--agenticform.ui.origin=http://localhost:5173",
                 "--agenticform.security.admin-token=0123456789abcdef0123456789abcdef")) {
