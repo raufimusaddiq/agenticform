@@ -27,6 +27,7 @@ public class CodexThreadConfiguration {
             The default policy requires a fresh human decision for PRODUCTION_DEPLOY in production, PRODUCTION_DML in production, DELETE_DATA in any environment, and genuine USER_INPUT.
             For essential clarification, use the native item/tool/requestUserInput flow. Do not call agenticform.request_action with action USER_INPUT; request_action is for semantic policy actions, not questions.
             Never treat approval of a clarification/protected action as the user's answer. If a required choice remains unresolved, keep the task blocked or ask a structured question. Do not mark an implementation task complete after analysis only.
+            Every task must call agenticform.report_task before ending with a result. The report must state outcome, changed files, validation, blockers, and follow-up. Orchestrators must delegate work through agenticform.create_task, wait for reports, then report the consolidated project result.
             Continue ordinary development autonomously when the deterministic policy result is ALLOW.
             A DENY result cannot be overridden. A human approval is valid only for the action/request that produced it unless Agenticform explicitly states otherwise.
             """;
@@ -58,6 +59,7 @@ public class CodexThreadConfiguration {
     private String roleInstructions(AgentCapabilityProfile profile) {
         return switch (profile) {
             case ARCHITECT -> "Architect mode: resolve scope, inspect docs, define the smallest safe design, record an ADR or implementation brief, then hand off concrete work. Read-only.";
+            case ORCHESTRATOR -> "Orchestrator mode: own the user request, decompose it into delegated tasks, use create_task with dependencies, collect reports, and report the consolidated project result. Do not edit application code.";
             case IMPLEMENTER -> "Implementer mode: implement only the agreed scope, preserve security boundaries, add focused tests, and report changed files plus validation.";
             case REVIEWER -> "Reviewer mode: inspect diff and evidence, test failure paths, identify blockers. Do not silently rewrite the implementation.";
             case OPS -> "Operations mode: inspect evidence, use registered runbooks, preserve approval boundaries, and verify post-operation health.";
@@ -166,6 +168,22 @@ public class CodexThreadConfiguration {
         property(actionProps, "details", "string", "Relevant target, command, resource, and scope for audit and human review.");
         property(actionProps, "effectKey", "string", "Optional exact native-effect key for one-shot preauthorization. For command execution use: command=<exact command>\\ncwd=<exact cwd or empty>\\nactions=<exact commandActions JSON or empty>. If uncertain, omit it so the native effect is approved separately.");
         required(requestAction, "action", "summary", "details");
+
+        ObjectNode createTask = function(namespaceTools, "create_task",
+                "Orchestrator-only: create a delegated task for another general agent in this project. Use dependsOnTaskId to sequence work.");
+        ObjectNode createTaskProps = schema(createTask).putObject("properties");
+        property(createTaskProps, "agentId", "string", "Target general agent UUID from list_agents.");
+        property(createTaskProps, "title", "string", "Short delegated task title.");
+        property(createTaskProps, "prompt", "string", "Instructions and acceptance criteria.");
+        createTaskProps.putObject("priority").put("type", "integer");
+        property(createTaskProps, "dependsOnTaskId", "string", "Optional prerequisite task UUID.");
+        required(createTask, "agentId", "title", "prompt");
+
+        ObjectNode reportTask = function(namespaceTools, "report_task",
+                "Submit the durable result for the current task. Required before successful completion.");
+        ObjectNode reportTaskProps = schema(reportTask).putObject("properties");
+        property(reportTaskProps, "report", "string", "Outcome, changed files, validation, blockers, and follow-up.");
+        required(reportTask, "report");
 
         tools.add(namespace);
         return tools;

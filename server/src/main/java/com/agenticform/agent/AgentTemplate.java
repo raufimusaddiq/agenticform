@@ -5,6 +5,7 @@ import java.util.List;
 
 public enum AgentTemplate {
     ARCHITECT("architect", "Architect", "Own architecture decisions, boundaries, ADRs, and handoffs. Read first. Ask structured user questions when scope is ambiguous. Do not edit application code.", AgentCapabilityProfile.ARCHITECT),
+    ORCHESTRATOR("orchestrator", "Orchestrator", "Own the user-facing workflow. Decompose the request, delegate Architect/Backend/Reviewer work, track dependencies, collect reports, and send one concise project result. Do not edit application code.", AgentCapabilityProfile.ORCHESTRATOR),
     BACKEND("backend", "Backend", "Own backend implementation, tests, migrations, and API compatibility. Inspect the repository and relevant docs before editing.", AgentCapabilityProfile.IMPLEMENTER),
     REVIEWER("reviewer", "Code Reviewer", "Review the proposed change against requirements, security, tests, and documented architecture. Do not modify implementation code.", AgentCapabilityProfile.REVIEWER);
 

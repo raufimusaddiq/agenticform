@@ -28,7 +28,7 @@ export type AgentQueueMode = 'AUTO' | 'REVIEW_BETWEEN_TASKS' | 'PAUSED';
 export type WorkspaceMode = 'ISOLATED_WORKTREE' | 'SHARED_PROJECT';
 export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
 export type AgentRole = 'GENERAL' | 'OPERATIONAL';
-export type AgentCapabilityProfile = 'IMPLEMENTER' | 'REVIEWER' | 'ARCHITECT' | 'OPS';
+export type AgentCapabilityProfile = 'IMPLEMENTER' | 'REVIEWER' | 'ARCHITECT' | 'ORCHESTRATOR' | 'OPS';
 export type RuntimeType = 'CODEX';
 export type AgentTemplate = { id: string; displayName: string; responsibility: string; capabilityProfile: AgentCapabilityProfile };
 
@@ -82,6 +82,7 @@ export type Task = {
   queuedSubmissionId: string | null;
   turnId: string | null;
   lastError: string | null;
+  report: string | null;
   createdAt: string;
   updatedAt: string;
 };

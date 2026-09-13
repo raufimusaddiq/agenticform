@@ -49,6 +49,9 @@ public class TaskEntity {
     @Column(name = "last_error", columnDefinition = "text")
     private String lastError;
 
+    @Column(columnDefinition = "text")
+    private String report;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -82,6 +85,7 @@ public class TaskEntity {
     public String getQueuedSubmissionId() { return queuedSubmissionId; }
     public String getTurnId() { return turnId; }
     public String getLastError() { return lastError; }
+    public String getReport() { return report; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
@@ -89,4 +93,5 @@ public class TaskEntity {
     public void setQueuedSubmissionId(String value) { this.queuedSubmissionId = value; }
     public void setTurnId(String value) { this.turnId = value; }
     public void setLastError(String value) { this.lastError = value; }
+    public void setReport(String value) { this.report = value; }
 }

@@ -11,6 +11,7 @@ import com.agenticform.operation.OperationalIncidentService;
 import com.agenticform.operation.OperationalRegistryService;
 import com.agenticform.operation.OperationalSignalService;
 import com.agenticform.policy.PolicyRuleService;
+import com.agenticform.task.TaskDispatchService;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -50,7 +51,8 @@ class AgenticformDynamicToolHandlerSecurityTest {
                 mock(CodexJsonRpcClient.class), agents, mock(AgentMessageService.class),
                 mock(HumanApprovalService.class), mock(PolicyRuleService.class),
                 mock(OperationalRegistryService.class), mock(OperationRunService.class), policy,
-                mock(OperationalSignalService.class), mock(OperationalIncidentService.class), new ObjectMapper());
+                mock(OperationalSignalService.class), mock(OperationalIncidentService.class),
+                mock(TaskDispatchService.class), new ObjectMapper());
     }
 
     private CodexJsonRpcClient.ServerRequest request(ObjectNode params) {

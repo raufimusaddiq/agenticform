@@ -164,7 +164,12 @@ public class CodexEventBridge {
         if (terminal(task.getStatus()) || !matchesTurn(task.getTurnId(), turnId)
                 || !authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, agent)) return;
         String turnStatus = params.path("turn").path("status").asText();
-        task.setStatus("completed".equalsIgnoreCase(turnStatus) ? TaskStatus.COMPLETED : TaskStatus.FAILED);
+        if ("completed".equalsIgnoreCase(turnStatus) && (task.getReport() == null || task.getReport().isBlank())) {
+            task.setStatus(TaskStatus.BLOCKED);
+            task.setLastError("Agent completed without submitting a task report");
+        } else {
+            task.setStatus("completed".equalsIgnoreCase(turnStatus) ? TaskStatus.COMPLETED : TaskStatus.FAILED);
+        }
         taskRepository.save(task);
         agent.setStatus(AgentStatus.IDLE);
         agent.setActiveTaskId(null);

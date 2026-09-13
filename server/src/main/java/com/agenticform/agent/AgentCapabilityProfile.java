@@ -7,6 +7,7 @@ public enum AgentCapabilityProfile {
     IMPLEMENTER(EnumSet.of(Capability.READ, Capability.WRITE, Capability.TEST, Capability.COMMIT, Capability.MESSAGE)),
     REVIEWER(EnumSet.of(Capability.READ, Capability.TEST, Capability.REVIEW, Capability.MESSAGE)),
     ARCHITECT(EnumSet.of(Capability.READ, Capability.MESSAGE)),
+    ORCHESTRATOR(EnumSet.of(Capability.READ, Capability.MESSAGE, Capability.ORCHESTRATE)),
     OPS(EnumSet.of(Capability.READ, Capability.TEST, Capability.MESSAGE, Capability.DEPLOY));
 
     public enum Capability {
@@ -15,6 +16,7 @@ public enum AgentCapabilityProfile {
         TEST,
         COMMIT,
         MESSAGE,
+        ORCHESTRATE,
         REVIEW,
         MERGE,
         DEPLOY

@@ -20,6 +20,10 @@ import com.agenticform.operation.OperationalSignalEntity;
 import com.agenticform.operation.OperationalSignalService;
 import com.agenticform.policy.PolicyRuleEntity;
 import com.agenticform.policy.PolicyRuleService;
+import com.agenticform.task.TaskDispatchService;
+import com.agenticform.task.TaskDependencyService;
+import com.agenticform.task.TaskDependencyType;
+import com.agenticform.task.TaskEntity;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -51,6 +55,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private final AgentCapabilityPolicy capabilityPolicy;
     private final OperationalSignalService operationalSignals;
     private final OperationalIncidentService operationalIncidents;
+    private final TaskDispatchService taskService;
     private final ObjectMapper mapper;
 
     public AgenticformDynamicToolHandler(CodexJsonRpcClient client, AgentRepository agentRepository,
@@ -61,6 +66,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                                          AgentCapabilityPolicy capabilityPolicy,
                                          OperationalSignalService operationalSignals,
                                          OperationalIncidentService operationalIncidents,
+                                         TaskDispatchService taskService,
                                          ObjectMapper mapper) {
         this.client = client;
         this.agentRepository = agentRepository;
@@ -72,6 +78,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         this.capabilityPolicy = capabilityPolicy;
         this.operationalSignals = operationalSignals;
         this.operationalIncidents = operationalIncidents;
+        this.taskService = taskService;
         this.mapper = mapper;
     }
 
@@ -140,6 +147,14 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             case "update_incident" -> {
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
                 yield CompletableFuture.completedFuture(updateIncident(source, arguments));
+            }
+            case "create_task" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.ORCHESTRATE);
+                yield CompletableFuture.completedFuture(createTask(source, arguments));
+            }
+            case "report_task" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
+                yield CompletableFuture.completedFuture(reportTask(source, arguments));
             }
             case "request_action" -> approvalService.receiveDeclaredAction(new RuntimeApprovalRequest(
                     request.id().isTextual() ? request.id().asText() : request.id().toString(), RuntimeType.CODEX,
@@ -369,6 +384,32 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         AgentMessageEntity message = messageService.send(source.getId(), targetAgentId, messageType(arguments),
                 requiredText(arguments, "subject"), requiredText(arguments, "content"), replyTo);
         return success(messagePayload(message, messageService.deliveries(message.getId())).toString());
+    }
+
+    private JsonNode createTask(AgentEntity source, JsonNode arguments) {
+        UUID targetAgentId = UUID.fromString(requiredText(arguments, "agentId"));
+        AgentEntity target = agentRepository.findById(targetAgentId)
+                .orElseThrow(() -> new NoSuchElementException("Target agent not found: " + targetAgentId));
+        if (!source.getProjectId().equals(target.getProjectId())) throw new IllegalArgumentException("Delegated task must stay within one project");
+        if (target.getRole() == AgentRole.OPERATIONAL || target.isSystemManaged()) throw new IllegalArgumentException("Use handoff_to_operations for operational work");
+        UUID dependsOn = arguments.hasNonNull("dependsOnTaskId") ? UUID.fromString(arguments.get("dependsOnTaskId").asText()) : null;
+        TaskEntity task = taskService.create(targetAgentId, requiredText(arguments, "title"), requiredText(arguments, "prompt"),
+                arguments.path("priority").asInt(0), dependsOn == null ? List.of() : List.of(new TaskDependencyService.DependencyRequest(dependsOn, TaskDependencyType.REQUIRES_SUCCESS)));
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("taskId", task.getId().toString());
+        payload.put("assignedAgentId", targetAgentId.toString());
+        payload.put("status", task.getStatus().name());
+        return success(payload.toString());
+    }
+
+    private JsonNode reportTask(AgentEntity source, JsonNode arguments) {
+        UUID taskId = source.getActiveTaskId();
+        if (taskId == null) throw new IllegalStateException("No active task to report");
+        TaskEntity task = taskService.report(source.getId(), taskId, requiredText(arguments, "report"));
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("taskId", task.getId().toString());
+        payload.put("reported", true);
+        return success(payload.toString());
     }
 
     private JsonNode broadcastMessage(AgentEntity source, JsonNode arguments) {

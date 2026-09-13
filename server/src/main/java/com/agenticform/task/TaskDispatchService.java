@@ -66,6 +66,21 @@ public class TaskDispatchService {
         return taskRepository.findById(task.getId()).orElse(task);
     }
 
+    @Transactional
+    public TaskEntity report(UUID agentId, UUID taskId, String report) {
+        AgentEntity agent = agentRepository.findById(agentId)
+                .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
+        TaskEntity task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new NoSuchElementException("Task not found: " + taskId));
+        if (!task.getAssignedAgentId().equals(agentId) || !task.getProjectId().equals(agent.getProjectId())) {
+            throw new IllegalArgumentException("Agent may only report its own project task");
+        }
+        if (report == null || report.isBlank()) throw new IllegalArgumentException("Task report is required");
+        if (report.length() > 20000) throw new IllegalArgumentException("Task report is too long");
+        task.setReport(report.trim());
+        return taskRepository.save(task);
+    }
+
     public synchronized void dispatchReadyTasks() {
         for (TaskEntity task : taskRepository.findTop20ByStatusOrderByPriorityDescCreatedAtAsc(TaskStatus.READY)) {
             if (!dependencyService.dispatchable(task.getId())) {
