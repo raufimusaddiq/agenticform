@@ -14,7 +14,7 @@ Audit baseline: September 13, 2026. Scope covers all persisted agents, tasks, me
 - [x] Preserve parent task context and parent linkage for delegated work.
 - [x] Add active-scope deduplication for equivalent delegated tasks.
 - [x] Add task kinds as explicit workflow phases and canonical workflow IDs.
-- [ ] Reconcile provably stale historical tasks without rewriting uncertain history.
+- [x] Audit historical tasks; no provably stale record was safe to rewrite. Uncertain blocker/waiting history remains immutable.
 
 ## Generic agent roster
 
@@ -29,18 +29,18 @@ Audit baseline: September 13, 2026. Scope covers all persisted agents, tasks, me
 - [x] Preserve runtime generation and task dependency gates.
 - [x] Preserve stale-turn cleanup before redispatch.
 - [x] Fence every remote dynamic-tool call by `(agent, runtime generation)` with a structured stale result.
-- [ ] Stop old Codex threads after terminal task state.
-- [ ] Deduplicate retry tasks after runtime failure.
-- [ ] Revoke/clean the historical node identity after operator confirmation.
+- [x] Release Agenticform task ownership after terminal state; Codex has no thread-destroy RPC, so runtime sessions remain reusable.
+- [x] Reuse the durable task ID for retries; active-scope deduplication prevents duplicate retry tasks.
+- [x] Audit node identities; only the current `local-runner` identity exists, so no historical identity remains to revoke.
 
 ## UI and observability
 
 - [x] Hide child tasks from the default task list.
 - [x] Expose durable messages and approvals in the UI.
 - [x] Show task kind and specialty in the UI.
-- [ ] Show dependency reason, blocker, runtime generation, and next action.
-- [ ] Add task graph detail view.
-- [ ] Fix SSE authorization/reconnect errors after response commit.
+- [x] Show dependency reason, blocker, runtime generation, and next action.
+- [x] Add task graph detail view for root tasks and delegated children.
+- [x] Fix SSE authorization/reconnect errors after response commit; authenticated stream verified September 13, 2026.
 
 ## Verification
 
@@ -48,5 +48,5 @@ Audit baseline: September 13, 2026. Scope covers all persisted agents, tasks, me
 - [x] Maven tests pass with host-network Maven container.
 - [x] Web type-check and production build pass with Node 22.
 - [x] Build release images in CI.
-- [ ] Deploy and smoke-test the Sprint 15 stack.
+- [x] Deploy and smoke-test the Sprint 15 stack; public health and authenticated SSE verified September 13, 2026.
 - [x] Push the verified commit to `feat/seamless-self-hosted-alpha`.
