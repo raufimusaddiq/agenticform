@@ -27,6 +27,8 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const pending = approvals.filter((approval) => approval.status === 'PENDING');
   const history = approvals.filter((approval) => approval.status !== 'PENDING');
+  const [selectedId, setSelectedId] = useState<string | null>(pending[0]?.id ?? null);
+  const selected = pending.find((approval) => approval.id === selectedId) ?? pending[0];
 
   return <div className="page-stack">
     <section className="control-mode-note">
@@ -36,17 +38,15 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
 
     <section className="panel">
       <div className="section-header">
-        <div><p className="eyebrow">Agent-to-human channel</p><h2>Pending approvals</h2></div>
+        <div><h2>Pending decisions</h2></div>
         <span className="approval-count">{pending.length}</span>
       </div>
       {!pending.length ? <div className="empty"><strong>No pending approvals</strong><p>Actions resolved to REQUIRE HUMAN and genuine user-input requests will appear here.</p></div> :
-        <div className="approval-list">{pending.map((approval) =>
-          <ApprovalCard key={approval.id} approval={approval} agent={agentById.get(approval.agentId)} project={projectById.get(approval.projectId)} onDecision={onDecision} onAnswer={onAnswer} />
-        )}</div>}
+        <div className="approval-workbench"><div className="workbench-table approval-table"><div className="table-head"><span>Request</span><span>Agent</span><span>Project</span><span>Risk</span><span>Status</span></div>{pending.map((approval) => <button className={`table-row${selected?.id === approval.id ? ' selected' : ''}`} key={approval.id} onClick={() => setSelectedId(approval.id)}><span>{approval.summary}</span><span>{agentById.get(approval.agentId)?.name ?? shortId(approval.agentId)}</span><span>{projectById.get(approval.projectId)?.name ?? 'Unknown project'}</span><span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span><Status value={approval.status} /></button>)}</div>{selected && <ApprovalInspector approval={selected} agent={agentById.get(selected.agentId)} project={projectById.get(selected.projectId)} onDecision={onDecision} onAnswer={onAnswer} />}</div>}
     </section>
 
     <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Governance audit</p><h2>Decision history</h2></div></div>
+      <div className="section-header"><div><h2>Decision history</h2></div></div>
       {!history.length ? <div className="empty"><strong>No policy decisions yet</strong><p>Automatic ALLOW, deterministic DENY, and human decisions are retained here.</p></div> :
         <div className="approval-history">{history.slice(0, 100).map((approval) => {
           const agent = agentById.get(approval.agentId);
@@ -64,7 +64,7 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
   </div>;
 }
 
-function ApprovalCard({ approval, agent, project, onDecision, onAnswer }: {
+function ApprovalInspector({ approval, agent, project, onDecision, onAnswer }: {
   approval: HumanApproval;
   agent?: Agent;
   project?: Project;
@@ -79,8 +79,8 @@ function ApprovalCard({ approval, agent, project, onDecision, onAnswer }: {
     try { await onDecision(approval.id, decision); } finally { setBusy(false); }
   };
 
-  return <article className="approval-card">
-    <header className="approval-card-header">
+  return <aside className="approval-inspector inspector">
+    <header className="approval-inspector-header">
       <div>
         <div className="approval-title-line"><strong>{approval.summary}</strong><span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span></div>
         <small>{project?.name ?? 'Unknown project'} / {agent?.name ?? shortId(approval.agentId)}</small>
@@ -97,7 +97,7 @@ function ApprovalCard({ approval, agent, project, onDecision, onAnswer }: {
           {approval.policyEffect !== 'REQUIRE_HUMAN' && <button className="button secondary" disabled={busy} onClick={() => void decide('APPROVE_SESSION')}>Approve session</button>}
           <button className="button danger" disabled={busy} onClick={() => void decide('DECLINE')}>Decline</button>
         </footer>}
-  </article>;
+  </aside>;
 }
 
 function ApprovalDetails({ approval, payload, agent }: { approval: HumanApproval; payload: Record<string, unknown>; agent?: Agent }) {

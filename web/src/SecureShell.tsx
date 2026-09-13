@@ -89,6 +89,8 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmation, setConfirmation] = useState<{ node: ExecutionNode; status: ExecutionNodeStatus } | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [enrollOpen, setEnrollOpen] = useState(false);
 
   async function refresh() {
     try {
@@ -147,20 +149,21 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
   return <div className="node-backdrop" role="presentation" onMouseDown={onClose}>
     <section className="node-panel" role="dialog" aria-modal="true" aria-label="Execution nodes" onMouseDown={(event) => event.stopPropagation()}>
       <header className="node-panel-header">
-        <div><p className="eyebrow">Distributed execution</p><h2>Execution nodes</h2></div>
-        <button className="button ghost" onClick={onClose}>Close</button>
+        <div><h2>Execution nodes</h2></div>
+        <div className="top-actions"><button className="button primary" onClick={() => setEnrollOpen(true)}>Enroll node</button><button className="button ghost" onClick={onClose}>Close</button></div>
       </header>
 
       {error && <div className="error-banner"><span>{error}</span></div>}
 
-      <section className="node-enroll-card">
+      {enrollOpen && <div className="confirm-backdrop" role="presentation"><section className="confirm-dialog node-enrollment" role="dialog" aria-modal="true" aria-label="Enroll execution node">
         <div><h3>Add execution node</h3><p className="muted">Generate a single-use setup command. Nodes connect outbound over HTTPS; no inbound worker port is required.</p></div>
         <form onSubmit={createEnrollment} className="node-enroll-form">
           <input placeholder="home-server" value={name} onChange={(event) => setName(event.target.value)} required />
           <select value={trust} onChange={(event) => setTrust(event.target.value as NodeTrustLevel)}>{trustLevels.map((value) => <option key={value}>{value}</option>)}</select>
           <button className="button primary">Generate setup command</button>
         </form>
-      </section>
+        <button className="button ghost" type="button" onClick={() => setEnrollOpen(false)}>Close</button>
+      </section></div>}
 
       {enrollment && <section className="setup-command-card">
         <div className="section-header"><div><p className="eyebrow">Single-use</p><h3>Run this on the new node</h3></div><button className="button ghost" onClick={() => setEnrollment(null)}>Hide</button></div>
@@ -169,7 +172,8 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
         <p className="muted">The bootstrap token is consumed once. The permanent daemon keeps only its local Ed25519 device identity.</p>
       </section>}
 
-      <section className="node-enroll-card">
+      <details className="secondary-section">
+        <summary>Register distributed Git project</summary>
         <div><h3>Register distributed GIT project</h3><p className="muted">Use a credential-free HTTPS repository URL. Agents for this project are automatically placed on eligible execution nodes.</p></div>
         <form onSubmit={registerGitProject} className="distributed-project-form">
           <input placeholder="Project name" value={projectName} onChange={(event) => setProjectName(event.target.value)} required />
@@ -178,35 +182,18 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
           <button className="button secondary">Register GIT project</button>
         </form>
         {projectCreated && <p className="form-note">{projectCreated} registered. The main project list will refresh automatically.</p>}
-      </section>
+      </details>
 
       <section className="node-list">
-        <div className="section-header"><div><p className="eyebrow">Capacity</p><h3>Registered nodes</h3></div><button className="button ghost" onClick={() => void refresh()}>Refresh</button></div>
-        {loading ? <LoadingState label="Loading execution nodes" /> : !nodes.length ? <div className="empty-state">No execution nodes enrolled.</div> : nodes.map((node) => {
+        <div className="section-header"><h3>Fleet</h3><button className="button ghost" onClick={() => void refresh()}>Refresh</button></div>
+        {loading ? <LoadingState label="Loading execution nodes" /> : !nodes.length ? <div className="empty-state">No execution nodes enrolled.</div> : <div className="node-workbench"><div className="workbench-table node-table"><div className="table-head"><span>Node</span><span>State</span><span>Runtime</span><span>Capacity</span><span>Last seen</span></div>{nodes.map((node) => {
           const codex = runtimeReadiness(node, 'CODEX');
           const runtimeMessage = node.status !== 'ONLINE' ? `Node ${node.status.toLowerCase()}`
             : !codex.available ? 'Codex runtime missing'
               : !codex.authenticated ? 'Codex authentication required'
                 : node.protocolCompatible === false ? 'Node protocol incompatible' : 'Ready';
-          return <article className="node-card" key={node.id}>
-            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} / {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><Status value={node.status} /></div>
-            <div className="node-facts">
-              <span><small>Trust</small>{node.trustLevel}</span>
-              <span><small>Capacity</small>{node.maxAgents} agents</span>
-              <span><small>Disk free</small>{node.diskFreeMb == null ? '-' : `${Math.round(node.diskFreeMb / 1024)} GB`}</span>
-              <span><small>Runtime</small>{codex.available ? `Codex ${codex.version || 'installed'}` : 'Not ready'}</span>
-            </div>
-            <p className={runtimeMessage === 'Ready' ? 'runtime-ready' : 'runtime-warning'}>{runtimeMessage}</p>
-            <code className="fingerprint">{node.fingerprint}</code>
-            <div className="node-actions">
-              {node.status === 'ONLINE' && <button className="button secondary" onClick={() => void status(node.id, 'DRAINING')}>Drain</button>}
-              {node.status === 'DRAINING' && <button className="button secondary" onClick={() => void status(node.id, 'ONLINE')}>Resume</button>}
-              {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => setConfirmation({ node, status: 'DISABLED' })}>Disable</button>}
-              {node.status === 'DISABLED' && <button className="button secondary" onClick={() => void status(node.id, 'OFFLINE')}>Enable</button>}
-              {node.status !== 'REVOKED' && <button className="button danger" onClick={() => setConfirmation({ node, status: 'REVOKED' })}>Revoke</button>}
-            </div>
-          </article>;
-        })}
+          return <button className={`table-row${(selectedNodeId ?? nodes[0]?.id) === node.id ? ' selected' : ''}`} key={node.id} onClick={() => setSelectedNodeId(node.id)}><span>{node.name}</span><Status value={node.status} /><span>{runtimeMessage}</span><span>{node.maxAgents} agents</span><time>{node.lastSeenAt ? new Date(node.lastSeenAt).toLocaleString() : '-'}</time></button>;
+        })}</div><aside className="inspector">{(() => { const node = nodes.find((item) => item.id === (selectedNodeId ?? nodes[0]?.id)); if (!node) return null; const codex = runtimeReadiness(node, 'CODEX'); return <><h3>{node.name}</h3><Status value={node.status} /><dl><dt>Host</dt><dd>{node.hostname ?? '-'}</dd><dt>OS</dt><dd>{node.os ?? '-'}</dd><dt>Architecture</dt><dd>{node.arch ?? '-'}</dd><dt>Runtime</dt><dd>{codex.available ? `Codex ${codex.version ?? 'installed'}` : 'Unavailable'}</dd><dt>Authentication</dt><dd>{codex.authenticated ? 'Ready' : 'Required'}</dd><dt>Protocol</dt><dd>{node.nodeVersion ?? '-'}</dd><dt>Capacity</dt><dd>{node.maxAgents} agents</dd><dt>Disk free</dt><dd>{node.diskFreeMb == null ? '-' : `${Math.round(node.diskFreeMb / 1024)} GB`}</dd><dt>Trust</dt><dd>{node.trustLevel}</dd><dt>Fingerprint</dt><dd><code>{node.fingerprint}</code></dd></dl><div className="node-actions">{node.status === 'ONLINE' && <button className="button secondary" onClick={() => void status(node.id, 'DRAINING')}>Drain</button>}{node.status === 'DRAINING' && <button className="button secondary" onClick={() => void status(node.id, 'ONLINE')}>Resume</button>}{node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => setConfirmation({ node, status: 'DISABLED' })}>Disable</button>}{node.status === 'DISABLED' && <button className="button secondary" onClick={() => void status(node.id, 'OFFLINE')}>Enable</button>}{node.status !== 'REVOKED' && <button className="button danger" onClick={() => setConfirmation({ node, status: 'REVOKED' })}>Revoke</button>}</div></>; })()}</aside></div>}
       </section>
       {confirmation && <div className="confirm-backdrop" role="presentation" onMouseDown={() => setConfirmation(null)}><section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" onMouseDown={(event) => event.stopPropagation()}><h3 id="confirm-title">{confirmation.status === 'REVOKED' ? 'Revoke node?' : 'Disable node?'}</h3><p>{confirmation.node.name} will be {confirmation.status === 'REVOKED' ? 'permanently revoked' : 'removed from scheduling'}. Existing work will not be restarted.</p><div className="form-actions"><button className="button ghost" onClick={() => setConfirmation(null)}>Cancel</button><button className={confirmation.status === 'REVOKED' ? 'button danger' : 'button secondary'} onClick={() => { const item = confirmation; setConfirmation(null); void status(item.node.id, item.status); }}>{confirmation.status === 'REVOKED' ? 'Revoke node' : 'Disable node'}</button></div></section></div>}
     </section>

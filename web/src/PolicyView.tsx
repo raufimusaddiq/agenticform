@@ -32,12 +32,15 @@ export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate,
   const [simTaskId, setSimTaskId] = useState('');
   const [decision, setDecision] = useState<PolicyDecision | null>(null);
   const [simError, setSimError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(rules[0]?.id ?? null);
+  const [editorOpen, setEditorOpen] = useState(false);
 
   const projectById = useMemo(() => new Map(projects.map((item) => [item.id, item.name])), [projects]);
   const agentById = useMemo(() => new Map(agents.map((item) => [item.id, item.name])), [agents]);
   const taskById = useMemo(() => new Map(tasks.map((item) => [item.id, item.title])), [tasks]);
 
   function startEdit(rule: PolicyRule) {
+    setEditorOpen(true);
     setEditing(rule);
     setScopeType(rule.scopeType);
     setScopeId(rule.scopeId ?? '');
@@ -105,29 +108,17 @@ export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate,
     return null;
   }
 
+  const selected = rules.find((rule) => rule.id === selectedId) ?? rules[0];
   return <div className="page-stack policy-page">
     <section className="panel">
-      <div className="section-header">
-        <div><p className="eyebrow">Deterministic governance</p><h2>Policy rules</h2></div>
-        <span className="muted">TASK / AGENT / PROJECT / GLOBAL</span>
-      </div>
-      <p className="policy-note">Within the same scope, exact action beats <code>*</code>, then exact environment beats <code>*</code>. The global <code>* / *</code> fallback cannot be deleted or disabled.</p>
-      <div className="policy-table">
-        {rules.map((rule) => <div className="policy-row" key={rule.id}>
-          <div><strong>{rule.action}</strong><small>{rule.environment}</small></div>
-          <div><span className="policy-scope">{label(rule.scopeType)}</span><small>{scopeName(rule)}</small></div>
-          <Status value={rule.effect}>{label(rule.effect)}</Status>
-          <p>{rule.description}</p>
-          <span className={rule.enabled ? 'policy-enabled' : 'muted'}>{rule.enabled ? 'Enabled' : 'Disabled'}</span>
-          <div className="policy-actions"><button className="button compact secondary" onClick={() => startEdit(rule)}>Edit</button><button className="button compact ghost" disabled={rule.scopeType === 'GLOBAL' && rule.action === '*' && rule.environment === '*'} onClick={() => void onDelete(rule.id)}>Delete</button></div>
-        </div>)}
-      </div>
+      <div className="section-header"><h2>Policy</h2><div className="top-actions"><button className="button secondary" onClick={() => { reset(); setEditorOpen(true); }}>Create rule</button><button className="button secondary" onClick={() => document.getElementById('policy-evaluate')?.scrollIntoView({ behavior: 'smooth' })}>Evaluate</button></div></div>
+      <p className="policy-note">Exact action and environment match before wildcard rules. The global fallback cannot be deleted or disabled.</p>
+      {!rules.length ? <div className="empty"><strong>No policy rules</strong><p>Create a rule to govern agent actions.</p></div> : <div className="split-workbench"><div className="workbench-table policy-table"><div className="table-head"><span>Scope</span><span>Action</span><span>Environment</span><span>Effect</span><span>Enabled</span></div>{rules.map((rule) => <button className={`table-row${selected?.id === rule.id ? ' selected' : ''}`} key={rule.id} onClick={() => setSelectedId(rule.id)}><span>{scopeName(rule)}</span><code>{rule.action}</code><code>{rule.environment}</code><Status value={rule.effect}>{label(rule.effect)}</Status><span className={rule.enabled ? 'policy-enabled' : 'muted'}>{rule.enabled ? 'Yes' : 'No'}</span></button>)}</div><aside className="inspector">{selected ? <><h3>Selected rule</h3><dl><dt>Scope</dt><dd>{label(selected.scopeType)}</dd><dt>Target</dt><dd>{scopeName(selected)}</dd><dt>Action</dt><dd><code>{selected.action}</code></dd><dt>Environment</dt><dd><code>{selected.environment}</code></dd><dt>Effect</dt><dd><Status value={selected.effect}>{label(selected.effect)}</Status></dd><dt>Enabled</dt><dd>{selected.enabled ? 'Yes' : 'No'}</dd><dt>Description</dt><dd>{selected.description || '-'}</dd><dt>Precedence</dt><dd>Scope, action, environment</dd></dl><div className="top-actions"><button className="button compact secondary" onClick={() => startEdit(selected)}>Edit</button><button className="button compact danger" disabled={selected.scopeType === 'GLOBAL' && selected.action === '*' && selected.environment === '*'} onClick={() => void onDelete(selected.id)}>Delete</button></div></> : <p className="muted">Select a rule.</p>}</aside></div>}
     </section>
 
-    <div className="policy-grid">
-      <section className="panel">
-        <div className="section-header"><div><p className="eyebrow">Configuration</p><h2>{editing ? 'Edit rule' : 'New rule'}</h2></div>{editing && <button className="button ghost" onClick={reset}>Cancel edit</button>}</div>
-        <form onSubmit={(event) => void save(event)}>
+    <details className="secondary-section" open={editorOpen} onToggle={(event) => setEditorOpen(event.currentTarget.open)}>
+      <summary>{editing ? 'Edit rule' : 'Create rule'}</summary>
+      <form onSubmit={(event) => void save(event)}>
           <div className="form-grid">
             <label>Scope<select value={scopeType} onChange={(event) => { setScopeType(event.target.value as PolicyScopeType); setScopeId(''); }}>{scopes.map((scope) => <option key={scope} value={scope}>{label(scope)}</option>)}</select></label>
             {scopeType !== 'GLOBAL' && <label>Scope target<select required value={scopeId} onChange={(event) => setScopeId(event.target.value)}><option value="">Select target</option>{scopeOptions()}</select></label>}
@@ -138,10 +129,10 @@ export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate,
           <label className="policy-toggle"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled</label>
           <footer className="form-actions"><button className="button primary">{editing ? 'Save rule' : 'Create rule'}</button></footer>
         </form>
-      </section>
+    </details>
 
-      <section className="panel">
-        <div className="section-header"><div><p className="eyebrow">Dry run</p><h2>Decision simulator</h2></div></div>
+    <details className="secondary-section" id="policy-evaluate">
+      <summary>Evaluate policy</summary>
         <form onSubmit={(event) => void simulate(event)}>
           <div className="form-grid"><label>Action<input required value={simAction} onChange={(event) => setSimAction(event.target.value)} /></label><label>Environment<input value={simEnvironment} onChange={(event) => setSimEnvironment(event.target.value)} /></label></div>
           <label>Project <span className="optional">optional</span><select value={simProjectId} onChange={(event) => setSimProjectId(event.target.value)}><option value="">None</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -151,7 +142,6 @@ export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate,
         </form>
         {simError && <div className="inline-error">{simError}</div>}
         {decision && <div className="policy-decision"><Status value={decision.effect}>{label(decision.effect)}</Status><strong>{decision.action} / {decision.environment}</strong><p>{decision.description}</p><code>{label(decision.matchedScopeType)} / {shortId(decision.matchedRuleId)}</code></div>}
-      </section>
-    </div>
+    </details>
   </div>;
 }

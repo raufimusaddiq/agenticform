@@ -34,7 +34,7 @@ export function OperationsView({ projects, agents, projectFilter }: {
   projectFilter: string;
 }) {
   const [environments, setEnvironments] = useState<OperationalEnvironment[]>([]);
-  const [services, setServices] = useState<OperationalService[]>([]);
+  const [, setServices] = useState<OperationalService[]>([]);
   const [runbooks, setRunbooks] = useState<OperationalRunbook[]>([]);
   const [runs, setRuns] = useState<OperationRun[]>([]);
   const [incidents, setIncidents] = useState<OperationalIncident[]>([]);
@@ -86,13 +86,10 @@ export function OperationsView({ projects, agents, projectFilter }: {
 
   const scoped = <T extends { projectId: string }>(rows: T[]) => projectFilter === 'all' ? rows : rows.filter((row) => row.projectId === projectFilter);
   const visibleEnvironments = scoped(environments);
-  const visibleServices = scoped(services);
   const visibleRunbooks = scoped(runbooks);
   const visibleRuns = scoped(runs);
   const visibleProjects = projectFilter === 'all' ? projects : projects.filter((project) => project.id === projectFilter);
   const visibleCodingAgents = agents.filter((agent) => !agent.systemManaged && agent.workspaceMode === 'ISOLATED_WORKTREE' && (projectFilter === 'all' || agent.projectId === projectFilter));
-  const activeIncidents = incidents.filter((incident) => !['RESOLVED', 'SUPPRESSED'].includes(incident.status));
-  const highIncidents = activeIncidents.filter((incident) => ['HIGH', 'CRITICAL'].includes(incident.severity));
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const environmentById = useMemo(() => new Map(environments.map((environment) => [environment.id, environment])), [environments]);
   const runbookById = useMemo(() => new Map(runbooks.map((runbook) => [runbook.id, runbook])), [runbooks]);
@@ -115,6 +112,7 @@ export function OperationsView({ projects, agents, projectFilter }: {
     try {
       const [detail, waits] = await Promise.all([api.operationRun(runId), api.operationExternalWaits(runId)]);
       setSelectedRun(detail);
+      setSelectedIncident(null);
       setExternalWaits(waits);
       setError(null);
     } catch (cause) {
@@ -128,6 +126,7 @@ export function OperationsView({ projects, agents, projectFilter }: {
     setBusy(true);
     try {
       setSelectedIncident(await operationalIntelligenceApi.incident(incidentId));
+      setSelectedRun(null);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load incident evidence');
@@ -174,12 +173,12 @@ export function OperationsView({ projects, agents, projectFilter }: {
     await mutate(() => operationalIntelligenceApi.transitionIncident(incident.id, status, summary));
   }
 
-  return <div className="page-stack">
+  return <div className="page-stack operations-page">
     {incidentPrompt && <div className="confirm-backdrop" role="presentation" onMouseDown={() => setIncidentPrompt(null)}><section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="incident-prompt-title" onMouseDown={(event) => event.stopPropagation()}><h3 id="incident-prompt-title">{incidentPrompt.status === 'RESOLVED' ? 'Resolution summary' : 'Suppression reason'}</h3><p className="muted">Record why this incident changed state.</p><textarea autoFocus required rows={4} value={incidentPrompt.summary} onChange={(event) => setIncidentPrompt({ ...incidentPrompt, summary: event.target.value })} /><div className="form-actions"><button className="button ghost" onClick={() => setIncidentPrompt(null)}>Cancel</button><button className="button primary" disabled={!incidentPrompt.summary.trim() || busy} onClick={() => { const item = incidentPrompt; setIncidentPrompt(null); void mutate(() => operationalIntelligenceApi.transitionIncident(item.incident.id, item.status, item.summary.trim())); }}>Confirm</button></div></section></div>}
     {error && <div className="error-banner"><strong>Operational action required</strong><span>{error}</span><button onClick={() => setError(null)}>Dismiss</button></div>}
 
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Agentic operations</p><h2>Operational agents</h2></div></div>
+    <details className="secondary-section operations-agents">
+      <summary>Operational agents</summary>
       <div className="data-list">
         {visibleProjects.map((project) => {
           const ops = agents.find((agent) => agent.projectId === project.id && agent.role === 'OPERATIONAL');
@@ -192,17 +191,10 @@ export function OperationsView({ projects, agents, projectFilter }: {
           </div>;
         })}
       </div>
-    </section>
+    </details>
 
-    <section className="metrics-strip">
-      <div><span>Open incidents</span><strong>{activeIncidents.length}</strong></div>
-      <div><span>High / critical</span><strong>{highIncidents.length}</strong></div>
-      <div><span>Monitored services</span><strong>{visibleServices.filter((service) => service.enabled && Boolean(service.healthUrl || service.readinessUrl)).length}</strong></div>
-      <div><span>Active runs</span><strong>{visibleRuns.filter((run) => ['WAITING_APPROVAL', 'QUEUED', 'RUNNING', 'WAITING_EXTERNAL'].includes(run.status)).length}</strong></div>
-    </section>
-
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Operational intelligence</p><h2>Incidents</h2></div><button className="button secondary" disabled={busy} onClick={() => void refresh()}>Refresh</button></div>
+    <section className="workbench-section operations-incidents">
+      <div className="section-header"><div><h2>Open incidents</h2></div><button className="button secondary" disabled={busy} onClick={() => void refresh()}>Refresh</button></div>
       {!incidents.length ? <div className="empty"><strong>No incidents</strong><p>Deterministic health, node, workflow, and operation signals will open incidents when configured thresholds are met.</p></div> : <div className="data-list">
         {incidents.slice(0, 30).map((incident) => <div className="data-row task-detail-row" key={incident.id}>
           <div><strong>{incident.title}</strong><small>{projectById.get(incident.projectId)?.name} / {incident.incidentType}</small></div>
@@ -213,14 +205,9 @@ export function OperationsView({ projects, agents, projectFilter }: {
       </div>}
     </section>
 
-    {selectedIncident && <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Incident evidence</p><h2>{selectedIncident.incident.title}</h2></div><button className="button ghost" onClick={() => setSelectedIncident(null)}>Close</button></div>
-      <div className="metrics-strip">
-        <div><span>Severity</span><strong>{label(selectedIncident.incident.severity)}</strong></div>
-        <div><span>Status</span><strong>{label(selectedIncident.incident.status)}</strong></div>
-        <div><span>Wake</span><strong>{label(selectedIncident.incident.wakeStatus)}</strong></div>
-        <div><span>Signals</span><strong>{selectedIncident.signals.length}</strong></div>
-      </div>
+    {selectedIncident && <aside className="inspector operation-inspector">
+      <div className="section-header"><div><h2>Selected incident: {selectedIncident.incident.title}</h2></div><button className="button ghost" onClick={() => setSelectedIncident(null)}>Close</button></div>
+      <dl className="operation-facts"><dt>Severity</dt><dd>{label(selectedIncident.incident.severity)}</dd><dt>Status</dt><dd>{label(selectedIncident.incident.status)}</dd><dt>Wake</dt><dd>{label(selectedIncident.incident.wakeStatus)}</dd><dt>Signals</dt><dd>{selectedIncident.signals.length}</dd></dl>
       <p>{selectedIncident.incident.summary}</p>
       {selectedIncident.incident.suspectedChange && <p className="form-note">Suspected change <code>{selectedIncident.incident.suspectedChange}</code></p>}
       {selectedIncident.incident.lastWakeError && <div className="error-banner"><strong>Agent wake failed</strong><span>{selectedIncident.incident.lastWakeError}</span></div>}
@@ -231,27 +218,27 @@ export function OperationsView({ projects, agents, projectFilter }: {
         {!['RESOLVED', 'SUPPRESSED'].includes(selectedIncident.incident.status) && <button className="button compact ghost" disabled={busy} onClick={() => void transitionIncident(selectedIncident.incident, 'SUPPRESSED')}>Suppress</button>}
         {selectedIncident.incident.wakeStatus === 'FAILED' && <button className="button compact secondary" disabled={busy} onClick={() => void mutate(() => operationalIntelligenceApi.retryWake(selectedIncident.incident.id))}>Retry agent wake</button>}
       </div>
-      <p className="eyebrow">Correlated signals</p>
+      <h3>Correlated signals</h3>
       <div className="data-list">
         {selectedIncident.signals.map((signal) => <div className="data-row task-row" key={signal.id}>
           <div><strong>{label(signal.signalType)}</strong><small>{signal.source} / {signal.occurrenceCount} occurrence{signal.occurrenceCount === 1 ? '' : 's'}</small></div>
           <Status value={signal.severity} /><Status value={signal.status} /><span>{new Date(signal.lastSeenAt).toLocaleString()}</span><code title={signal.payloadJson}>{signal.payloadJson.slice(0, 120)}</code>
         </div>)}
       </div>
-    </section>}
+    </aside>}
 
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Recent evidence</p><h2>Operational signals</h2></div></div>
-      {!signals.length ? <div className="empty"><strong>No operational signals</strong><p>Registered monitors and operation events will populate durable evidence here.</p></div> : <div className="data-list">
+    <details className="secondary-section operations-signals">
+      <summary>Operational signals</summary>
+      {!signals.length ? <div className="empty"><strong>No operational signals</strong><p>Registered monitors and operation events will appear here.</p></div> : <div className="data-list">
         {signals.slice(0, 20).map((signal) => <div className="data-row task-row" key={signal.id}>
           <div><strong>{label(signal.signalType)}</strong><small>{projectById.get(signal.projectId)?.name} / {signal.source}</small></div>
           <Status value={signal.severity} /><Status value={signal.status} /><span>{signal.occurrenceCount}×</span><time>{new Date(signal.lastSeenAt).toLocaleString()}</time>
         </div>)}
       </div>}
-    </section>
+    </details>
 
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Deterministic procedures</p><h2>Runbooks</h2></div></div>
+    <details className="secondary-section operations-runbooks">
+      <summary>Runbooks</summary>
       {!visibleRunbooks.length ? <div className="empty"><strong>No runbooks registered</strong><p>Register project operational contracts before agents can request governed operations.</p></div> : <div className="data-list">
         {visibleRunbooks.map((runbook) => <div className="data-row task-detail-row" key={runbook.id}>
           <div><strong>{runbook.name}</strong><small>{projectById.get(runbook.projectId)?.name} / {runbook.key} / v{runbook.version}</small></div>
@@ -260,10 +247,10 @@ export function OperationsView({ projects, agents, projectFilter }: {
           <button className="button compact secondary" disabled={!runbook.enabled || busy} onClick={() => beginRun(runbook)}>Run</button>
         </div>)}
       </div>}
-    </section>
+    </details>
 
-    {launchRunbook && <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Start operation</p><h2>{launchRunbook.name}</h2></div><button className="button ghost" onClick={() => setLaunchRunbook(null)}>Cancel</button></div>
+    {launchRunbook && <section className="workbench-section operation-launch">
+      <div className="section-header"><h2>Start {launchRunbook.name}</h2><button className="button ghost" onClick={() => setLaunchRunbook(null)}>Cancel</button></div>
       <p className="form-note">Action <code>{launchRunbook.action}</code> in <code>{launchRunbook.environmentKey}</code> is evaluated by deterministic policy before execution.</p>
       <form onSubmit={submitRun}>
         {Object.keys(parameters).length === 0 ? <p className="muted">This runbook has no runtime parameters.</p> : Object.keys(parameters).map((name) => <label key={name}>{name}<input required className="mono" value={parameters[name]} onChange={(event) => setParameters((current) => ({ ...current, [name]: event.target.value }))} /></label>)}
@@ -271,8 +258,8 @@ export function OperationsView({ projects, agents, projectFilter }: {
       </form>
     </section>}
 
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Execution history</p><h2>Operation runs</h2></div><button className="button secondary" disabled={busy} onClick={() => void refresh()}>Refresh</button></div>
+    <section className="workbench-section operations-runs">
+      <div className="section-header"><div><h2>Active runs</h2></div><button className="button secondary" disabled={busy} onClick={() => void refresh()}>Refresh</button></div>
       {!visibleRuns.length ? <div className="empty"><strong>No operation runs</strong><p>Operational Agent and operator requests will appear here with policy and execution evidence.</p></div> : <div className="data-list">
         {visibleRuns.map((run) => <div className="data-row task-detail-row" key={run.id}>
           <div><strong>{runbookById.get(run.runbookId)?.name ?? run.action}</strong><small>{projectById.get(run.projectId)?.name} / {shortId(run.id)}</small></div>
@@ -286,10 +273,10 @@ export function OperationsView({ projects, agents, projectFilter }: {
       </div>}
     </section>
 
-    {selectedRun && <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Immutable evidence</p><h2>{shortId(selectedRun.run.id)} / {selectedRun.run.action}</h2></div><button className="button ghost" onClick={() => { setSelectedRun(null); setExternalWaits([]); }}>Close</button></div>
+    {selectedRun && <aside className="inspector operation-inspector">
+      <div className="section-header"><div><h2>Selected operation: {shortId(selectedRun.run.id)} / {selectedRun.run.action}</h2></div><button className="button ghost" onClick={() => { setSelectedRun(null); setExternalWaits([]); }}>Close</button></div>
       {externalWaits.length > 0 && <>
-        <p className="eyebrow">External workflows</p>
+        <h3>External waits</h3>
         <div className="data-list">
           {externalWaits.map((wait) => <div className="data-row task-row" key={wait.id}>
             <div><strong>{wait.workflow}</strong><small>{wait.repository} / {wait.mode}</small></div>
@@ -300,17 +287,17 @@ export function OperationsView({ projects, agents, projectFilter }: {
           </div>)}
         </div>
       </>}
-      <p className="eyebrow">Runbook steps</p>
+      <h3>Runbook steps</h3>
       <div className="data-list">
         {selectedRun.steps.length === 0 ? <div className="empty"><strong>No steps executed yet</strong><p>Run status is {label(selectedRun.run.status)}.</p></div> : selectedRun.steps.map((step) => <div className="data-row task-row" key={step.id}>
           <div><strong>{step.stepName}</strong><small>{step.stepType} / {step.durationMs ?? 0} ms</small></div><Status value={step.status} /><span>{step.summary ?? '-'}</span><code title={step.evidence ?? undefined}>{step.evidence ? step.evidence.slice(0, 120) : '-'}</code>
         </div>)}
       </div>
       {selectedRun.run.lastError && <div className="error-banner"><strong>Run error</strong><span>{selectedRun.run.lastError}</span></div>}
-    </section>}
+    </aside>}
 
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Disk lifecycle</p><h2>Coding worktrees</h2></div><span className="muted">Automatic retention cleanup is fail-closed</span></div>
+    <details className="secondary-section operations-cleanup">
+      <summary>Coding worktrees <span className="muted">Safe cleanup only</span></summary>
       {!visibleCodingAgents.length ? <div className="empty"><strong>No isolated coding worktrees</strong><p>System-managed Operational Agents use the shared project workspace.</p></div> : <div className="data-list">
         {visibleCodingAgents.map((agent) => <div className="data-row task-detail-row" key={agent.id}>
           <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name}</small></div>
@@ -319,15 +306,15 @@ export function OperationsView({ projects, agents, projectFilter }: {
           <button className="button compact secondary" disabled={busy} onClick={() => void cleanup(agent)}>Cleanup if safe</button>
         </div>)}
       </div>}
-    </section>
+    </details>
 
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Cleanup audit</p><h2>Recent workspace cleanup</h2></div></div>
+    <details className="secondary-section operations-cleanup-history">
+      <summary>Recent workspace cleanup</summary>
       {!cleanupHistory.length ? <div className="empty"><strong>No worktrees cleaned yet</strong><p>Merged, clean, inactive coding worktrees become eligible after the configured retention period.</p></div> : <div className="data-list">
         {cleanupHistory.slice(0, 20).map((record) => <div className="data-row task-row" key={record.id}>
           <div><strong>{record.branch ?? 'worktree'}</strong><small>{projectById.get(record.projectId)?.name}</small></div><Status value={record.outcome} /><span>{record.reason}</span><span>{humanBytes(record.freedBytes)}</span><time>{new Date(record.createdAt).toLocaleString()}</time>
         </div>)}
       </div>}
-    </section>
+    </details>
   </div>;
 }

@@ -67,9 +67,9 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
   };
 
   return <div className="page-stack">
-    <section className="panel communication-workspace">
+    <section className="communication-workspace">
       <aside className="conversation-index">
-        <div className="section-header"><div><p className="eyebrow">Agent communication</p><h2>Conversations</h2></div><span className="muted">{messages.length}</span></div>
+        <div className="section-header"><h2>Conversations</h2><span className="muted">{messages.length}</span></div>
         {!conversations.length ? <div className="empty"><strong>No conversations</strong><p>Messages exchanged through Codex tools will appear here.</p></div> : <div className="conversation-list">{conversations.map(([id, thread]) => {
           const last = thread[thread.length - 1];
           const from = agentById.get(last.fromAgentId)?.name ?? shortId(last.fromAgentId);
@@ -78,7 +78,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
         })}</div>}
       </aside>
       <section className="conversation-thread" aria-label="Active conversation">
-        <div className="section-header"><div><p className="eyebrow">Active thread</p><h2>{activeConversation[0]?.subject ?? 'Select a conversation'}</h2></div>{activeConversation[0] && <code>{shortId(activeConversation[0].conversationId)}</code>}</div>
+        <div className="section-header"><h2>{activeConversation[0]?.subject ?? 'Select a conversation'}</h2>{activeConversation[0] && <code>{shortId(activeConversation[0].conversationId)}</code>}</div>
         {!activeConversation.length ? <div className="empty"><strong>Nothing selected</strong><p>Choose a conversation to inspect its delivery state and reply chain.</p></div> : <div className="message-timeline">{activeConversation.map((message) => {
           const from = agentById.get(message.fromAgentId);
           const to = message.toAgentId ? agentById.get(message.toAgentId) : undefined;
@@ -95,8 +95,8 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
       </section>
     </section>
 
-    <section className="panel compose-panel">
-      <div className="section-header"><div><p className="eyebrow">Manual relay</p><h2>Send message</h2></div></div>
+    <section className="compose-panel">
+      <div className="section-header"><h2>Send message</h2></div>
       {!agents.length ? <div className="empty"><strong>No agents available</strong><p>Spawn agents before using the mailbox.</p></div> : <form onSubmit={submit}>
         <div className="form-grid">
           <label>From agent<select value={source?.id ?? ''} onChange={(event) => { setFromAgentId(event.target.value); setToAgentId(''); }}>
@@ -115,8 +115,8 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
       </form>}
     </section>
 
-    <details className="panel rules-panel">
-      <summary className="section-header"><div><p className="eyebrow">Cross-project guardrail</p><h2>Communication rules</h2></div><span className="muted">{communicationRules.length} rules</span></summary>
+    <details className="secondary-section rules-panel">
+      <summary>Communication rules <span className="muted">{communicationRules.length}</span></summary>
       <form onSubmit={async (event) => { event.preventDefault(); if (ruleFrom !== ruleTo) await onSaveRule({ fromProjectId: ruleFrom, toProjectId: ruleTo, effect: ruleEffect, enabled: true }); }}>
         <div className="form-grid"><label>From project<select required value={ruleFrom} onChange={(event) => setRuleFrom(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label>To project<select required value={ruleTo} onChange={(event) => setRuleTo(event.target.value)}>{projects.filter((project) => project.id !== ruleFrom).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label></div>
         <label>Effect<select value={ruleEffect} onChange={(event) => setRuleEffect(event.target.value as 'ALLOW' | 'DENY')}><option value="ALLOW">Allow messages</option><option value="DENY">Deny messages</option></select></label>
