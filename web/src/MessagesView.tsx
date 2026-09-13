@@ -1,5 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react';
 import type { Agent, AgentMessage, AgentMessageType, CommunicationRule, Project } from './types';
+import { Status, label, shortId } from './ui';
 import './messages.css';
 
 const messageTypes: AgentMessageType[] = [
@@ -7,8 +8,6 @@ const messageTypes: AgentMessageType[] = [
   'REVIEW_REQUEST', 'REVIEW_RESULT', 'INFORMATION', 'BLOCKER'
 ];
 
-const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}...` : '-');
 
 export function MessagesView({ messages, agents, projects, communicationRules, onSend, onSaveRule, onDeleteRule }: {
   messages: AgentMessage[];
@@ -80,7 +79,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
             <div className="message-meta">
               <div><strong>{message.subject}</strong><small>{projectById.get(message.projectId)?.name ?? 'Unknown project'}</small></div>
               <span className={`message-type message-type-${message.type.toLowerCase()}`}>{label(message.type)}</span>
-              <span className={`status status-${message.status.toLowerCase()}`}><span className="status-dot" />{label(message.status)}</span>
+              <Status value={message.status} />
             </div>
             <p className="message-route"><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><span>to</span><strong>{targetLabel}</strong><span>hop {message.hopCount}/6</span></p>
             <p className="message-body">{message.content}</p>
@@ -129,4 +128,4 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
   </div>;
 }
 
-function StatusLike({ value }: { value: string }) { return <span className={`status status-${value.toLowerCase()}`}><span className="status-dot" />{label(value)}</span>; }
+function StatusLike({ value }: { value: string }) { return <Status value={value} />; }

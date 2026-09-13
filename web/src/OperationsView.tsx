@@ -8,9 +8,8 @@ import {
   type OperationalSignal
 } from './operationalIntelligence';
 import type { Agent, OperationRun, OperationRunDetail, OperationalEnvironment, OperationalRunbook, OperationalService, Project, WorkspaceCleanupRecord } from './types';
+import { Status, label, shortId } from './ui';
 
-const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => value ? `${value.slice(0, 8)}...` : '-';
 const humanBytes = (bytes: number | null) => {
   if (!bytes) return '-';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -19,10 +18,6 @@ const humanBytes = (bytes: number | null) => {
   while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 };
-
-function Status({ value }: { value: string }) {
-  return <span className={`status status-${value.toLowerCase()}`}><span className="status-dot" />{label(value)}</span>;
-}
 
 function inferParameters(runbook: OperationalRunbook) {
   const names = new Set<string>();

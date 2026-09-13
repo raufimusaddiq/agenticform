@@ -3,6 +3,7 @@ import App from './App';
 import { api } from './api';
 import { clearAdminToken, getAdminToken, setAdminToken } from './auth';
 import type { ExecutionNode, ExecutionNodeStatus, NodeEnrollment, NodeTrustLevel } from './nodeTypes';
+import { Status } from './ui';
 import './nodes.css';
 
 const trustLevels: NodeTrustLevel[] = ['UNTRUSTED', 'STANDARD', 'TRUSTED', 'PRIVILEGED'];
@@ -187,7 +188,7 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
               : !codex.authenticated ? 'Codex authentication required'
                 : node.protocolCompatible === false ? 'Node protocol incompatible' : 'Ready';
           return <article className="node-card" key={node.id}>
-            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} / {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><span className={`status status-${node.status.toLowerCase()}`}>{node.status.toLowerCase()}</span></div>
+            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} / {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><Status value={node.status} /></div>
             <div className="node-facts">
               <span><small>Trust</small>{node.trustLevel}</span>
               <span><small>Capacity</small>{node.maxAgents} agents</span>

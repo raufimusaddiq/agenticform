@@ -1,5 +1,6 @@
 import { getAdminToken } from './auth';
 import type { Agent } from './types';
+import type { ConnectionState } from './ui';
 
 const base = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -13,8 +14,10 @@ export type ControlPlaneEvent = {
 
 export async function consumeControlPlaneEvents(
   onEvent: (event: ControlPlaneEvent) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onState?: (state: ConnectionState) => void
 ): Promise<void> {
+  onState?.('CONNECTING');
   const token = getAdminToken();
   const response = await fetch(`${base}/api/events/stream`, {
     method: 'GET',
@@ -30,6 +33,7 @@ export async function consumeControlPlaneEvents(
     throw new Error(`Event stream failed: ${response.status} ${response.statusText}`);
   }
   if (!response.body) throw new Error('Event stream response has no body');
+  onState?.('CONNECTED');
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -49,8 +53,10 @@ export async function consumeControlPlaneEvents(
 
 export async function consumeAgentStream(
   onAgents: (agents: Agent[]) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onState?: (state: ConnectionState) => void
 ): Promise<void> {
+  onState?.('CONNECTING');
   const token = getAdminToken();
   const response = await fetch(`${base}/api/agents/stream`, {
     headers: { Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal
@@ -60,6 +66,7 @@ export async function consumeAgentStream(
     throw new Error(`Agent stream failed: ${response.status} ${response.statusText}`);
   }
   if (!response.body) throw new Error('Agent stream response has no body');
+  onState?.('CONNECTED');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';

@@ -2,11 +2,10 @@ import { FormEvent, useMemo, useState } from 'react';
 import type { PolicyDecision, PolicyEffect, PolicyRule, PolicyScopeType, Project, Agent, Task } from './types';
 import type { PolicyRuleInput } from './api';
 import './policy.css';
+import { Status, label, shortId } from './ui';
 
 const effects: PolicyEffect[] = ['ALLOW', 'REQUIRE_HUMAN', 'DENY'];
 const scopes: PolicyScopeType[] = ['GLOBAL', 'PROJECT', 'AGENT', 'TASK'];
-const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => value ? `${value.slice(0, 8)}...` : '-';
 
 export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate, onDelete, onEvaluate }: {
   rules: PolicyRule[];
@@ -117,7 +116,7 @@ export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate,
         {rules.map((rule) => <div className="policy-row" key={rule.id}>
           <div><strong>{rule.action}</strong><small>{rule.environment}</small></div>
           <div><span className="policy-scope">{label(rule.scopeType)}</span><small>{scopeName(rule)}</small></div>
-          <span className={`policy-effect policy-effect-${rule.effect.toLowerCase()}`}>{label(rule.effect)}</span>
+          <Status value={rule.effect}>{label(rule.effect)}</Status>
           <p>{rule.description}</p>
           <span className={rule.enabled ? 'policy-enabled' : 'muted'}>{rule.enabled ? 'Enabled' : 'Disabled'}</span>
           <div className="policy-actions"><button className="button compact secondary" onClick={() => startEdit(rule)}>Edit</button><button className="button compact ghost" disabled={rule.scopeType === 'GLOBAL' && rule.action === '*' && rule.environment === '*'} onClick={() => void onDelete(rule.id)}>Delete</button></div>
@@ -151,7 +150,7 @@ export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate,
           <footer className="form-actions"><button className="button secondary">Evaluate</button></footer>
         </form>
         {simError && <div className="inline-error">{simError}</div>}
-        {decision && <div className="policy-decision"><span className={`policy-effect policy-effect-${decision.effect.toLowerCase()}`}>{label(decision.effect)}</span><strong>{decision.action} / {decision.environment}</strong><p>{decision.description}</p><code>{label(decision.matchedScopeType)} / {shortId(decision.matchedRuleId)}</code></div>}
+        {decision && <div className="policy-decision"><Status value={decision.effect}>{label(decision.effect)}</Status><strong>{decision.action} / {decision.environment}</strong><p>{decision.description}</p><code>{label(decision.matchedScopeType)} / {shortId(decision.matchedRuleId)}</code></div>}
       </section>
     </div>
   </div>;
