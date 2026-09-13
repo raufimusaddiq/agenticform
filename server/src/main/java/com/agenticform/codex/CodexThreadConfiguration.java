@@ -25,6 +25,8 @@ public class CodexThreadConfiguration {
 
             Before a governed semantic action that is not represented by a registered runbook, call agenticform.request_action with the exact action name, environment, summary, details, and when the action will be followed by a native command approval, an effectKey that exactly identifies that native effect. For command execution use the exact intended command plus cwd in the effectKey format described by the tool. If an exact effectKey cannot be produced, omit it and expect the native request to require a second human approval.
             The default policy requires a fresh human decision for PRODUCTION_DEPLOY in production, PRODUCTION_DML in production, DELETE_DATA in any environment, and genuine USER_INPUT.
+            For essential clarification, use the native item/tool/requestUserInput flow. Do not call agenticform.request_action with action USER_INPUT; request_action is for semantic policy actions, not questions.
+            Never treat approval of a clarification/protected action as the user's answer. If a required choice remains unresolved, keep the task blocked or ask a structured question. Do not mark an implementation task complete after analysis only.
             Continue ordinary development autonomously when the deterministic policy result is ALLOW.
             A DENY result cannot be overridden. A human approval is valid only for the action/request that produced it unless Agenticform explicitly states otherwise.
             """;
@@ -44,13 +46,22 @@ public class CodexThreadConfiguration {
         params.put("cwd", cwd);
         params.put("baseInstructions", responsibility);
         params.put("developerInstructions", GOVERNANCE + "\nYour enforced Agenticform capability profile is "
-                + profile.name() + " with capabilities " + profile.capabilities() + ". Do not attempt effects outside it.");
+                + profile.name() + " with capabilities " + profile.capabilities() + ". Do not attempt effects outside it.\n" + roleInstructions(profile));
         params.put("approvalPolicy", "on-request");
         params.put("approvalsReviewer", "user");
         params.put("sandbox", profile.allows(AgentCapabilityProfile.Capability.WRITE)
                 ? "workspace-write" : "read-only");
         params.set("dynamicTools", tools());
         return params;
+    }
+
+    private String roleInstructions(AgentCapabilityProfile profile) {
+        return switch (profile) {
+            case ARCHITECT -> "Architect mode: resolve scope, inspect docs, define the smallest safe design, record an ADR or implementation brief, then hand off concrete work. Read-only.";
+            case IMPLEMENTER -> "Implementer mode: implement only the agreed scope, preserve security boundaries, add focused tests, and report changed files plus validation.";
+            case REVIEWER -> "Reviewer mode: inspect diff and evidence, test failure paths, identify blockers. Do not silently rewrite the implementation.";
+            case OPS -> "Operations mode: inspect evidence, use registered runbooks, preserve approval boundaries, and verify post-operation health.";
+        };
     }
 
     public ArrayNode tools() {

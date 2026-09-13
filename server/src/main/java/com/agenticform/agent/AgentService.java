@@ -73,12 +73,20 @@ public class AgentService {
         ProjectEntity project = projectService.get(command.projectId());
         if (!project.isEnabled()) throw new IllegalStateException("Project is disabled");
         ensureOperationalAgentInternal(project);
-        AgentCapabilityProfile profile = command.capabilityProfile() == null
-                ? AgentCapabilityProfile.IMPLEMENTER : command.capabilityProfile();
+        AgentTemplate template = command.templateId() == null || command.templateId().isBlank()
+                ? null : AgentTemplate.find(command.templateId());
+        AgentCapabilityProfile profile = template == null
+                ? command.capabilityProfile() == null ? AgentCapabilityProfile.IMPLEMENTER : command.capabilityProfile()
+                : template.getCapabilityProfile();
+        String name = command.name() == null || command.name().isBlank()
+                ? template == null ? "Agent" : template.getDisplayName() : command.name();
+        String responsibility = command.responsibility() == null || command.responsibility().isBlank()
+                ? template == null ? "Inspect the repository, follow project policy, and report blockers." : template.getResponsibility()
+                : command.responsibility();
         RuntimeType runtimeType = command.runtimeType();
 
         if (project.getSourceType() == ProjectSourceType.GIT) {
-            return createRemoteAgent(project, command.name(), command.responsibility(),
+            return createRemoteAgent(project, name, responsibility,
                     command.workspaceMode() == null ? WorkspaceMode.ISOLATED_WORKTREE : command.workspaceMode(),
                     command.baseBranch(), command.branch(),
                     command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode(),
@@ -89,7 +97,7 @@ public class AgentService {
         if (command.executionNodeId() != null) {
             throw new IllegalArgumentException("LOCAL_PATH projects cannot be placed on remote execution nodes; register a GIT project source");
         }
-        return createLocalAgent(project, command.name(), command.responsibility(),
+        return createLocalAgent(project, name, responsibility,
                 command.workspaceMode() == null ? WorkspaceMode.ISOLATED_WORKTREE : command.workspaceMode(),
                 command.baseBranch(), command.branch(),
                 command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode(),
@@ -234,5 +242,5 @@ public class AgentService {
                              String baseBranch, String branch, AgentQueueMode queueMode,
                              HumanControlMode humanControlMode, UUID executionNodeId,
                              NodeTrustLevel minimumTrust, AgentCapabilityProfile capabilityProfile,
-                             RuntimeType runtimeType, String runtimeProfileId) {}
+                             RuntimeType runtimeType, String runtimeProfileId, String templateId) {}
 }

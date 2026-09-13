@@ -30,6 +30,7 @@ export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
 export type AgentRole = 'GENERAL' | 'OPERATIONAL';
 export type AgentCapabilityProfile = 'IMPLEMENTER' | 'REVIEWER' | 'ARCHITECT' | 'OPS';
 export type RuntimeType = 'CODEX';
+export type AgentTemplate = { id: string; displayName: string; responsibility: string; capabilityProfile: AgentCapabilityProfile };
 
 export type Agent = {
   id: string;

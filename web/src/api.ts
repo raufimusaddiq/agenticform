@@ -3,6 +3,7 @@ import type { ExecutionNode, ExecutionNodeStatus, NodeEnrollment, NodeTrustLevel
 import type {
   Agent,
   AgentCapabilityProfile,
+  AgentTemplate,
   AgentMessage,
   AgentMessageType,
   AgentQueueMode,
@@ -113,6 +114,7 @@ export const api = {
   projects: () => request<Project[]>('/api/projects'),
   discoverProjects: () => request<Array<{ name: string; path: string; configuredRoot: string; detectedBranch: string | null; registered: boolean }>>('/api/projects/discover'),
   agents: () => request<Agent[]>('/api/agents'),
+  agentTemplates: () => request<AgentTemplate[]>('/api/agents/templates'),
   tasks: () => request<Task[]>('/api/tasks'),
   messages: () => request<AgentMessage[]>('/api/messages'),
   approvals: () => request<HumanApproval[]>('/api/approvals'),
@@ -151,6 +153,7 @@ export const api = {
     executionNodeId?: string;
     minimumTrust?: NodeTrustLevel;
     capabilityProfile?: AgentCapabilityProfile;
+    templateId?: string;
   }) => request<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(input) }),
 
   createNodeEnrollment: (name: string, trustLevel: NodeTrustLevel) =>

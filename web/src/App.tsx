@@ -8,6 +8,7 @@ import { PolicyView } from './PolicyView';
 import type {
   Agent,
   AgentCapabilityProfile,
+  AgentTemplate,
   AgentMessage,
   AgentQueueMode,
   HumanApproval,
@@ -69,6 +70,7 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentTemplates, setAgentTemplates] = useState<AgentTemplate[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [approvals, setApprovals] = useState<HumanApproval[]>([]);
@@ -84,11 +86,12 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const [nextProjects, nextAgents, nextTasks, nextMessages, nextApprovals, nextPolicyRules, nextCommunicationRules] = await Promise.all([
-        api.projects(), api.agents(), api.tasks(), api.messages(), api.approvals(), api.policyRules(), api.communicationRules()
+      const [nextProjects, nextAgents, nextAgentTemplates, nextTasks, nextMessages, nextApprovals, nextPolicyRules, nextCommunicationRules] = await Promise.all([
+        api.projects(), api.agents(), api.agentTemplates(), api.tasks(), api.messages(), api.approvals(), api.policyRules(), api.communicationRules()
       ]);
       setProjects(nextProjects);
       setAgents(nextAgents);
+      setAgentTemplates(nextAgentTemplates);
       setTasks(nextTasks);
       setMessages(nextMessages);
       setApprovals(nextApprovals);
@@ -208,7 +211,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
       </main>
 
       {dialog === 'project' && <ProjectForm onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.registerProject(input))} />}
-      {dialog === 'agent' && <AgentForm projects={projects} initialProjectId={projectFilter === 'all' ? projects[0]?.id : projectFilter} onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.spawnAgent(input))} />}
+      {dialog === 'agent' && <AgentForm projects={projects} templates={agentTemplates} initialProjectId={projectFilter === 'all' ? projects[0]?.id : projectFilter} onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.spawnAgent(input))} />}
       {dialog === 'task' && <TaskForm agents={taskAgents} onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.createTask(input))} />}
     </div>
   );
@@ -332,25 +335,35 @@ function ProjectForm({ onClose, onSubmit }: { onClose: () => void; onSubmit: (in
   </form></Modal>;
 }
 
-function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
+function AgentForm({ projects, templates, initialProjectId, onClose, onSubmit }: {
   projects: Project[];
+  templates: AgentTemplate[];
   initialProjectId?: string;
   onClose: () => void;
-  onSubmit: (input: { projectId: string; name: string; responsibility: string; runtimeType: RuntimeType; runtimeProfileId?: string; workspaceMode: WorkspaceMode; baseBranch?: string; branch?: string; queueMode: AgentQueueMode; humanControlMode: HumanControlMode; capabilityProfile: AgentCapabilityProfile }) => void;
+  onSubmit: (input: { projectId: string; name: string; responsibility: string; runtimeType: RuntimeType; runtimeProfileId?: string; workspaceMode: WorkspaceMode; baseBranch?: string; branch?: string; queueMode: AgentQueueMode; humanControlMode: HumanControlMode; capabilityProfile: AgentCapabilityProfile; templateId?: string }) => void;
 }) {
   const [projectId, setProjectId] = useState(initialProjectId ?? projects[0]?.id ?? '');
-  const [name, setName] = useState('');
-  const [responsibility, setResponsibility] = useState('');
+  const [templateId, setTemplateId] = useState(templates[0]?.id ?? '');
+  const [name, setName] = useState(templates[0]?.displayName ?? '');
+  const [responsibility, setResponsibility] = useState(templates[0]?.responsibility ?? '');
   const [runtimeType, setRuntimeType] = useState<RuntimeType>('CODEX');
   const [runtimeProfileId, setRuntimeProfileId] = useState('');
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ISOLATED_WORKTREE');
   const [branch, setBranch] = useState('');
   const [queueMode, setQueueMode] = useState<AgentQueueMode>('AUTO');
   const [humanControlMode, setHumanControlMode] = useState<HumanControlMode>('ON_THE_LOOP');
-  const [capabilityProfile, setCapabilityProfile] = useState<AgentCapabilityProfile>('IMPLEMENTER');
+  const [capabilityProfile, setCapabilityProfile] = useState<AgentCapabilityProfile>(templates[0]?.capabilityProfile ?? 'IMPLEMENTER');
   const project = projects.find((item) => item.id === projectId);
-  return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, runtimeType, runtimeProfileId: runtimeProfileId.trim() || undefined, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode, humanControlMode, capabilityProfile }); }}>
+  const template = templates.find((item) => item.id === templateId);
+  useEffect(() => {
+    if (!template) return;
+    setName(template.displayName);
+    setResponsibility(template.responsibility);
+    setCapabilityProfile(template.capabilityProfile);
+  }, [template]);
+  return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, runtimeType, runtimeProfileId: runtimeProfileId.trim() || undefined, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode, humanControlMode, capabilityProfile, templateId: templateId || undefined }); }}>
     <label>Project<select required value={projectId} onChange={(e) => setProjectId(e.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label>Template<select value={templateId} onChange={(e) => setTemplateId(e.target.value)}><option value="">Custom</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
     <label>Agent name<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Backend Auth" /></label>
     <label>Responsibility<textarea required rows={5} value={responsibility} onChange={(e) => setResponsibility(e.target.value)} placeholder="Own authentication, token lifecycle, backend API and tests." /></label>
     <label>Runtime<select required value={runtimeType} onChange={(e) => setRuntimeType(e.target.value as RuntimeType)}><option value="CODEX">Codex</option></select></label>

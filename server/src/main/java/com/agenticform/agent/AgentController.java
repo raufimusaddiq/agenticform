@@ -36,12 +36,17 @@ public class AgentController {
         return service.list(projectId);
     }
 
+    @GetMapping("/templates")
+    public List<AgentTemplate> templates() {
+        return AgentTemplate.all();
+    }
+
     @PostMapping
     public AgentEntity spawn(@Valid @RequestBody SpawnAgentRequest request) {
         return service.spawn(new AgentService.SpawnAgent(
                 request.projectId(), request.name(), request.responsibility(), request.workspaceMode(),
                 request.baseBranch(), request.branch(), request.queueMode(), request.humanControlMode(),
-                request.executionNodeId(), request.minimumTrust(), request.capabilityProfile(), request.runtimeType(), request.runtimeProfileId()));
+                request.executionNodeId(), request.minimumTrust(), request.capabilityProfile(), request.runtimeType(), request.runtimeProfileId(), request.templateId()));
     }
 
     @PostMapping("/operational/ensure")
@@ -94,7 +99,8 @@ public class AgentController {
             NodeTrustLevel minimumTrust,
             AgentCapabilityProfile capabilityProfile,
             @NotNull RuntimeType runtimeType,
-            String runtimeProfileId
+            String runtimeProfileId,
+            String templateId
     ) {}
 
     public record EnsureOperationalAgentRequest(@NotNull UUID projectId) {}
