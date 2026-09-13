@@ -14,6 +14,7 @@ public class CodexThreadConfiguration {
             Use agenticform.list_policy_rules to inspect the rules applicable to your project/agent/task when governance is relevant.
 
             Agent communication is durable and routed through Agenticform. Use agenticform.send_message for direct communication and replies. Use agenticform.broadcast_message only when multiple agents genuinely need the same information or parallel request. Never broadcast acknowledgement-only messages, and do not reply-all by default. Recipients for multicast/role/group/project broadcast are resolved and snapshotted when the message is sent.
+            Communication should feel like a human team, not a polling loop. Before sending a status nudge or follow-up, call agenticform.list_messages with pendingOnly=true. Read and act on pending RESULT, REVIEW_RESULT, ANSWER, QUESTION, or BLOCKER messages first. Do not send repeated timer-like reminders while an inbound message is pending or while the recipient is actively working. Send one concise contextual follow-up only when no relevant inbound message is pending and the recipient has had reasonable time to respond. Reply to the relevant message with replyToMessageId when possible.
 
             Each active project may have one system-managed ORCHESTRATOR and one system-managed OPERATIONAL agent. Assign user work to the Orchestrator; it delegates coding/review work and consolidates reports. If you are not the Operational Agent, hand off CI/CD, release, deployment, migration, backup, rollback, and operational verification intent through agenticform.handoff_to_operations. Do not directly request a registered operational runbook from a coding/reviewer/general role.
             If you are the Operational Agent, inspect agenticform.list_runbooks and use agenticform.request_operation for registered operations. request_operation evaluates policy itself, so do not call request_action separately for the same registered operation. Use agenticform.get_operation_status to inspect asynchronous progress and evidence.
@@ -27,7 +28,7 @@ public class CodexThreadConfiguration {
             The default policy requires a fresh human decision for PRODUCTION_DEPLOY in production, PRODUCTION_DML in production, DELETE_DATA in any environment, and genuine USER_INPUT.
             For essential clarification, use the native item/tool/requestUserInput flow. Do not call agenticform.request_action with action USER_INPUT; request_action is for semantic policy actions, not questions.
             Never treat approval of a clarification/protected action as the user's answer. If a required choice remains unresolved, keep the task blocked or ask a structured question. Do not mark an implementation task complete after analysis only.
-            Every task must call agenticform.report_task before ending with a result. A durable RESULT or REVIEW_RESULT message also records the task report automatically. The report must state outcome, changed files, validation, blockers, and follow-up. Orchestrators must delegate work through agenticform.create_task, wait for reports, then report the consolidated project result.
+            Every task must call agenticform.report_task before ending with a result. A durable RESULT or REVIEW_RESULT message also records the task report automatically. The report must state outcome, changed files, validation, blockers, and follow-up. Orchestrators are the project owner: infer the requested outcome from the user's PRD/task, classify the work, create an architecture task when needed, delegate to matching IMPLEMENTER specialties, create review/test tasks, resolve reports, and consolidate the final result. A PRD, feature request, bug fix, or sprint is implementation work by default unless the user explicitly says review/design-only. Never complete an implementation workflow after architecture-only or read-only work, and never silently stop after delegation. If a child or the user leaves an essential question unresolved, answer it from the supplied context, delegate the decision, or call agenticform.request_human_clarification; do not report completion. Child tasks inherit a compact reference to the parent task context automatically; use the supplied parent task id for traceability and do not copy the full PRD into every delegation.
             Continue ordinary development autonomously when the deterministic policy result is ALLOW.
             A DENY result cannot be overridden. A human approval is valid only for the action/request that produced it unless Agenticform explicitly states otherwise.
             """;
@@ -59,7 +60,7 @@ public class CodexThreadConfiguration {
     private String roleInstructions(AgentCapabilityProfile profile) {
         return switch (profile) {
             case ARCHITECT -> "Architect mode: resolve scope, inspect docs, define the smallest safe design, record an ADR or implementation brief, then hand off concrete work. Read-only.";
-            case ORCHESTRATOR -> "Orchestrator mode: own the user request, decompose it into delegated tasks, use create_task with dependencies, collect reports, and report the consolidated project result. Do not edit application code.";
+            case ORCHESTRATOR -> "Orchestrator mode: act as project owner. Read the entire task/PRD, classify required capabilities, delegate architecture then matching Implementer specialties, add review/test work, resolve blockers, ask the human only for genuinely missing decisions, and continue until acceptance criteria are met. Do not finish after analysis, delegation, or a read-only review. Report only a consolidated result with implementation and review evidence. Do not edit application code yourself.";
             case IMPLEMENTER -> "Implementer mode: implement only the agreed scope, preserve security boundaries, add focused tests, and report changed files plus validation.";
             case REVIEWER -> "Reviewer mode: inspect diff and evidence, test failure paths, identify blockers. Do not silently rewrite the implementation.";
             case OPS -> "Operations mode: inspect evidence, use registered runbooks, preserve approval boundaries, and verify post-operation health.";
@@ -87,6 +88,11 @@ public class CodexThreadConfiguration {
         property(sendProps, "content", "string", "Message body with the minimum context the receiving agent needs.");
         property(sendProps, "replyToMessageId", "string", "Optional message UUID when replying to an incoming Agenticform message.");
         required(sendMessage, "targetAgentId", "type", "subject", "content");
+
+        ObjectNode listMessages = function(namespaceTools, "list_messages",
+                "Inspect this agent's durable inbox. Use pendingOnly=true before follow-ups; process pending reports, answers, questions, and blockers before sending another message.");
+        ObjectNode listMessagesProps = schema(listMessages).putObject("properties");
+        listMessagesProps.putObject("pendingOnly").put("type", "boolean").put("description", "Only messages not yet consumed by this runtime; defaults to true.");
 
         ObjectNode broadcast = function(namespaceTools, "broadcast_message",
                 "Send one durable logical message to multiple same-project agents. Recipients are resolved and snapshotted when sent. Never use for acknowledgement-only fanout.");
@@ -170,11 +176,12 @@ public class CodexThreadConfiguration {
         required(requestAction, "action", "summary", "details");
 
         ObjectNode createTask = function(namespaceTools, "create_task",
-                "Orchestrator-only: create a delegated task for another non-operational project agent. Use dependsOnTaskId to sequence work.");
+                "Orchestrator-only: create a delegated task for another non-operational project agent. Select the task kind from required work and use dependsOnTaskId to sequence work.");
         ObjectNode createTaskProps = schema(createTask).putObject("properties");
         property(createTaskProps, "agentId", "string", "Target general agent UUID from list_agents.");
         property(createTaskProps, "title", "string", "Short delegated task title.");
         property(createTaskProps, "prompt", "string", "Instructions and acceptance criteria.");
+        enumProperty(createTaskProps, "kind", "GENERAL", "ORCHESTRATION", "ARCHITECTURE", "IMPLEMENTATION", "REVIEW", "TEST");
         createTaskProps.putObject("priority").put("type", "integer");
         property(createTaskProps, "dependsOnTaskId", "string", "Optional prerequisite task UUID.");
         required(createTask, "agentId", "title", "prompt");
@@ -184,6 +191,13 @@ public class CodexThreadConfiguration {
         ObjectNode reportTaskProps = schema(reportTask).putObject("properties");
         property(reportTaskProps, "report", "string", "Outcome, changed files, validation, blockers, and follow-up.");
         required(reportTask, "report");
+
+        ObjectNode clarification = function(namespaceTools, "request_human_clarification",
+                "Pause this task and ask the end user a durable clarification question. Use only when the answer cannot be inferred or delegated.");
+        ObjectNode clarificationProps = schema(clarification).putObject("properties");
+        property(clarificationProps, "summary", "string", "Short human-facing clarification title.");
+        property(clarificationProps, "question", "string", "The exact question the end user must answer.");
+        required(clarification, "summary", "question");
 
         tools.add(namespace);
         return tools;

@@ -48,7 +48,7 @@ public class AgentController {
     public List<AgentTemplateResponse> templates() {
         return AgentTemplate.all().stream()
                 .map(template -> new AgentTemplateResponse(template.getId(), template.getDisplayName(),
-                        template.getResponsibility(), template.getCapabilityProfile()))
+                        template.getResponsibility(), template.getCapabilityProfile(), template.getSpecialty()))
                 .toList();
     }
 
@@ -123,5 +123,5 @@ public class AgentController {
     public record HumanControlModeRequest(@NotNull HumanControlMode mode) {}
     public record QueueModeRequest(@NotNull AgentQueueMode mode) {}
     public record AgentTemplateResponse(String id, String displayName, String responsibility,
-                                        AgentCapabilityProfile capabilityProfile) {}
+                                        AgentCapabilityProfile capabilityProfile, String specialty) {}
 }

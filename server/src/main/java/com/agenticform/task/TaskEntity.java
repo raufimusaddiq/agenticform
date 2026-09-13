@@ -27,6 +27,9 @@ public class TaskEntity {
     @Column(name = "assigned_agent_id", nullable = false)
     private UUID assignedAgentId;
 
+    @Column(name = "parent_task_id")
+    private UUID parentTaskId;
+
     @Column(nullable = false)
     private String title;
 
@@ -39,6 +42,10 @@ public class TaskEntity {
 
     @Column(nullable = false)
     private int priority;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private TaskKind kind;
 
     @Column(name = "queued_submission_id")
     private String queuedSubmissionId;
@@ -61,11 +68,22 @@ public class TaskEntity {
     protected TaskEntity() {}
 
     public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority) {
+        this(projectId, assignedAgentId, title, prompt, priority, null);
+    }
+
+    public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority, UUID parentTaskId) {
+        this(projectId, assignedAgentId, title, prompt, priority, parentTaskId, TaskKind.GENERAL);
+    }
+
+    public TaskEntity(UUID projectId, UUID assignedAgentId, String title, String prompt, int priority,
+                      UUID parentTaskId, TaskKind kind) {
         this.projectId = projectId;
         this.assignedAgentId = assignedAgentId;
+        this.parentTaskId = parentTaskId;
         this.title = title;
         this.prompt = prompt;
         this.priority = priority;
+        this.kind = kind == null ? TaskKind.GENERAL : kind;
         this.status = TaskStatus.READY;
     }
 
@@ -78,10 +96,12 @@ public class TaskEntity {
     public UUID getId() { return id; }
     public UUID getProjectId() { return projectId; }
     public UUID getAssignedAgentId() { return assignedAgentId; }
+    public UUID getParentTaskId() { return parentTaskId; }
     public String getTitle() { return title; }
     public String getPrompt() { return prompt; }
     public TaskStatus getStatus() { return status; }
     public int getPriority() { return priority; }
+    public TaskKind getKind() { return kind; }
     public String getQueuedSubmissionId() { return queuedSubmissionId; }
     public String getTurnId() { return turnId; }
     public String getLastError() { return lastError; }

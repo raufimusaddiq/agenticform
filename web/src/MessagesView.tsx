@@ -68,7 +68,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
   return <div className="page-stack messages-layout">
     <section className="panel">
       <div className="section-header">
-        <div><p className="eyebrow">Durable mailbox</p><h2>Agent messages</h2></div>
+        <div><p className="eyebrow">Agent-to-agent channel</p><h2>Agent messages</h2></div>
         <span className="muted">{messages.length} messages</span>
       </div>
       {!messages.length ? <div className="empty"><strong>No agent messages yet</strong><p>Messages sent through native Codex dynamic tools will appear here.</p></div> : <div className="data-list">

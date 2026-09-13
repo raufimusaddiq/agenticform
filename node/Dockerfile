@@ -6,8 +6,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/agenticform-node .
 
 FROM node:22-bookworm-slim
 ARG CODEX_VERSION=0.154.0
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git bubblewrap \
     && npm install -g "@openai/codex@${CODEX_VERSION}" \
     && groupadd --gid 10001 agenticform \
     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin agenticform \

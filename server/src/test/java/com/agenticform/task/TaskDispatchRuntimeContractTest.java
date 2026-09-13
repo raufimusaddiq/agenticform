@@ -48,13 +48,14 @@ class TaskDispatchRuntimeContractTest {
         when(runtimeRegistry.get(any())).thenReturn(runtime);
         when(dependencies.reconcile(taskId)).thenReturn(new TaskDependencyService.Evaluation(
                 TaskDependencyService.State.READY, null));
-        when(runtime.dispatch(any(RuntimeSession.class), eq("agenticform-task:" + taskId), eq("inspect")))
+        when(runtime.dispatch(any(RuntimeSession.class), eq("agenticform-task:" + taskId),
+                eq(TaskDispatchService.promptWithCompletionContract("inspect"))))
                 .thenReturn(new RuntimeDispatchReceipt("queue-1", "turn-1"));
 
         new TaskDispatchService(tasks, agents, runtimeRegistry, nodes, dependencies).dispatchManually(taskId);
 
         verify(runtime).dispatch(new RuntimeSession("opaque-session-1"),
-                "agenticform-task:" + taskId, "inspect");
+                "agenticform-task:" + taskId, TaskDispatchService.promptWithCompletionContract("inspect"));
         verify(task).setQueuedSubmissionId("queue-1");
         verify(task).setTurnId("turn-1");
     }

@@ -44,7 +44,8 @@ public class AgentService {
             """;
     private static final String ORCHESTRATOR_RESPONSIBILITY = """
             You are the system-managed Orchestrator for this project.
-            Own the user-facing workflow: understand the assigned request, delegate Architect/Backend/Reviewer work,
+            Own the user-facing workflow: understand the assigned request, delegate architecture, matching implementers,
+            tests, and review work,
             track dependencies, collect durable reports, and return one concise consolidated result.
 
             Use Agenticform list_agents, create_task, send_message, and report_task. Do not edit application code,
@@ -94,24 +95,27 @@ public class AgentService {
                 : command.responsibility();
         RuntimeType runtimeType = command.runtimeType();
 
+        AgentEntity spawned;
         if (project.getSourceType() == ProjectSourceType.GIT) {
-            return createRemoteAgent(project, name, responsibility,
+            spawned = createRemoteAgent(project, name, responsibility,
                     command.workspaceMode() == null ? WorkspaceMode.ISOLATED_WORKTREE : command.workspaceMode(),
                     command.baseBranch(), command.branch(),
                     command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode(),
                     command.humanControlMode() == null ? HumanControlMode.ON_THE_LOOP : command.humanControlMode(),
                     AgentRole.GENERAL, false, command.executionNodeId(), command.minimumTrust(), profile, runtimeType, command.runtimeProfileId());
-        }
-
+        } else {
         if (command.executionNodeId() != null) {
             throw new IllegalArgumentException("LOCAL_PATH projects cannot be placed on remote execution nodes; register a GIT project source");
         }
-        return createLocalAgent(project, name, responsibility,
+        spawned = createLocalAgent(project, name, responsibility,
                 command.workspaceMode() == null ? WorkspaceMode.ISOLATED_WORKTREE : command.workspaceMode(),
                 command.baseBranch(), command.branch(),
                 command.queueMode() == null ? AgentQueueMode.AUTO : command.queueMode(),
                 command.humanControlMode() == null ? HumanControlMode.ON_THE_LOOP : command.humanControlMode(),
                 AgentRole.GENERAL, false, profile, runtimeType, command.runtimeProfileId());
+        }
+        if (template != null) spawned.setSpecialty(template.getSpecialty());
+        return repository.save(spawned);
     }
 
     @Transactional

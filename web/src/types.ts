@@ -30,7 +30,7 @@ export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
 export type AgentRole = 'GENERAL' | 'ORCHESTRATOR' | 'OPERATIONAL';
 export type AgentCapabilityProfile = 'IMPLEMENTER' | 'REVIEWER' | 'ARCHITECT' | 'ORCHESTRATOR' | 'OPS';
 export type RuntimeType = 'CODEX';
-export type AgentTemplate = { id: string; displayName: string; responsibility: string; capabilityProfile: AgentCapabilityProfile };
+export type AgentTemplate = { id: string; displayName: string; responsibility: string; capabilityProfile: AgentCapabilityProfile; specialty: string };
 
 export type Agent = {
   id: string;
@@ -49,6 +49,7 @@ export type Agent = {
   humanControlMode: HumanControlMode;
   role: AgentRole;
   capabilityProfile: AgentCapabilityProfile;
+  specialty: string | null;
   systemManaged: boolean;
   executionNodeId: string | null;
   activeTaskId: string | null;
@@ -70,15 +71,18 @@ export type TaskStatus =
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED';
+export type TaskKind = 'GENERAL' | 'ORCHESTRATION' | 'ARCHITECTURE' | 'IMPLEMENTATION' | 'REVIEW' | 'TEST' | 'OPERATIONS';
 
 export type Task = {
   id: string;
   projectId: string;
   assignedAgentId: string;
+  parentTaskId: string | null;
   title: string;
   prompt: string;
   status: TaskStatus;
   priority: number;
+  kind: TaskKind;
   queuedSubmissionId: string | null;
   turnId: string | null;
   lastError: string | null;

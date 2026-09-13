@@ -38,7 +38,7 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
 
     <section className="panel">
       <div className="section-header">
-        <div><p className="eyebrow">Needs a human</p><h2>Pending approvals</h2></div>
+        <div><p className="eyebrow">Agent-to-human channel</p><h2>Pending approvals</h2></div>
         <span className="approval-count">{pending.length}</span>
       </div>
       {!pending.length ? <div className="empty"><strong>No pending approvals</strong><p>Actions resolved to REQUIRE HUMAN and genuine user-input requests will appear here.</p></div> :
@@ -87,7 +87,7 @@ function ApprovalCard({ approval, agent, project, onDecision, onAnswer }: {
         <div className="approval-title-line"><strong>{approval.summary}</strong><span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span></div>
         <small>{project?.name ?? 'Unknown project'} / {agent?.name ?? shortId(approval.agentId)}</small>
       </div>
-      <div className="approval-badges"><span className="mode-pill">{approval.controlMode === 'IN_THE_LOOP' ? 'HITL override' : 'HOTL'}</span><span>{approval.policyEffect ? label(approval.policyEffect) : label(approval.type)}</span></div>
+      <div className="approval-badges"><span className="mode-pill">{approval.controlMode === 'IN_THE_LOOP' ? 'HITL override' : 'HOTL'}</span><span>{approval.method === 'agenticform/request_human_clarification' ? 'Human clarification' : approval.policyEffect ? label(approval.policyEffect) : label(approval.type)}</span></div>
     </header>
 
     <ApprovalDetails approval={approval} payload={payload} agent={agent} />
@@ -116,7 +116,7 @@ function ApprovalDetails({ approval, payload, agent }: { approval: HumanApproval
     {approval.policyAction && <div><span>Policy action</span><code>{approval.policyAction} · {approval.policyEnvironment ?? '*'}</code></div>}
     {approval.policyRuleId && <div><span>Matched rule</span><code>{approval.policyEffect ? label(approval.policyEffect) : 'unknown'} · {shortId(approval.policyRuleId)}</code></div>}
     {action && <div><span>Requested action</span><code>{action}{environment ? ` · ${environment}` : ''}</code></div>}
-    {details && <div><span>Agent message</span><p>{details}</p></div>}
+    {details && <div><span>{approval.method === 'agenticform/request_human_clarification' ? 'Question context' : 'Agent message'}</span><p>{details}</p></div>}
     {reason && <div><span>Reason</span><p>{reason}</p></div>}
     {command && <div><span>Command</span><code className="approval-command">{command}</code></div>}
     {cwd && <div><span>Working directory</span><code>{cwd}</code></div>}

@@ -10,12 +10,14 @@ import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeDispatchReceipt;
 import com.agenticform.runtime.RuntimeSession;
 import com.agenticform.runtime.RuntimeType;
+import com.agenticform.task.TaskWorkflowGate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -31,6 +33,8 @@ public class AgentMessageService {
     public record AudienceRequest(AgentMessageAudienceType type, List<UUID> agentIds,
                                   AgentRole role, UUID groupId) {}
     public record SendResult(AgentMessageEntity message, List<AgentMessageDeliveryEntity> deliveries) {}
+    public record InboxItem(UUID messageId, UUID fromAgentId, String subject, String content,
+                            AgentMessageType type, AgentMessageStatus status, Instant createdAt) {}
 
     private final AgentMessageRepository repository;
     private final AgentMessageDeliveryRepository deliveryRepository;
@@ -40,6 +44,7 @@ public class AgentMessageService {
     private final CommunicationRuleService communicationRules;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeService nodeService;
+    private final TaskWorkflowGate workflowGate;
     private final ObjectMapper mapper;
 
     public AgentMessageService(AgentMessageRepository repository,
@@ -50,6 +55,7 @@ public class AgentMessageService {
                                CommunicationRuleService communicationRules,
                                AgentRuntimeRegistry runtimeRegistry,
                                ExecutionNodeService nodeService,
+                               TaskWorkflowGate workflowGate,
                                ObjectMapper mapper) {
         this.repository = repository;
         this.deliveryRepository = deliveryRepository;
@@ -59,6 +65,7 @@ public class AgentMessageService {
         this.communicationRules = communicationRules;
         this.runtimeRegistry = runtimeRegistry;
         this.nodeService = nodeService;
+        this.workflowGate = workflowGate;
         this.mapper = mapper;
     }
 
@@ -78,6 +85,33 @@ public class AgentMessageService {
 
     public List<AgentMessageDeliveryEntity> deliveries(UUID messageId) {
         return deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(messageId);
+    }
+
+    @Transactional
+    public List<InboxItem> inbox(UUID agentId, boolean pendingOnly) {
+        return deliveryRepository.findAllByToAgentIdOrderByCreatedAtDesc(agentId).stream()
+                .filter(delivery -> !pendingOnly || switch (delivery.getStatus()) {
+                    case CREATED, QUEUED, DISPATCHED, PROCESSING -> true;
+                    default -> false;
+                })
+                .limit(50)
+                .map(delivery -> repository.findById(delivery.getMessageId()).map(message -> {
+                    AgentMessageStatus status = delivery.getStatus();
+                    delivery.markCompleted();
+                    deliveryRepository.save(delivery);
+                    return new InboxItem(message.getId(), message.getFromAgentId(), message.getSubject(),
+                            message.getContent(), message.getType(), status, message.getCreatedAt());
+                }).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    public boolean hasPendingInbox(UUID agentId) {
+        return deliveryRepository.findAllByToAgentIdOrderByCreatedAtDesc(agentId).stream()
+                .anyMatch(delivery -> switch (delivery.getStatus()) {
+                    case CREATED, QUEUED, DISPATCHED, PROCESSING -> true;
+                    default -> false;
+                });
     }
 
     public AgentMessageEntity send(UUID fromAgentId, UUID toAgentId, AgentMessageType type,
@@ -112,7 +146,8 @@ public class AgentMessageService {
         }
         if (hopCount >= MAX_HOPS) throw new IllegalStateException("Agent conversation reached the maximum hop count of " + MAX_HOPS);
 
-        List<AgentEntity> recipients = resolveAudience(source, requestedAudience, parent);
+        AgentMessageType messageType = type == null ? AgentMessageType.INFORMATION : type;
+        List<AgentEntity> recipients = resolveAudience(source, requestedAudience, parent, messageType);
         if (recipients.isEmpty()) throw new IllegalArgumentException("Message audience resolved to no recipients");
         if (recipients.size() > MAX_FANOUT) throw new IllegalArgumentException("Message fanout exceeds limit of " + MAX_FANOUT);
 
@@ -120,7 +155,7 @@ public class AgentMessageService {
         UUID directTarget = audienceType == AgentMessageAudienceType.DIRECT ? recipients.get(0).getId() : null;
         AgentMessageEntity message = repository.save(new AgentMessageEntity(
                 source.getProjectId(), source.getId(), directTarget, conversationId,
-                replyToMessageId, type == null ? AgentMessageType.INFORMATION : type,
+                replyToMessageId, messageType,
                 audienceType, audienceSpec, normalize(subject, "subject", 255),
                 normalize(content, "content", 20_000), hopCount));
 
@@ -164,7 +199,8 @@ public class AgentMessageService {
         return repository.save(message);
     }
 
-    private List<AgentEntity> resolveAudience(AgentEntity source, AudienceRequest audience, AgentMessageEntity parent) {
+    private List<AgentEntity> resolveAudience(AgentEntity source, AudienceRequest audience,
+                                              AgentMessageEntity parent, AgentMessageType messageType) {
         AgentMessageAudienceType type = audience == null || audience.type() == null
                 ? AgentMessageAudienceType.DIRECT : audience.type();
         LinkedHashSet<UUID> ids = new LinkedHashSet<>();
@@ -211,6 +247,7 @@ public class AgentMessageService {
                 communicationRules.require(source.getProjectId(), target.getProjectId(), CommunicationRuleEntity.Action.MESSAGE);
             }
             if (target.getStatus() == AgentStatus.STOPPED) continue;
+            workflowGate.requireMessageTargetReady(target, messageType);
             result.add(target);
         }
         return List.copyOf(result);

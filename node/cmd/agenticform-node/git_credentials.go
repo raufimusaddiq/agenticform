@@ -106,12 +106,23 @@ func (d *daemonRuntime) ensureProjectRepository(command nodeCommand, payload map
 }
 
 func configureCredentialHelper(repoRoot, helper string) error {
-	// Empty the inherited helper chain first so node-local or host credentials cannot silently
-	// broaden access. The only active helper for this repo is the generation-scoped broker.
+	// Worktrees share the repository config by default. Enable per-worktree config
+	// before installing a runtime-scoped helper, otherwise the last agent started
+	// silently replaces Git credentials for every other agent.
+	if err := runGit(repoRoot, "config", "extensions.worktreeConfig", "true"); err != nil {
+		return err
+	}
+	// Remove any pre-existing shared helper. Existing repositories may have been
+	// configured before worktree isolation was enabled.
 	if err := runGit(repoRoot, "config", "--local", "--replace-all", "credential.helper", ""); err != nil {
 		return err
 	}
-	return runGit(repoRoot, "config", "--local", "--add", "credential.helper", helper)
+	// Empty the inherited helper chain first so node-local or host credentials cannot silently
+	// broaden access. The only active helper for this repo is the generation-scoped broker.
+	if err := runGit(repoRoot, "config", "--worktree", "--replace-all", "credential.helper", ""); err != nil {
+		return err
+	}
+	return runGit(repoRoot, "config", "--worktree", "--add", "credential.helper", helper)
 }
 
 func configureProjectRuntimeCredentialHelper(repoRoot, workingDirectory string, command nodeCommand,

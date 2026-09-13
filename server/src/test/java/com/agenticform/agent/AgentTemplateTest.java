@@ -12,4 +12,11 @@ class AgentTemplateTest {
         assertThat(template.getCapabilityProfile()).isEqualTo(AgentCapabilityProfile.ARCHITECT);
         assertThat(template.getResponsibility()).contains("Do not edit application code");
     }
+
+    @Test
+    void implementationTemplatesUseGenericCapabilityWithSpecialty() {
+        assertThat(AgentTemplate.find("frontend").getCapabilityProfile()).isEqualTo(AgentCapabilityProfile.IMPLEMENTER);
+        assertThat(AgentTemplate.find("frontend").getSpecialty()).isEqualTo("FRONTEND");
+        assertThat(AgentTemplate.find("data").getSpecialty()).isEqualTo("DATA");
+    }
 }

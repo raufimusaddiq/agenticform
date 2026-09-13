@@ -33,6 +33,9 @@ public class AgentEntity {
     @Column(nullable = false, columnDefinition = "text")
     private String responsibility;
 
+    @Column(length = 64)
+    private String specialty;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "runtime_type", nullable = false, length = 32)
     private RuntimeType runtimeType;
@@ -158,6 +161,7 @@ public class AgentEntity {
     public UUID getProjectId() { return projectId; }
     public String getName() { return name; }
     public String getResponsibility() { return responsibility; }
+    public String getSpecialty() { return specialty; }
     public RuntimeType getRuntimeType() { return runtimeType; }
     public String getRuntimeSessionId() { return runtimeSessionId; }
     public String getRuntimeProfileId() { return runtimeProfileId; }
@@ -190,6 +194,7 @@ public class AgentEntity {
     }
     public void setActiveTaskId(UUID activeTaskId) { this.activeTaskId = activeTaskId; }
     public void setActiveTurnId(String activeTurnId) { this.activeTurnId = activeTurnId; }
+    public void setSpecialty(String specialty) { this.specialty = specialty == null || specialty.isBlank() ? null : specialty.trim().toUpperCase(); }
 
     public void setCapabilityProfile(AgentCapabilityProfile capabilityProfile) {
         if (role == AgentRole.OPERATIONAL || systemManaged) {
