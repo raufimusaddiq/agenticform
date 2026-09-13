@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-agenticform}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agenticform}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${AGENTICFORM_POSTGRES_PORT:-5432}:5432"
     volumes:
       - agenticform-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
     volumes: [worktrees:/worktrees]
 
   server:
-    image: ${AGENTICFORM_SERVER_IMAGE:-ghcr.io/raufimusaddiq/agenticform-server:${AGENTICFORM_VERSION:-latest}}
+    image: ${AGENTICFORM_SERVER_IMAGE:?set AGENTICFORM_SERVER_IMAGE to a published release image}
     restart: unless-stopped
     environment:
       DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-agenticform}
@@ -34,7 +34,7 @@ services:
       AGENTICFORM_PROJECT_ROOT: ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}
       AGENTICFORM_WORKTREE_ROOT: /srv/agenticform/worktrees
       AGENTICFORM_NODE_IMAGE: ${AGENTICFORM_NODE_IMAGE:-ghcr.io/raufimusaddiq/agenticform-node:latest}
-      AGENTICFORM_VERSION: ${AGENTICFORM_VERSION:-latest}
+      AGENTICFORM_VERSION: ${AGENTICFORM_VERSION:?set AGENTICFORM_VERSION to the matching release tag}
     volumes:
       - ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}:/srv/apps
       - worktrees:/srv/agenticform/worktrees
@@ -51,7 +51,7 @@ services:
       retries: 12
 
   web:
-    image: ${AGENTICFORM_WEB_IMAGE:-ghcr.io/raufimusaddiq/agenticform-web:${AGENTICFORM_VERSION:-latest}}
+    image: ${AGENTICFORM_WEB_IMAGE:?set AGENTICFORM_WEB_IMAGE to a published release image}
     restart: unless-stopped
     ports:
       - "${AGENTICFORM_WEB_PORT:-8080}:8080"

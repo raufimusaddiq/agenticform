@@ -11,7 +11,7 @@ cp .env.example .env
 openssl rand -hex 32
 ```
 
-Set the generated value as `AGENTICFORM_ADMIN_TOKEN`. Set `POSTGRES_PASSWORD` to a different strong value. For a public installation, set `AGENTICFORM_PUBLIC_URL` and `AGENTICFORM_UI_ORIGIN` to the HTTPS browser origin, pin `AGENTICFORM_VERSION` to the release tag, and set `AGENTICFORM_NODE_IMAGE` to the published immutable digest from that release.
+Set the generated value as `AGENTICFORM_ADMIN_TOKEN`. Set `POSTGRES_PASSWORD` to a different strong value. Replace every `<release-tag>` image value with the same published release tag. For a public installation, set `AGENTICFORM_PUBLIC_URL` and `AGENTICFORM_UI_ORIGIN` to the HTTPS browser origin, and replace `AGENTICFORM_NODE_IMAGE` with the published immutable digest from that release.
 
 ```bash
 docker compose pull
@@ -65,4 +65,3 @@ docker compose up -d
 Publish only the web port (`AGENTICFORM_WEB_PORT`, default `8080`). Terminate TLS at Caddy, Traefik, Nginx, or Cloudflare. Proxy `/`, `/api/`, and `/actuator/` to the web service. Preserve HTTP/1.1 streaming and disable buffering for `/api/events/stream`; the bundled web proxy already forwards it to the control plane.
 
 Use `GET /actuator/health` for readiness/liveness and `GET /actuator/info` for release metadata. The browser origin must match `AGENTICFORM_UI_ORIGIN`. Nodes require outbound HTTPS to `AGENTICFORM_PUBLIC_URL`; no inbound node port, SSH, or exposed Codex App Server is used.
-
