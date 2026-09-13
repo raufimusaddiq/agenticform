@@ -31,7 +31,8 @@ Scope: ship the supported path for daily self-hosted use. Alpha may break betwee
 - [x] `cd server && mvn test` (PR #17 CI, September 13, 2026).
 - [x] `cd web && npm run build` (PR #17 CI, September 13, 2026).
 - [x] `cd node && go test ./...` (PR #17 CI, September 13, 2026).
-- [ ] Deploy the release path against real repositories and nodes; record dogfood findings before claiming Alpha exit.
+- [x] Deploy the current Alpha stack with Docker/Traefik at `https://agentic.investdx.biz.id`; clean startup and public health/API checks passed September 13, 2026.
+- [ ] Exercise the release path against real repositories and execution nodes; record dogfood findings before claiming Alpha exit.
 
 ## Exit gate
 
