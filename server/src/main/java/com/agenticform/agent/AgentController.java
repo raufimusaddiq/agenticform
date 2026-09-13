@@ -37,8 +37,11 @@ public class AgentController {
     }
 
     @GetMapping("/templates")
-    public List<AgentTemplate> templates() {
-        return AgentTemplate.all();
+    public List<AgentTemplateResponse> templates() {
+        return AgentTemplate.all().stream()
+                .map(template -> new AgentTemplateResponse(template.getId(), template.getDisplayName(),
+                        template.getResponsibility(), template.getCapabilityProfile()))
+                .toList();
     }
 
     @PostMapping
@@ -106,4 +109,6 @@ public class AgentController {
     public record EnsureOperationalAgentRequest(@NotNull UUID projectId) {}
     public record HumanControlModeRequest(@NotNull HumanControlMode mode) {}
     public record QueueModeRequest(@NotNull AgentQueueMode mode) {}
+    public record AgentTemplateResponse(String id, String displayName, String responsibility,
+                                        AgentCapabilityProfile capabilityProfile) {}
 }

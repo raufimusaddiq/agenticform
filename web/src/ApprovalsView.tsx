@@ -52,8 +52,10 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
       {!history.length ? <div className="empty"><strong>No policy decisions yet</strong><p>Automatic ALLOW, deterministic DENY, and human decisions are retained here.</p></div> :
         <div className="approval-history">{history.slice(0, 100).map((approval) => {
           const agent = agentById.get(approval.agentId);
+          const payload = parsePayload(approval.requestPayload);
+          const details = text(payload.details);
           return <div className="approval-history-row" key={approval.id}>
-            <div><strong>{approval.summary}</strong><small>{projectById.get(approval.projectId)?.name} / {agent?.name ?? shortId(approval.agentId)}{approval.policyAction ? ` / ${approval.policyAction}` : ''}</small></div>
+            <div><strong>{approval.summary}</strong><small>{projectById.get(approval.projectId)?.name} / {agent?.name ?? shortId(approval.agentId)}{approval.policyAction ? ` / ${approval.policyAction}` : ''}</small>{details && <p>{details}</p>}</div>
             <span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span>
             <span className="mode-pill">{approval.policyEffect ? label(approval.policyEffect) : approval.controlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</span>
             <span className={`status status-${approval.status.toLowerCase()}`}><span className="status-dot" />{label(approval.status)}</span>
@@ -104,12 +106,17 @@ function ApprovalDetails({ approval, payload, agent }: { approval: HumanApproval
   const command = text(payload.command);
   const cwd = text(payload.cwd);
   const reason = text(payload.reason);
+  const action = text(payload.action);
+  const environment = text(payload.environment);
+  const details = text(payload.details);
   const grantRoot = text(payload.grantRoot);
   const permissions = payload.permissions;
 
   return <div className="approval-details">
     {approval.policyAction && <div><span>Policy action</span><code>{approval.policyAction} · {approval.policyEnvironment ?? '*'}</code></div>}
     {approval.policyRuleId && <div><span>Matched rule</span><code>{approval.policyEffect ? label(approval.policyEffect) : 'unknown'} · {shortId(approval.policyRuleId)}</code></div>}
+    {action && <div><span>Requested action</span><code>{action}{environment ? ` · ${environment}` : ''}</code></div>}
+    {details && <div><span>Agent message</span><p>{details}</p></div>}
     {reason && <div><span>Reason</span><p>{reason}</p></div>}
     {command && <div><span>Command</span><code className="approval-command">{command}</code></div>}
     {cwd && <div><span>Working directory</span><code>{cwd}</code></div>}
