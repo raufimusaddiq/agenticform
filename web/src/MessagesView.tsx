@@ -8,7 +8,7 @@ const messageTypes: AgentMessageType[] = [
 ];
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}…` : '—');
+const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}...` : '-');
 
 export function MessagesView({ messages, agents, projects, communicationRules, onSend, onSaveRule, onDeleteRule }: {
   messages: AgentMessage[];
@@ -82,7 +82,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
               <span className={`message-type message-type-${message.type.toLowerCase()}`}>{label(message.type)}</span>
               <span className={`status status-${message.status.toLowerCase()}`}><span className="status-dot" />{label(message.status)}</span>
             </div>
-            <p className="message-route"><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><span>→</span><strong>{targetLabel}</strong><span>· hop {message.hopCount}/6</span></p>
+            <p className="message-route"><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><span>to</span><strong>{targetLabel}</strong><span>hop {message.hopCount}/6</span></p>
             <p className="message-body">{message.content}</p>
             <button className="button ghost" type="button" onClick={() => { setReplyTo(message); setFromAgentId(message.toAgentId ?? source?.id ?? ''); setToAgentId(message.fromAgentId); }}>Reply</button>
             <div className="message-machine"><code>message {shortId(message.id)}</code><code>conversation {shortId(message.conversationId)}</code><code>queue {shortId(message.queuedSubmissionId)}</code><code>turn {shortId(message.turnId)}</code></div>
@@ -100,7 +100,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
             {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
           </select></label>
           <label>To agent<select required value={toAgentId || targets[0]?.id || ''} onChange={(event) => setToAgentId(event.target.value)} disabled={!targets.length}>
-            {targets.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {label(agent.status)}</option>)}
+            {targets.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} / {label(agent.status)}</option>)}
           </select></label>
         </div>
         <label>Type<select value={type} onChange={(event) => setType(event.target.value as AgentMessageType)}>{messageTypes.map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></label>
@@ -114,7 +114,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
 
     <section className="panel">
       <div className="section-header"><div><p className="eyebrow">Conversation threads</p><h2>Replies</h2></div><span className="muted">{conversations.length} conversations</span></div>
-      {!conversations.length ? <div className="empty"><strong>No conversations yet</strong></div> : <div className="data-list">{conversations.map(([id, thread]) => <article className="message-row" key={id}><strong>{thread[0].subject}</strong><small>{thread.length} message{thread.length === 1 ? '' : 's'} · {thread[0].conversationId.slice(0, 8)}…</small><p className="message-body">{thread[thread.length - 1].content}</p></article>)}</div>}
+      {!conversations.length ? <div className="empty"><strong>No conversations yet</strong></div> : <div className="data-list">{conversations.map(([id, thread]) => <article className="message-row" key={id}><strong>{thread[0].subject}</strong><small>{thread.length} message{thread.length === 1 ? '' : 's'} / {thread[0].conversationId.slice(0, 8)}...</small><p className="message-body">{thread[thread.length - 1].content}</p></article>)}</div>}
     </section>
 
     <section className="panel">
@@ -124,7 +124,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
         <label>Effect<select value={ruleEffect} onChange={(event) => setRuleEffect(event.target.value as 'ALLOW' | 'DENY')}><option value="ALLOW">Allow messages</option><option value="DENY">Deny messages</option></select></label>
         <footer className="form-actions"><button className="button primary" disabled={projects.length < 2}>Save rule</button></footer>
       </form>
-      <div className="data-list">{communicationRules.map((rule) => <div className="data-row" key={rule.id}><span>{projectById.get(rule.fromProjectId)?.name ?? shortId(rule.fromProjectId)} → {projectById.get(rule.toProjectId)?.name ?? shortId(rule.toProjectId)}</span><StatusLike value={rule.effect} /><button className="button ghost" type="button" onClick={() => void onDeleteRule(rule.id)}>Delete</button></div>)}</div>
+      <div className="data-list">{communicationRules.map((rule) => <div className="data-row" key={rule.id}><span>{projectById.get(rule.fromProjectId)?.name ?? shortId(rule.fromProjectId)} to {projectById.get(rule.toProjectId)?.name ?? shortId(rule.toProjectId)}</span><StatusLike value={rule.effect} /><button className="button ghost" type="button" onClick={() => void onDeleteRule(rule.id)}>Delete</button></div>)}</div>
     </section>
   </div>;
 }

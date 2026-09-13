@@ -38,7 +38,7 @@ const nav: Array<{ id: View; label: string }> = [
 ];
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}…` : '—');
+const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}...` : '-');
 
 function Status({ value }: { value: string }) {
   return <span className={`status status-${value.toLowerCase()}`}><span className="status-dot" />{label(value)}</span>;
@@ -165,7 +165,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">A</span><div><strong>Agenticform</strong><small>control plane</small></div></div>
         <nav>
-          {nav.map((item) => <button key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setView(item.id)}>{item.label}</button>)}
+          {nav.map((item) => <button key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => setView(item.id)}>{item.label}</button>)}
         </nav>
         <div className="sidebar-footer"><span className="live-dot" />Live control plane</div>
       </aside>
@@ -330,8 +330,8 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
     <label>Runtime<select required value={runtimeType} onChange={(e) => setRuntimeType(e.target.value as RuntimeType)}><option value="CODEX">Codex</option></select></label>
     <label>Runtime profile <span className="optional">optional</span><input className="mono" value={runtimeProfileId} onChange={(e) => setRuntimeProfileId(e.target.value)} placeholder="default" /></label>
     <div className="form-grid"><label>Workspace<select value={workspaceMode} onChange={(e) => setWorkspaceMode(e.target.value as WorkspaceMode)}><option value="ISOLATED_WORKTREE">Isolated worktree</option><option value="SHARED_PROJECT">Shared project</option></select></label><label>Queue policy<select value={queueMode} onChange={(e) => setQueueMode(e.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></label></div>
-    <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop — autonomous by default</option><option value="IN_THE_LOOP">Human in the loop — all approvals block</option></select></label>
-    <label>Capability profile<select value={capabilityProfile} onChange={(e) => setCapabilityProfile(e.target.value as AgentCapabilityProfile)}><option value="IMPLEMENTER">Implementer — read, write, test, commit, message</option><option value="REVIEWER">Reviewer — read, test, review, message</option><option value="ARCHITECT">Architect — read, message</option><option value="OPS">Ops — read, test, message, deploy</option></select></label>
+    <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop / autonomous by default</option><option value="IN_THE_LOOP">Human in the loop / all approvals block</option></select></label>
+    <label>Capability profile<select value={capabilityProfile} onChange={(e) => setCapabilityProfile(e.target.value as AgentCapabilityProfile)}><option value="IMPLEMENTER">Implementer / read, write, test, commit, message</option><option value="REVIEWER">Reviewer / read, test, review, message</option><option value="ARCHITECT">Architect / read, message</option><option value="OPS">Ops / read, test, message, deploy</option></select></label>
     <p className="form-note">On-the-loop is the default. Deterministic policy rules decide which actions continue, require you, or are denied; full HITL only tightens allowed actions. A system-managed Operational Agent is provisioned automatically for operational handoffs.</p>
     <label>Agent branch <span className="optional">optional</span><input className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="agent/backend-auth" /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Spawn agent</button></footer>
@@ -341,7 +341,7 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
 function TaskForm({ agents, onClose, onSubmit }: { agents: Agent[]; onClose: () => void; onSubmit: (input: { agentId: string; title: string; prompt: string; priority: number }) => void }) {
   const [agentId, setAgentId] = useState(agents[0]?.id ?? ''); const [title, setTitle] = useState(''); const [prompt, setPrompt] = useState(''); const [priority, setPriority] = useState(0);
   return <Modal title="Create task" onClose={onClose}><form onSubmit={(event: FormEvent) => { event.preventDefault(); onSubmit({ agentId, title, prompt, priority }); }}>
-    <label>Agent<select required value={agentId} onChange={(e) => setAgentId(e.target.value)}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {label(agent.status)} · {agent.humanControlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</option>)}</select></label>
+    <label>Agent<select required value={agentId} onChange={(e) => setAgentId(e.target.value)}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} / {label(agent.status)} / {agent.humanControlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</option>)}</select></label>
     <label>Title<input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Implement refresh-token fallback" /></label>
     <label>Instruction<textarea required rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Inspect the current token lifecycle, implement the fallback, add tests, and report any compatibility risks." /></label>
     <label>Priority<input type="number" min="-100" max="100" value={priority} onChange={(e) => setPriority(Number(e.target.value))} /></label>

@@ -6,7 +6,7 @@ import './policy.css';
 const effects: PolicyEffect[] = ['ALLOW', 'REQUIRE_HUMAN', 'DENY'];
 const scopes: PolicyScopeType[] = ['GLOBAL', 'PROJECT', 'AGENT', 'TASK'];
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => value ? `${value.slice(0, 8)}…` : '—';
+const shortId = (value: string | null) => value ? `${value.slice(0, 8)}...` : '-';
 
 export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate, onDelete, onEvaluate }: {
   rules: PolicyRule[];
@@ -110,7 +110,7 @@ export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate,
     <section className="panel">
       <div className="section-header">
         <div><p className="eyebrow">Deterministic governance</p><h2>Policy rules</h2></div>
-        <span className="muted">TASK → AGENT → PROJECT → GLOBAL</span>
+        <span className="muted">TASK / AGENT / PROJECT / GLOBAL</span>
       </div>
       <p className="policy-note">Within the same scope, exact action beats <code>*</code>, then exact environment beats <code>*</code>. The global <code>* / *</code> fallback cannot be deleted or disabled.</p>
       <div className="policy-table">
@@ -151,7 +151,7 @@ export function PolicyView({ rules, projects, agents, tasks, onCreate, onUpdate,
           <footer className="form-actions"><button className="button secondary">Evaluate</button></footer>
         </form>
         {simError && <div className="inline-error">{simError}</div>}
-        {decision && <div className="policy-decision"><span className={`policy-effect policy-effect-${decision.effect.toLowerCase()}`}>{label(decision.effect)}</span><strong>{decision.action} · {decision.environment}</strong><p>{decision.description}</p><code>{label(decision.matchedScopeType)} / {shortId(decision.matchedRuleId)}</code></div>}
+        {decision && <div className="policy-decision"><span className={`policy-effect policy-effect-${decision.effect.toLowerCase()}`}>{label(decision.effect)}</span><strong>{decision.action} / {decision.environment}</strong><p>{decision.description}</p><code>{label(decision.matchedScopeType)} / {shortId(decision.matchedRuleId)}</code></div>}
       </section>
     </div>
   </div>;

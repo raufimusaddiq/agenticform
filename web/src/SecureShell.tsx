@@ -190,11 +190,11 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
               : !codex.authenticated ? 'Codex authentication required'
                 : node.protocolCompatible === false ? 'Node protocol incompatible' : 'Ready';
           return <article className="node-card" key={node.id}>
-            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} · {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><span className={`status status-${node.status.toLowerCase()}`}>{node.status.toLowerCase()}</span></div>
+            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} / {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><span className={`status status-${node.status.toLowerCase()}`}>{node.status.toLowerCase()}</span></div>
             <div className="node-facts">
               <span><small>Trust</small>{node.trustLevel}</span>
               <span><small>Capacity</small>{node.maxAgents} agents</span>
-              <span><small>Disk free</small>{node.diskFreeMb == null ? '—' : `${Math.round(node.diskFreeMb / 1024)} GB`}</span>
+              <span><small>Disk free</small>{node.diskFreeMb == null ? '-' : `${Math.round(node.diskFreeMb / 1024)} GB`}</span>
               <span><small>Runtime</small>{codex.available ? `Codex ${codex.version || 'installed'}` : 'Not ready'}</span>
             </div>
             <p className={runtimeMessage === 'Ready' ? 'runtime-ready' : 'runtime-warning'}>{runtimeMessage}</p>

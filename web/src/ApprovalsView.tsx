@@ -7,7 +7,7 @@ import type {
 } from './types';
 
 const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}…` : '—');
+const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}...` : '-');
 
 type UserQuestion = {
   id: string;
@@ -53,7 +53,7 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
         <div className="approval-history">{history.slice(0, 100).map((approval) => {
           const agent = agentById.get(approval.agentId);
           return <div className="approval-history-row" key={approval.id}>
-            <div><strong>{approval.summary}</strong><small>{projectById.get(approval.projectId)?.name} / {agent?.name ?? shortId(approval.agentId)}{approval.policyAction ? ` · ${approval.policyAction}` : ''}</small></div>
+            <div><strong>{approval.summary}</strong><small>{projectById.get(approval.projectId)?.name} / {agent?.name ?? shortId(approval.agentId)}{approval.policyAction ? ` / ${approval.policyAction}` : ''}</small></div>
             <span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span>
             <span className="mode-pill">{approval.policyEffect ? label(approval.policyEffect) : approval.controlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</span>
             <span className={`status status-${approval.status.toLowerCase()}`}><span className="status-dot" />{label(approval.status)}</span>
@@ -141,7 +141,7 @@ function UserInputForm({ approval, payload, busy, onSubmit }: {
       {question.options?.length
         ? <select required value={values[question.id] ?? ''} onChange={(event) => setValues((current) => ({ ...current, [question.id]: event.target.value }))}>
             <option value="">Choose an answer</option>
-            {question.options.map((option) => <option key={option.label} value={option.label}>{option.label}{option.description ? ` — ${option.description}` : ''}</option>)}
+            {question.options.map((option) => <option key={option.label} value={option.label}>{option.label}{option.description ? ` / ${option.description}` : ''}</option>)}
           </select>
         : <input required type={question.isSecret ? 'password' : 'text'} value={values[question.id] ?? ''} onChange={(event) => setValues((current) => ({ ...current, [question.id]: event.target.value }))} />}
     </label>)}
