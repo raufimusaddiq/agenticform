@@ -332,11 +332,19 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
 }
 
 function Tasks({ tasks, projectById, agentById, onDispatch, onCreate }: { tasks: Task[]; projectById: Map<string, Project>; agentById: Map<string, Agent>; onDispatch: (id: string) => void; onCreate: () => void }) {
+  const roots = tasks.filter((task) => !task.parentTaskId);
+  const childrenByParent = new Map<string, Task[]>();
+  tasks.filter((task) => task.parentTaskId).forEach((task) => {
+    const children = childrenByParent.get(task.parentTaskId!) ?? [];
+    children.push(task);
+    childrenByParent.set(task.parentTaskId!, children);
+  });
   return <section className="panel"><div className="section-header"><div><p className="eyebrow">Durable orchestration</p><h2>Task queue</h2></div><button className="button primary" onClick={onCreate}>New task</button></div>
-    {!tasks.length ? <Empty title="No tasks in this scope" body="Create a task and Agenticform will dispatch it according to the agent queue policy." /> : <div className="data-list">
-      {tasks.map((task) => <div className="data-row task-detail-row" key={task.id}>
-        <div><strong>{task.title}</strong><small>{projectById.get(task.projectId)?.name} / {agentById.get(task.assignedAgentId)?.name} · {task.kind} · workflow {shortId(task.workflowId)}</small></div><Status value={task.status} /><span>Priority {task.priority}</span><div className="machine"><code>queue {shortId(task.queuedSubmissionId)}</code><code>turn {shortId(task.turnId)}</code></div>{task.report ? <details><summary>Task report</summary><p>{task.report}</p></details> : task.lastError ? <span className="inline-error" title={task.lastError}>Reconcile issue</span> : <span className="muted">Awaiting report</span>}<button className="button compact secondary" disabled={!['READY', 'BLOCKED'].includes(task.status)} onClick={() => onDispatch(task.id)}>Dispatch</button>
-      </div>)}
+    {!roots.length ? <Empty title="No tasks in this scope" body="Create a task and Agenticform will dispatch it according to the agent queue policy." /> : <div className="data-list">
+      {roots.map((task) => { const agent = agentById.get(task.assignedAgentId); const children = childrenByParent.get(task.id) ?? []; return <div className="data-row task-detail-row" key={task.id}>
+        <div><strong>{task.title}</strong><small>{projectById.get(task.projectId)?.name} / {agent?.name} · {task.kind} · workflow {shortId(task.workflowId)}</small></div><Status value={task.status} /><span>Priority {task.priority}</span><div className="machine"><code>queue {shortId(task.queuedSubmissionId)}</code><code>turn {shortId(task.turnId)}</code><code>runtime g{agent?.runtimeGeneration ?? '-'}</code></div>{task.report ? <details><summary>Task report</summary><p>{task.report}</p></details> : task.lastError ? <div className="inline-error" title={task.lastError}><strong>{task.blocker ?? task.dependencyReason ?? 'Workflow issue'}</strong><small>{task.nextAction}</small></div> : <span className="muted">{task.nextAction ?? 'Awaiting report'}</span>}<button className="button compact secondary" disabled={!['READY', 'BLOCKED'].includes(task.status)} onClick={() => onDispatch(task.id)}>Dispatch</button>
+        <details><summary>Task graph ({children.length} child tasks)</summary><div className="task-graph">{children.length ? children.map((child) => <div key={child.id}><strong>{child.title}</strong><Status value={child.status} /><small>{child.kind} · {shortId(child.id)}</small></div>) : <span className="muted">No delegated tasks</span>}</div></details>
+      </div>; })}
     </div>}
   </section>;
 }

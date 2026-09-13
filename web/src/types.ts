@@ -54,6 +54,7 @@ export type Agent = {
   executionNodeId: string | null;
   activeTaskId: string | null;
   activeTurnId: string | null;
+  runtimeGeneration: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -90,6 +91,9 @@ export type Task = {
   report: string | null;
   createdAt: string;
   updatedAt: string;
+  dependencyReason?: string | null;
+  blocker?: string | null;
+  nextAction?: string | null;
 };
 
 export type AgentMessageType =

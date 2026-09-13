@@ -119,6 +119,29 @@ public class TaskEntity {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
+    public String getDependencyReason() {
+        return status == TaskStatus.WAITING_DEPENDENCY ? lastError : null;
+    }
+
+    public String getBlocker() {
+        if (status == TaskStatus.BLOCKED) return lastError;
+        return report != null && report.startsWith("BLOCKER:") ? report : null;
+    }
+
+    public String getNextAction() {
+        return switch (status) {
+            case READY -> "Dispatch when the assigned agent is ready";
+            case DISPATCHING, DISPATCHED -> "Wait for runtime acceptance/start";
+            case RUNNING -> "Wait for task report or blocker";
+            case WAITING_DEPENDENCY -> "Resolve prerequisite or delegated task";
+            case WAITING_APPROVAL -> "Resolve the pending approval";
+            case BLOCKED -> "Review blocker, then redispatch or change scope";
+            case COMPLETED -> "No action";
+            case FAILED -> "Inspect failure, then retry only after reconciliation";
+            case CANCELLED, PAUSED, QUEUED -> "Resume or cancel deliberately";
+        };
+    }
+
     public void setStatus(TaskStatus status) { this.status = status; }
     public void setQueuedSubmissionId(String value) { this.queuedSubmissionId = value; }
     public void setTurnId(String value) { this.turnId = value; }
