@@ -7,6 +7,7 @@ import com.agenticform.agent.AgentStatus;
 import com.agenticform.message.AgentMessageDeliveryEntity;
 import com.agenticform.message.AgentMessageDeliveryRepository;
 import com.agenticform.task.TaskEntity;
+import com.agenticform.task.TaskDispatchService;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.task.TaskStatus;
 import org.springframework.stereotype.Service;
@@ -99,7 +100,7 @@ public class NodeCommandCompletionHandler {
                         "runtimeSessionId", runtimeSessionId,
                         "runtimeType", runtimeType.name(),
                         "clientMessageId", clientMessageId,
-                        "prompt", task.getPrompt()));
+                        "prompt", TaskDispatchService.promptWithCompletionContract(task.getPrompt())));
         task.setQueuedSubmissionId("node-command:" + dispatch.getId());
         task.setTurnId(null);
         task.setStatus(TaskStatus.DISPATCHED);

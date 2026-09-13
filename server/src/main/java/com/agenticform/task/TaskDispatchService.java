@@ -21,6 +21,7 @@ import java.util.UUID;
 
 @Service
 public class TaskDispatchService {
+    public static final String COMPLETION_CONTRACT = "\n\nMANDATORY COMPLETION CONTRACT: Before ending this task, call agenticform.report_task with outcome, changed files, validation, blockers, and follow-up. Orchestrators must delegate required work with agenticform.create_task, collect durable reports, then submit the consolidated report. Never finish with analysis only.";
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
     private final AgentRuntimeRegistry runtimeRegistry;
@@ -136,7 +137,7 @@ public class TaskDispatchService {
                                 "runtimeType", runtimeType(agent).name(),
                                 "runtimeSessionId", runtimeSessionId(agent),
                                 "clientMessageId", clientMessageId,
-                                "prompt", task.getPrompt()));
+                        "prompt", promptWithCompletionContract(task.getPrompt())));
                 task.setQueuedSubmissionId("node-command:" + command.getId());
                 task.setTurnId(null);
                 task.setStatus(TaskStatus.DISPATCHED);
@@ -149,7 +150,7 @@ public class TaskDispatchService {
             }
 
             RuntimeDispatchReceipt receipt = runtimeRegistry.get(agent.getRuntimeType()).dispatch(
-                    new RuntimeSession(agent.getRuntimeSessionId()), clientMessageId, task.getPrompt());
+                    new RuntimeSession(agent.getRuntimeSessionId()), clientMessageId, promptWithCompletionContract(task.getPrompt()));
             TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
                 currentTask.setQueuedSubmissionId(receipt.queuedSubmissionId());
                 if (receipt.turnId() != null) currentTask.setTurnId(receipt.turnId());
@@ -187,5 +188,9 @@ public class TaskDispatchService {
     private String dispatchKey(TaskEntity task, AgentEntity agent) {
         return "dispatch-task:" + task.getId() + ":g" + agent.getRuntimeGeneration()
                 + ":a" + (task.getUpdatedAt() == null ? System.nanoTime() : task.getUpdatedAt().toEpochMilli());
+    }
+
+    public static String promptWithCompletionContract(String prompt) {
+        return prompt + COMPLETION_CONTRACT;
     }
 }
