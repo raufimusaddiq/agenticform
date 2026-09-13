@@ -88,6 +88,7 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
   const [projectCreated, setProjectCreated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [confirmation, setConfirmation] = useState<{ node: ExecutionNode; status: ExecutionNodeStatus } | null>(null);
 
   async function refresh() {
     try {
@@ -200,13 +201,14 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
             <div className="node-actions">
               {node.status === 'ONLINE' && <button className="button secondary" onClick={() => void status(node.id, 'DRAINING')}>Drain</button>}
               {node.status === 'DRAINING' && <button className="button secondary" onClick={() => void status(node.id, 'ONLINE')}>Resume</button>}
-              {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => { if (window.confirm(`Disable ${node.name}? Existing work will not be started on this node.`)) void status(node.id, 'DISABLED'); }}>Disable</button>}
+              {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => setConfirmation({ node, status: 'DISABLED' })}>Disable</button>}
               {node.status === 'DISABLED' && <button className="button secondary" onClick={() => void status(node.id, 'OFFLINE')}>Enable</button>}
-              {node.status !== 'REVOKED' && <button className="button danger" onClick={() => { if (window.confirm(`Revoke ${node.name}? This action cannot be undone from the UI.`)) void status(node.id, 'REVOKED'); }}>Revoke</button>}
+              {node.status !== 'REVOKED' && <button className="button danger" onClick={() => setConfirmation({ node, status: 'REVOKED' })}>Revoke</button>}
             </div>
           </article>;
         })}
       </section>
+      {confirmation && <div className="confirm-backdrop" role="presentation" onMouseDown={() => setConfirmation(null)}><section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" onMouseDown={(event) => event.stopPropagation()}><h3 id="confirm-title">{confirmation.status === 'REVOKED' ? 'Revoke node?' : 'Disable node?'}</h3><p>{confirmation.node.name} will be {confirmation.status === 'REVOKED' ? 'permanently revoked' : 'removed from scheduling'}. Existing work will not be restarted.</p><div className="form-actions"><button className="button ghost" onClick={() => setConfirmation(null)}>Cancel</button><button className={confirmation.status === 'REVOKED' ? 'button danger' : 'button secondary'} onClick={() => { const item = confirmation; setConfirmation(null); void status(item.node.id, item.status); }}>{confirmation.status === 'REVOKED' ? 'Revoke node' : 'Disable node'}</button></div></section></div>}
     </section>
   </div>;
 }

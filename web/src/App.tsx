@@ -328,20 +328,22 @@ function relativeTime(value: string) {
 }
 
 function Projects({ projects, agents, tasks, candidates, onRegister, onDiscover, onRegisterCandidate, onEnsureSystemAgents }: { projects: Project[]; agents: Agent[]; tasks: Task[]; candidates: ProjectCandidate[]; onRegister: () => void; onDiscover: () => void; onRegisterCandidate: (candidate: ProjectCandidate) => void; onEnsureSystemAgents: (projectId: string) => void }) {
-  return <section className="panel"><div className="section-header"><div><p className="eyebrow">Approved roots</p><h2>Projects</h2></div><div className="form-actions"><button className="button secondary" onClick={onDiscover}>Scan roots</button><button className="button primary" onClick={onRegister}>Register project</button></div></div>
-    {!projects.length ? <Empty title="No projects registered" body="Register a repository under an allowed server root." /> : <div className="data-list">
+  const [selectedId, setSelectedId] = useState<string | null>(projects[0]?.id ?? null);
+  const selected = projects.find((project) => project.id === selectedId);
+  return <section className="panel"><div className="section-header"><div><h2>Projects</h2></div><div className="form-actions"><button className="button secondary" onClick={onDiscover}>Scan roots</button><button className="button primary" onClick={onRegister}>Register project</button></div></div>
+    {!projects.length ? <Empty title="No projects registered" body="Register a repository under an allowed server root." /> : <div className="split-workbench"><div className="data-list">
       {projects.map((project) => {
         const projectAgents = agents.filter((agent) => agent.projectId === project.id);
         const ops = projectAgents.find((agent) => agent.role === 'OPERATIONAL');
         const orchestrator = projectAgents.find((agent) => agent.role === 'ORCHESTRATOR');
         const openTasks = tasks.filter((task) => task.projectId === project.id && !['COMPLETED', 'CANCELLED'].includes(task.status));
         const unhealthy = projectAgents.some((agent) => ['FAILED', 'DISCONNECTED', 'BLOCKED'].includes(agent.status));
-        return <div className="data-row project-row" key={project.id}>
+        return <div className={`data-row project-row workbench-row${selectedId === project.id ? ' selected' : ''}`} key={project.id} role="button" tabIndex={0} onClick={() => setSelectedId(project.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedId(project.id); }}>
           <div><strong>{project.name}</strong><code>{project.sourceType === 'GIT' ? project.repositoryUrl : project.rootDirectory}</code></div>
           <span>{project.defaultBranch}</span><span>{projectAgents.length} agents</span><span>{openTasks.length} active tasks</span><span>{ops && orchestrator ? 'System agents ready' : 'System agents pending'}</span><Status value={unhealthy ? 'FAILED' : 'IDLE'} />{(!ops || !orchestrator) && <button className="button compact secondary" onClick={() => onEnsureSystemAgents(project.id)}>Enable system agents</button>}
         </div>;
       })}
-    </div>}
+    </div><aside className="inspector">{selected ? <><h3>{selected.name}</h3><dl><dt>Source</dt><dd>{selected.sourceType}</dd><dt>Location</dt><dd><code>{selected.sourceType === 'GIT' ? selected.repositoryUrl : selected.rootDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.defaultBranch}</code></dd><dt>Agents</dt><dd>{agents.filter((agent) => agent.projectId === selected.id).length}</dd><dt>Open tasks</dt><dd>{tasks.filter((task) => task.projectId === selected.id && !['COMPLETED', 'CANCELLED'].includes(task.status)).length}</dd></dl></> : <p className="muted">Select a project.</p>}</aside></div>}
     {candidates.length > 0 && <div className="data-list"><div className="section-header"><div><p className="eyebrow">Discovery results</p><h2>Repositories</h2></div></div>{candidates.map((candidate) => <div className="data-row" key={candidate.path}><div><strong>{candidate.name}</strong><code>{candidate.path}</code></div><span>{candidate.detectedBranch || 'main'}</span><span>{candidate.registered ? 'Registered' : 'Unregistered'}</span>{!candidate.registered && <button className="button compact secondary" onClick={() => onRegisterCandidate(candidate)}>Register</button>}</div>)}</div>}
   </section>;
 }
@@ -355,10 +357,12 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
 }) {
   const working = agents.filter((agent) => agent.status === 'WORKING').length;
   const blocked = agents.filter((agent) => ['BLOCKED', 'WAITING_APPROVAL', 'FAILED', 'DISCONNECTED'].includes(agent.status)).length;
-  return <section className="panel"><div className="section-header"><div><p className="eyebrow">Codex threads</p><h2>Agent roster</h2></div></div>
+  const [selectedId, setSelectedId] = useState<string | null>(agents[0]?.id ?? null);
+  const selected = agents.find((agent) => agent.id === selectedId);
+  return <section className="panel"><div className="section-header"><div><h2>Agents</h2></div></div>
     <div className="inline-summary"><span><i className="summary-mark mark-live" />{working} working</span><span><i className="summary-mark mark-warning" />{blocked} attention</span><span>{agents.length} total</span></div>
-    {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="data-list">
-      {agents.map((agent) => <div className="data-row agent-detail-row human-agent-row" key={agent.id}>
+    {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="split-workbench"><div className="data-list">
+      {agents.map((agent) => <div className={`data-row agent-detail-row human-agent-row workbench-row${selectedId === agent.id ? ' selected' : ''}`} key={agent.id} role="button" tabIndex={0} onClick={() => setSelectedId(agent.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedId(agent.id); }}>
         <div><strong>{agent.name}</strong><small>{projectById.get(agent.projectId)?.name} · {label(agent.role)}{agent.specialty ? ` · ${agent.specialty}` : ''}{agent.systemManaged ? ' · system managed' : ''}</small></div>
         <Status value={agent.status} />
         <p>{agent.responsibility}</p>
@@ -367,7 +371,7 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
         <div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small><code title={agent.runtimeSessionId}>{shortId(agent.runtimeSessionId)}</code><HumanControlIndicator mode={agent.humanControlMode} /></div>
         <button className="button compact secondary" onClick={() => onIntervene(agent.id)} disabled={agent.queueMode === 'PAUSED' && !agent.activeTurnId}>Intervene</button>
       </div>)}
-    </div>}
+    </div><aside className="inspector">{selected ? <><h3>{selected.name}</h3><Status value={selected.status} /><dl><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name ?? 'Unknown project'}</dd><dt>Responsibility</dt><dd>{selected.responsibility}</dd><dt>Capability</dt><dd>{selected.capabilityProfile}</dd><dt>Runtime session</dt><dd><code>{shortId(selected.runtimeSessionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.activeTurnId)}</code></dd><dt>Directory</dt><dd><code>{selected.workingDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.branch ?? 'shared workspace'}</code></dd><dt>Execution node</dt><dd><code>{shortId(selected.executionNodeId)}</code></dd><dt>Supervision</dt><dd><HumanControlIndicator mode={selected.humanControlMode} /></dd></dl></> : <p className="muted">Select an agent.</p>}</aside></div>}
   </section>;
 }
 
