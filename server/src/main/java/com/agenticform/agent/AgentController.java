@@ -84,6 +84,11 @@ public class AgentController {
         return recovery.recover(agentId);
     }
 
+    @PostMapping("/{agentId}/restart-runtime")
+    public AgentEntity restartRuntime(@PathVariable UUID agentId) {
+        return recovery.restart(agentId);
+    }
+
     @PostMapping("/{agentId}/cleanup-runtime")
     public AgentEntity cleanupRuntime(@PathVariable UUID agentId) {
         return recovery.cleanup(agentId);
