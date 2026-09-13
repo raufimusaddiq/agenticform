@@ -8,6 +8,7 @@ It is designed around these core concepts:
 - **Agents** — Codex sessions with explicit responsibility, role, workspace ownership, and optional execution-node placement.
 - **Tasks** — durable units of work assigned to coding/general agents.
 - **Agent communication fabric** — durable direct, multicast, role, group, and project-broadcast communication with per-recipient delivery state.
+- **Orchestrator** — one system-managed agent per project that owns the human-facing task pipe, delegation, and consolidated reports.
 - **Operational Agent** — one system-managed agent per project that owns CI/CD and operational reasoning without holding production credentials.
 - **Execution nodes** — outbound-only workers enrolled with one-time tokens and long-lived Ed25519 device identities.
 - **Runtime generation fencing** — remote agent runtimes are versioned so a stale/reconnected node cannot mutate a newer replacement runtime.

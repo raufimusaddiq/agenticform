@@ -28,7 +28,7 @@ Operational Layer
 
 The Operational Agent is still an agentic LLM. The Operational Layer is not. This separation keeps reasoning adaptive while production effects remain deterministic.
 
-Every active project gets at most one system-managed `OPERATIONAL` agent. Provisioning is lazy so project registration does not fail merely because Codex is temporarily unavailable: spawning a normal agent guarantees the Operational Agent is provisioned first, and operators can explicitly provision it from the Operations UI/API for existing projects.
+Every active project gets at most one system-managed `ORCHESTRATOR` agent and one system-managed `OPERATIONAL` agent. Provisioning is lazy so project registration does not fail merely because Codex is temporarily unavailable: spawning a normal agent guarantees both system agents are provisioned first, and operators can explicitly provision them from the Operations UI/API for existing projects.
 
 The Operational Agent uses the shared project workspace to avoid creating another writer worktree. It does not own production credentials and is not intended to edit application source. When source changes are required, it hands work back to coding agents through Agenticform messaging.
 

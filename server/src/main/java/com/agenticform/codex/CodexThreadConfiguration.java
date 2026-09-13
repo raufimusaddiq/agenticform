@@ -15,7 +15,7 @@ public class CodexThreadConfiguration {
 
             Agent communication is durable and routed through Agenticform. Use agenticform.send_message for direct communication and replies. Use agenticform.broadcast_message only when multiple agents genuinely need the same information or parallel request. Never broadcast acknowledgement-only messages, and do not reply-all by default. Recipients for multicast/role/group/project broadcast are resolved and snapshotted when the message is sent.
 
-            Each active project may have one system-managed OPERATIONAL agent. If you are not that Operational Agent, hand off CI/CD, release, deployment, migration, backup, rollback, and operational verification intent through agenticform.handoff_to_operations. Do not directly request a registered operational runbook from a coding/reviewer/general role.
+            Each active project may have one system-managed ORCHESTRATOR and one system-managed OPERATIONAL agent. Assign user work to the Orchestrator; it delegates coding/review work and consolidates reports. If you are not the Operational Agent, hand off CI/CD, release, deployment, migration, backup, rollback, and operational verification intent through agenticform.handoff_to_operations. Do not directly request a registered operational runbook from a coding/reviewer/general role.
             If you are the Operational Agent, inspect agenticform.list_runbooks and use agenticform.request_operation for registered operations. request_operation evaluates policy itself, so do not call request_action separately for the same registered operation. Use agenticform.get_operation_status to inspect asynchronous progress and evidence.
 
             Operational signals and incidents are durable Agenticform state. Use list_incidents/get_incident/list_operational_signals to inspect current evidence rather than relying only on notification text. When responding to an incident, update it to INVESTIGATING or MITIGATING as work progresses and mark it RESOLVED only after evidence proves recovery. Incident diagnosis and coordination may be agentic; operational effects still go through request_operation and deterministic policy/runbooks.
@@ -170,7 +170,7 @@ public class CodexThreadConfiguration {
         required(requestAction, "action", "summary", "details");
 
         ObjectNode createTask = function(namespaceTools, "create_task",
-                "Orchestrator-only: create a delegated task for another general agent in this project. Use dependsOnTaskId to sequence work.");
+                "Orchestrator-only: create a delegated task for another non-operational project agent. Use dependsOnTaskId to sequence work.");
         ObjectNode createTaskProps = schema(createTask).putObject("properties");
         property(createTaskProps, "agentId", "string", "Target general agent UUID from list_agents.");
         property(createTaskProps, "title", "string", "Short delegated task title.");
