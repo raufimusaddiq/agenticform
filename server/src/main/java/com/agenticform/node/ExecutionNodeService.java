@@ -182,7 +182,8 @@ public class ExecutionNodeService {
 
     private void reconcileIdleRuntime(AgentEntity agent, RuntimeObservation observation) {
         if (!"IDLE".equalsIgnoreCase(observation.runtimeStatus()) || agent.getActiveTaskId() == null) return;
-        TaskEntity task = tasks.findById(agent.getActiveTaskId()).orElse(null);
+        UUID activeTaskId = agent.getActiveTaskId();
+        TaskEntity task = tasks.findById(activeTaskId).orElse(null);
         if (task == null || (task.getStatus() != TaskStatus.DISPATCHED && task.getStatus() != TaskStatus.RUNNING)
                 || task.getUpdatedAt() == null
                 || task.getUpdatedAt().isAfter(Instant.now().minus(Duration.ofSeconds(30)))) return;
@@ -199,7 +200,7 @@ public class ExecutionNodeService {
         task.setQueuedSubmissionId(null);
         task.setTurnId(null);
         tasks.save(task);
-        taskDependencies.reconcileDependents(task.getId());
+        taskDependencies.reconcileDependents(activeTaskId);
 
         agent.setStatus(AgentStatus.IDLE);
         agent.setActiveTaskId(null);
