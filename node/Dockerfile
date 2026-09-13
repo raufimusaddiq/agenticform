@@ -12,6 +12,8 @@ RUN apt-get update \
     && groupadd --gid 10001 agenticform \
     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin agenticform \
     && rm -rf /var/lib/apt/lists/* /root/.npm
+COPY --from=build /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}"
 COPY --from=build /out/agenticform-node /usr/local/bin/agenticform-node
 RUN mkdir -p /var/lib/agenticform-node \
     && chown 10001:10001 /var/lib/agenticform-node \

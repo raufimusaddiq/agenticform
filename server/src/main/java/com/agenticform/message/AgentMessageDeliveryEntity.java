@@ -116,6 +116,7 @@ public class AgentMessageDeliveryEntity {
     }
 
     public void resetForRetry() {
+        attemptCount++;
         status = AgentMessageStatus.CREATED;
         turnId = null;
         processingStartedAt = null;

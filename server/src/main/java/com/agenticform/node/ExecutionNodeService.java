@@ -2,7 +2,13 @@ package com.agenticform.node;
 
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
+import com.agenticform.agent.AgentStatus;
 import com.agenticform.config.AgenticformProperties;
+import com.agenticform.event.ControlPlaneEventBus;
+import com.agenticform.task.TaskDependencyService;
+import com.agenticform.task.TaskEntity;
+import com.agenticform.task.TaskRepository;
+import com.agenticform.task.TaskStatus;
 import com.agenticform.runtime.RuntimeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HexFormat;
@@ -40,7 +47,10 @@ public class ExecutionNodeService {
     private final NodeEnrollmentTokenRepository tokens;
     private final NodeCommandRepository commands;
     private final AgentRepository agents;
+    private final TaskRepository tasks;
+    private final TaskDependencyService taskDependencies;
     private final NodeRuntimeSnapshotRepository runtimeSnapshots;
+    private final ControlPlaneEventBus events;
     private final AgenticformProperties properties;
     private final ObjectMapper mapper;
     private final SecureRandom random = new SecureRandom();
@@ -49,16 +59,22 @@ public class ExecutionNodeService {
                                 NodeEnrollmentTokenRepository tokens,
                                 NodeCommandRepository commands,
                                 AgentRepository agents,
+                                TaskRepository tasks,
+                                TaskDependencyService taskDependencies,
                                 NodeRuntimeSnapshotRepository runtimeSnapshots,
                                 AgenticformProperties properties,
-                                ObjectMapper mapper) {
+                                ObjectMapper mapper,
+                                ControlPlaneEventBus events) {
         this.nodes = nodes;
         this.tokens = tokens;
         this.commands = commands;
         this.agents = agents;
+        this.tasks = tasks;
+        this.taskDependencies = taskDependencies;
         this.runtimeSnapshots = runtimeSnapshots;
         this.properties = properties;
         this.mapper = mapper;
+        this.events = events;
     }
 
     public List<ExecutionNodeEntity> list() {
@@ -159,8 +175,40 @@ public class ExecutionNodeService {
             if (!sessionMatch && !firstBind) continue;
             agent.recoverFromSnapshot(observation.runtimeGeneration(), observation.runtimeSessionId(),
                     observation.sourceDirectory(), observation.workingDirectory(), observation.branch());
+            reconcileIdleRuntime(agent, observation);
             agents.save(agent);
         }
+    }
+
+    private void reconcileIdleRuntime(AgentEntity agent, RuntimeObservation observation) {
+        if (!"IDLE".equalsIgnoreCase(observation.runtimeStatus()) || agent.getActiveTaskId() == null) return;
+        TaskEntity task = tasks.findById(agent.getActiveTaskId()).orElse(null);
+        if (task == null || (task.getStatus() != TaskStatus.DISPATCHED && task.getStatus() != TaskStatus.RUNNING)
+                || task.getUpdatedAt() == null
+                || task.getUpdatedAt().isAfter(Instant.now().minus(Duration.ofSeconds(30)))) return;
+
+        String report = task.getReport() == null ? "" : task.getReport().trim();
+        if (report.isBlank()) {
+            task.setStatus(TaskStatus.BLOCKED);
+            task.setLastError("Runtime reported IDLE without a terminal task event or task report");
+        } else if (report.startsWith("BLOCKER:")) {
+            task.setStatus(TaskStatus.BLOCKED);
+        } else {
+            task.setStatus(TaskStatus.COMPLETED);
+        }
+        task.setQueuedSubmissionId(null);
+        task.setTurnId(null);
+        tasks.save(task);
+        taskDependencies.reconcileDependents(task.getId());
+
+        agent.setStatus(AgentStatus.IDLE);
+        agent.setActiveTaskId(null);
+        agent.setActiveTurnId(null);
+        events.publish("task.reconciled", task.getProjectId(), task.getId());
+    }
+
+    private boolean terminal(TaskStatus status) {
+        return status == TaskStatus.COMPLETED || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
     }
 
     @Transactional
