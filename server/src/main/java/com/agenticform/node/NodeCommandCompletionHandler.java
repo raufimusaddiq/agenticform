@@ -93,7 +93,8 @@ public class NodeCommandCompletionHandler {
 
         String clientMessageId = "agenticform-task:" + task.getId() + ":g" + command.getRuntimeGeneration();
         NodeCommandEntity dispatch = nodes.enqueue(command.getNodeId(), agent.getId(), "DISPATCH_TASK",
-                "dispatch-task:" + task.getId() + ":g" + command.getRuntimeGeneration(), Map.of(
+                "dispatch-task:" + task.getId() + ":g" + command.getRuntimeGeneration()
+                        + ":a" + (task.getUpdatedAt() == null ? System.nanoTime() : task.getUpdatedAt().toEpochMilli()), Map.of(
                         "taskId", task.getId().toString(),
                         "runtimeSessionId", runtimeSessionId,
                         "runtimeType", runtimeType.name(),

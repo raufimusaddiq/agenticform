@@ -131,7 +131,7 @@ public class TaskDispatchService {
                     throw new IllegalStateException("Remote agent runtime is not ready");
                 }
                 var command = nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "DISPATCH_TASK",
-                        "dispatch-task:" + task.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
+                        dispatchKey(task, agent), Map.of(
                                 "taskId", task.getId().toString(),
                                 "runtimeType", runtimeType(agent).name(),
                                 "runtimeSessionId", runtimeSessionId(agent),
@@ -181,5 +181,10 @@ public class TaskDispatchService {
 
     private RuntimeType runtimeType(AgentEntity agent) {
         return agent.getRuntimeType();
+    }
+
+    private String dispatchKey(TaskEntity task, AgentEntity agent) {
+        return "dispatch-task:" + task.getId() + ":g" + agent.getRuntimeGeneration()
+                + ":a" + (task.getUpdatedAt() == null ? System.nanoTime() : task.getUpdatedAt().toEpochMilli());
     }
 }
