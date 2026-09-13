@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.UUID;
@@ -23,17 +24,24 @@ public class AgentController {
     private final AgentService service;
     private final AgentRuntimeRecoveryService recovery;
     private final AgentLifecycleService lifecycle;
+    private final AgentStreamService stream;
 
     public AgentController(AgentService service, AgentRuntimeRecoveryService recovery,
-                           AgentLifecycleService lifecycle) {
+                           AgentLifecycleService lifecycle, AgentStreamService stream) {
         this.service = service;
         this.recovery = recovery;
         this.lifecycle = lifecycle;
+        this.stream = stream;
     }
 
     @GetMapping
     public List<AgentEntity> list(@RequestParam(required = false) UUID projectId) {
         return service.list(projectId);
+    }
+
+    @GetMapping(value = "/stream", produces = "text/event-stream")
+    public SseEmitter stream() {
+        return stream.subscribe();
     }
 
     @GetMapping("/templates")

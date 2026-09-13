@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
-import { consumeControlPlaneEvents } from './controlPlaneEvents';
+import { consumeAgentStream, consumeControlPlaneEvents } from './controlPlaneEvents';
 import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
 import { OperationsView } from './OperationsView';
@@ -137,11 +137,30 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
     };
 
     void connect();
+
+    let agentStopped = false;
+    let agentReconnectTimer: number | undefined;
+    const connectAgents = async () => {
+      while (!agentStopped && !controller.signal.aborted) {
+        try {
+          await consumeAgentStream(setAgents, controller.signal);
+        } catch (cause) {
+          if (controller.signal.aborted || agentStopped) return;
+          if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') { setError(cause.message); return; }
+        }
+        if (!agentStopped && !controller.signal.aborted) {
+          await new Promise<void>((resolve) => { agentReconnectTimer = window.setTimeout(resolve, 1500); });
+        }
+      }
+    };
+    void connectAgents();
     return () => {
       stopped = true;
+      agentStopped = true;
       controller.abort();
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      if (agentReconnectTimer !== undefined) window.clearTimeout(agentReconnectTimer);
     };
   }, [refresh]);
 

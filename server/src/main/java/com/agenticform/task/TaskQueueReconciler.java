@@ -1,11 +1,16 @@
 package com.agenticform.task;
 
 import com.agenticform.agent.AgentRepository;
+import com.agenticform.agent.AgentStatus;
+import com.agenticform.event.ControlPlaneEventBus;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.runtime.RuntimeSession;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.time.Duration;
+import java.time.Instant;
 
 @Component
 public class TaskQueueReconciler {
@@ -13,13 +18,16 @@ public class TaskQueueReconciler {
     private final AgentRepository agentRepository;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final TaskDependencyService dependencies;
+    private final ControlPlaneEventBus events;
 
     public TaskQueueReconciler(TaskRepository taskRepository, AgentRepository agentRepository,
-                               AgentRuntimeRegistry runtimeRegistry, TaskDependencyService dependencies) {
+                               AgentRuntimeRegistry runtimeRegistry, TaskDependencyService dependencies,
+                               ControlPlaneEventBus events) {
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
         this.runtimeRegistry = runtimeRegistry;
         this.dependencies = dependencies;
+        this.events = events;
     }
 
     @Scheduled(fixedDelayString = "${agenticform.scheduler.reconcile-delay-ms:10000}")
@@ -35,6 +43,22 @@ public class TaskQueueReconciler {
                 continue;
             }
             agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
+                if (task.getUpdatedAt() != null
+                        && task.getUpdatedAt().isBefore(Instant.now().minus(Duration.ofMinutes(2)))
+                        && task.getQueuedSubmissionId() != null
+                        && task.getId().equals(agent.getActiveTaskId())
+                        && agent.getActiveTurnId() == null) {
+                    task.setStatus(TaskStatus.BLOCKED);
+                    task.setLastError("Runtime accepted dispatch but never started a Codex turn");
+                    task.setQueuedSubmissionId(null);
+                    taskRepository.save(task);
+                    agent.setStatus(agent.getStatus() == AgentStatus.WORKING ? AgentStatus.IDLE : agent.getStatus());
+                    agent.setActiveTaskId(null);
+                    agent.setActiveTurnId(null);
+                    agentRepository.save(agent);
+                    events.publish("task.stalled", task.getProjectId(), task.getId());
+                    return;
+                }
                 if (agent.getExecutionNodeId() != null) {
                     updateError(task.getId(), null);
                     return;
