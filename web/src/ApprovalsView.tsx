@@ -5,9 +5,7 @@ import type {
   HumanApprovalDecision,
   Project
 } from './types';
-
-const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}...` : '-');
+import { Status, label, shortId, HumanControlIndicator } from './ui';
 
 type UserQuestion = {
   id: string;
@@ -58,7 +56,7 @@ export function ApprovalsView({ approvals, agents, projects, onDecision, onAnswe
             <div><strong>{approval.summary}</strong><small>{projectById.get(approval.projectId)?.name} / {agent?.name ?? shortId(approval.agentId)}{approval.policyAction ? ` / ${approval.policyAction}` : ''}</small>{details && <p>{details}</p>}</div>
             <span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span>
             <span className="mode-pill">{approval.policyEffect ? label(approval.policyEffect) : approval.controlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</span>
-            <span className={`status status-${approval.status.toLowerCase()}`}><span className="status-dot" />{label(approval.status)}</span>
+            <Status value={approval.status} />
             <time>{new Date(approval.resolvedAt ?? approval.createdAt).toLocaleString()}</time>
           </div>;
         })}</div>}
@@ -87,7 +85,7 @@ function ApprovalCard({ approval, agent, project, onDecision, onAnswer }: {
         <div className="approval-title-line"><strong>{approval.summary}</strong><span className={`risk risk-${approval.risk.toLowerCase()}`}>{label(approval.risk)}</span></div>
         <small>{project?.name ?? 'Unknown project'} / {agent?.name ?? shortId(approval.agentId)}</small>
       </div>
-      <div className="approval-badges"><span className="mode-pill">{approval.controlMode === 'IN_THE_LOOP' ? 'HITL override' : 'HOTL'}</span><span>{approval.method === 'agenticform/request_human_clarification' ? 'Human clarification' : approval.policyEffect ? label(approval.policyEffect) : label(approval.type)}</span></div>
+      <div className="approval-badges"><HumanControlIndicator mode={approval.controlMode} /><span>{approval.method === 'agenticform/request_human_clarification' ? 'Human clarification' : approval.policyEffect ? label(approval.policyEffect) : label(approval.type)}</span></div>
     </header>
 
     <ApprovalDetails approval={approval} payload={payload} agent={agent} />

@@ -1,5 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react';
 import type { Agent, AgentMessage, AgentMessageType, CommunicationRule, Project } from './types';
+import { Status, label, shortId } from './ui';
 import './messages.css';
 
 const messageTypes: AgentMessageType[] = [
@@ -7,8 +8,6 @@ const messageTypes: AgentMessageType[] = [
   'REVIEW_REQUEST', 'REVIEW_RESULT', 'INFORMATION', 'BLOCKER'
 ];
 
-const label = (value: string) => value.toLowerCase().replaceAll('_', ' ');
-const shortId = (value: string | null) => (value ? `${value.slice(0, 8)}...` : '-');
 
 export function MessagesView({ messages, agents, projects, communicationRules, onSend, onSaveRule, onDeleteRule }: {
   messages: AgentMessage[];
@@ -41,6 +40,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
   const [ruleFrom, setRuleFrom] = useState(projects[0]?.id ?? '');
   const [ruleTo, setRuleTo] = useState(projects[1]?.id ?? '');
   const [ruleEffect, setRuleEffect] = useState<'ALLOW' | 'DENY'>('ALLOW');
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const conversations = useMemo(() => {
     const grouped = new Map<string, AgentMessage[]>();
     messages.forEach((message) => grouped.set(message.conversationId, [...(grouped.get(message.conversationId) ?? []), message]));
@@ -49,6 +49,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
 
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
+  const activeConversation = conversations.find(([id]) => id === selectedConversationId)?.[1] ?? conversations[0]?.[1] ?? [];
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -65,31 +66,33 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
     }
   };
 
-  return <div className="page-stack messages-layout">
-    <section className="panel">
-      <div className="section-header">
-        <div><p className="eyebrow">Agent-to-agent channel</p><h2>Agent messages</h2></div>
-        <span className="muted">{messages.length} messages</span>
-      </div>
-      {!messages.length ? <div className="empty"><strong>No agent messages yet</strong><p>Messages sent through native Codex dynamic tools will appear here.</p></div> : <div className="data-list">
-        {[...messages].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map((message) => {
+  return <div className="page-stack">
+    <section className="panel communication-workspace">
+      <aside className="conversation-index">
+        <div className="section-header"><div><p className="eyebrow">Agent communication</p><h2>Conversations</h2></div><span className="muted">{messages.length}</span></div>
+        {!conversations.length ? <div className="empty"><strong>No conversations</strong><p>Messages exchanged through Codex tools will appear here.</p></div> : <div className="conversation-list">{conversations.map(([id, thread]) => {
+          const last = thread[thread.length - 1];
+          const from = agentById.get(last.fromAgentId)?.name ?? shortId(last.fromAgentId);
+          const active = (selectedConversationId ?? conversations[0][0]) === id;
+          return <button className={`conversation-item${active ? ' active' : ''}`} type="button" key={id} onClick={() => setSelectedConversationId(id)}><strong>{thread[0].subject}</strong><span>{from} / {thread.length} message{thread.length === 1 ? '' : 's'}</span><small>{relativeTime(last.updatedAt)}</small></button>;
+        })}</div>}
+      </aside>
+      <section className="conversation-thread" aria-label="Active conversation">
+        <div className="section-header"><div><p className="eyebrow">Active thread</p><h2>{activeConversation[0]?.subject ?? 'Select a conversation'}</h2></div>{activeConversation[0] && <code>{shortId(activeConversation[0].conversationId)}</code>}</div>
+        {!activeConversation.length ? <div className="empty"><strong>Nothing selected</strong><p>Choose a conversation to inspect its delivery state and reply chain.</p></div> : <div className="message-timeline">{activeConversation.map((message) => {
           const from = agentById.get(message.fromAgentId);
           const to = message.toAgentId ? agentById.get(message.toAgentId) : undefined;
           const targetLabel = to?.name ?? (message.toAgentId ? shortId(message.toAgentId) : label(message.audienceType));
           return <article className="message-row" key={message.id}>
-            <div className="message-meta">
-              <div><strong>{message.subject}</strong><small>{projectById.get(message.projectId)?.name ?? 'Unknown project'}</small></div>
-              <span className={`message-type message-type-${message.type.toLowerCase()}`}>{label(message.type)}</span>
-              <span className={`status status-${message.status.toLowerCase()}`}><span className="status-dot" />{label(message.status)}</span>
-            </div>
-            <p className="message-route"><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><span>to</span><strong>{targetLabel}</strong><span>hop {message.hopCount}/6</span></p>
+            <div className="message-meta"><div><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><small>{projectById.get(message.projectId)?.name ?? 'Unknown project'} / {new Date(message.createdAt).toLocaleString()}</small></div><span className={`message-type message-type-${message.type.toLowerCase()}`}>{label(message.type)}</span><Status value={message.status} /></div>
+            <p className="message-route"><span>to</span><strong>{targetLabel}</strong><span>hop {message.hopCount}/6</span></p>
             <p className="message-body">{message.content}</p>
             <button className="button ghost" type="button" onClick={() => { setReplyTo(message); setFromAgentId(message.toAgentId ?? source?.id ?? ''); setToAgentId(message.fromAgentId); }}>Reply</button>
-            <div className="message-machine"><code>message {shortId(message.id)}</code><code>conversation {shortId(message.conversationId)}</code><code>queue {shortId(message.queuedSubmissionId)}</code><code>turn {shortId(message.turnId)}</code></div>
+            <div className="message-machine"><code>message {shortId(message.id)}</code><code>queue {shortId(message.queuedSubmissionId)}</code><code>turn {shortId(message.turnId)}</code></div>
             {message.lastError && <p className="inline-error">{message.lastError}</p>}
           </article>;
-        })}
-      </div>}
+        })}</div>}
+      </section>
     </section>
 
     <section className="panel compose-panel">
@@ -112,21 +115,24 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
       </form>}
     </section>
 
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Conversation threads</p><h2>Replies</h2></div><span className="muted">{conversations.length} conversations</span></div>
-      {!conversations.length ? <div className="empty"><strong>No conversations yet</strong></div> : <div className="data-list">{conversations.map(([id, thread]) => <article className="message-row" key={id}><strong>{thread[0].subject}</strong><small>{thread.length} message{thread.length === 1 ? '' : 's'} / {thread[0].conversationId.slice(0, 8)}...</small><p className="message-body">{thread[thread.length - 1].content}</p></article>)}</div>}
-    </section>
-
-    <section className="panel">
-      <div className="section-header"><div><p className="eyebrow">Cross-project guardrail</p><h2>Communication rules</h2></div></div>
+    <details className="panel rules-panel">
+      <summary className="section-header"><div><p className="eyebrow">Cross-project guardrail</p><h2>Communication rules</h2></div><span className="muted">{communicationRules.length} rules</span></summary>
       <form onSubmit={async (event) => { event.preventDefault(); if (ruleFrom !== ruleTo) await onSaveRule({ fromProjectId: ruleFrom, toProjectId: ruleTo, effect: ruleEffect, enabled: true }); }}>
         <div className="form-grid"><label>From project<select required value={ruleFrom} onChange={(event) => setRuleFrom(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label>To project<select required value={ruleTo} onChange={(event) => setRuleTo(event.target.value)}>{projects.filter((project) => project.id !== ruleFrom).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label></div>
         <label>Effect<select value={ruleEffect} onChange={(event) => setRuleEffect(event.target.value as 'ALLOW' | 'DENY')}><option value="ALLOW">Allow messages</option><option value="DENY">Deny messages</option></select></label>
         <footer className="form-actions"><button className="button primary" disabled={projects.length < 2}>Save rule</button></footer>
       </form>
       <div className="data-list">{communicationRules.map((rule) => <div className="data-row" key={rule.id}><span>{projectById.get(rule.fromProjectId)?.name ?? shortId(rule.fromProjectId)} to {projectById.get(rule.toProjectId)?.name ?? shortId(rule.toProjectId)}</span><StatusLike value={rule.effect} /><button className="button ghost" type="button" onClick={() => void onDeleteRule(rule.id)}>Delete</button></div>)}</div>
-    </section>
+    </details>
   </div>;
 }
 
-function StatusLike({ value }: { value: string }) { return <span className={`status status-${value.toLowerCase()}`}><span className="status-dot" />{label(value)}</span>; }
+function relativeTime(value: string) {
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
+}
+
+function StatusLike({ value }: { value: string }) { return <Status value={value} />; }

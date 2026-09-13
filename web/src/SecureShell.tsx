@@ -3,6 +3,7 @@ import App from './App';
 import { api } from './api';
 import { clearAdminToken, getAdminToken, setAdminToken } from './auth';
 import type { ExecutionNode, ExecutionNodeStatus, NodeEnrollment, NodeTrustLevel } from './nodeTypes';
+import { LoadingState, Status } from './ui';
 import './nodes.css';
 
 const trustLevels: NodeTrustLevel[] = ['UNTRUSTED', 'STANDARD', 'TRUSTED', 'PRIVILEGED'];
@@ -180,14 +181,14 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
 
       <section className="node-list">
         <div className="section-header"><div><p className="eyebrow">Capacity</p><h3>Registered nodes</h3></div><button className="button ghost" onClick={() => void refresh()}>Refresh</button></div>
-        {loading ? <div className="loading">Loading nodes…</div> : !nodes.length ? <div className="empty-state">No execution nodes enrolled.</div> : nodes.map((node) => {
+        {loading ? <LoadingState label="Loading execution nodes" /> : !nodes.length ? <div className="empty-state">No execution nodes enrolled.</div> : nodes.map((node) => {
           const codex = runtimeReadiness(node, 'CODEX');
           const runtimeMessage = node.status !== 'ONLINE' ? `Node ${node.status.toLowerCase()}`
             : !codex.available ? 'Codex runtime missing'
               : !codex.authenticated ? 'Codex authentication required'
                 : node.protocolCompatible === false ? 'Node protocol incompatible' : 'Ready';
           return <article className="node-card" key={node.id}>
-            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} / {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><span className={`status status-${node.status.toLowerCase()}`}>{node.status.toLowerCase()}</span></div>
+            <div className="node-title"><div><strong>{node.name}</strong><small>{node.hostname || 'hostname pending'} / {node.os || 'OS pending'} / {node.arch || 'arch pending'}</small></div><Status value={node.status} /></div>
             <div className="node-facts">
               <span><small>Trust</small>{node.trustLevel}</span>
               <span><small>Capacity</small>{node.maxAgents} agents</span>
@@ -199,9 +200,9 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
             <div className="node-actions">
               {node.status === 'ONLINE' && <button className="button secondary" onClick={() => void status(node.id, 'DRAINING')}>Drain</button>}
               {node.status === 'DRAINING' && <button className="button secondary" onClick={() => void status(node.id, 'ONLINE')}>Resume</button>}
-              {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => void status(node.id, 'DISABLED')}>Disable</button>}
+              {node.status !== 'DISABLED' && node.status !== 'REVOKED' && <button className="button ghost" onClick={() => { if (window.confirm(`Disable ${node.name}? Existing work will not be started on this node.`)) void status(node.id, 'DISABLED'); }}>Disable</button>}
               {node.status === 'DISABLED' && <button className="button secondary" onClick={() => void status(node.id, 'OFFLINE')}>Enable</button>}
-              {node.status !== 'REVOKED' && <button className="button danger" onClick={() => void status(node.id, 'REVOKED')}>Revoke</button>}
+              {node.status !== 'REVOKED' && <button className="button danger" onClick={() => { if (window.confirm(`Revoke ${node.name}? This action cannot be undone from the UI.`)) void status(node.id, 'REVOKED'); }}>Revoke</button>}
             </div>
           </article>;
         })}
