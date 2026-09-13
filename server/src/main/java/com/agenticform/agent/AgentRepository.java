@@ -1,5 +1,6 @@
 package com.agenticform.agent;
 
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
@@ -11,6 +12,6 @@ public interface AgentRepository extends JpaRepository<AgentEntity, UUID> {
     List<AgentEntity> findAllByProjectId(UUID projectId);
     List<AgentEntity> findAllByExecutionNodeId(UUID executionNodeId);
     long countByExecutionNodeIdAndStatusIn(UUID executionNodeId, Collection<AgentStatus> statuses);
-    Optional<AgentEntity> findByCodexThreadId(String codexThreadId);
+    Optional<AgentEntity> findByRuntimeTypeAndRuntimeSessionId(RuntimeType runtimeType, String runtimeSessionId);
     Optional<AgentEntity> findByProjectIdAndRole(UUID projectId, AgentRole role);
 }

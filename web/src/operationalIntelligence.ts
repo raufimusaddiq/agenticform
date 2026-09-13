@@ -36,8 +36,8 @@ export type OperationalIncident = {
   wakeStatus: OperationalWakeStatus;
   wakeAttempts: number;
   wakeCommandId: string | null;
-  codexQueuedSubmissionId: string | null;
-  codexTurnId: string | null;
+  queuedSubmissionId: string | null;
+  turnId: string | null;
   lastWakeError: string | null;
   resolutionSummary: string | null;
   firstSeenAt: string;

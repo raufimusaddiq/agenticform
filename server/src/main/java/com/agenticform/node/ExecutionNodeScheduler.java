@@ -37,7 +37,7 @@ public class ExecutionNodeScheduler {
     public ExecutionNodeEntity select(UUID preferredNodeId, NodeTrustLevel minimumTrust,
                                       Set<String> requiredCapabilities, Set<UUID> excludedNodeIds) {
         NodeTrustLevel trust = minimumTrust == null ? NodeTrustLevel.STANDARD : minimumTrust;
-        Set<String> capabilities = requiredCapabilities == null ? Set.of("codex", "git") : requiredCapabilities;
+        Set<String> capabilities = requiredCapabilities == null ? Set.of("runtime:CODEX", "git") : requiredCapabilities;
         Set<UUID> excluded = excludedNodeIds == null ? Set.of() : excludedNodeIds;
 
         if (preferredNodeId != null) {
@@ -86,7 +86,12 @@ public class ExecutionNodeScheduler {
         try {
             JsonNode capabilities = mapper.readTree(node.getCapabilitiesJson());
             for (String capability : required) {
-                if (!capabilities.path(capability).asBoolean(false)) return false;
+                if (capability.startsWith("runtime:")) {
+                    String runtime = capability.substring("runtime:".length());
+                    JsonNode descriptor = capabilities.path("runtimes").path(runtime);
+                    if (!descriptor.path("available").asBoolean(false)
+                            || !descriptor.path("authenticated").asBoolean(false)) return false;
+                } else if (!capabilities.path(capability).asBoolean(false)) return false;
             }
             return true;
         } catch (Exception error) {

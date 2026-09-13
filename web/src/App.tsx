@@ -16,7 +16,8 @@ import type {
   Project,
   Task,
   WorkspaceMode,
-  CommunicationRule
+  CommunicationRule,
+  RuntimeType
 } from './types';
 import './approvals.css';
 import './human-control.css';
@@ -276,7 +277,7 @@ function Agents({ agents, projectById, onControlMode, onQueueMode, onIntervene }
         <p>{agent.responsibility}</p>
         <div className="control-stack"><small>Human control</small><select className="compact-select" value={agent.humanControlMode} onChange={(event) => onControlMode(agent.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">On the loop</option><option value="IN_THE_LOOP">In the loop</option></select></div>
         <div className="control-stack"><small>Queue</small><select className="compact-select" value={agent.queueMode} onChange={(event) => onQueueMode(agent.id, event.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></div>
-        <div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small><code title={agent.codexThreadId}>{shortId(agent.codexThreadId)}</code></div>
+        <div className="machine"><code>{agent.branch ?? 'shared workspace'}</code><small>{agent.workingDirectory}</small><code title={agent.runtimeSessionId}>{shortId(agent.runtimeSessionId)}</code></div>
         <button className="button compact secondary" onClick={() => onIntervene(agent.id)} disabled={agent.queueMode === 'PAUSED' && !agent.activeTurnId}>Intervene</button>
       </div>)}
     </div>}
@@ -287,7 +288,7 @@ function Tasks({ tasks, projectById, agentById, onDispatch, onCreate }: { tasks:
   return <section className="panel"><div className="section-header"><div><p className="eyebrow">Durable orchestration</p><h2>Task queue</h2></div><button className="button primary" onClick={onCreate}>New task</button></div>
     {!tasks.length ? <Empty title="No tasks in this scope" body="Create a task and Agenticform will dispatch it according to the agent queue policy." /> : <div className="data-list">
       {tasks.map((task) => <div className="data-row task-detail-row" key={task.id}>
-        <div><strong>{task.title}</strong><small>{projectById.get(task.projectId)?.name} / {agentById.get(task.assignedAgentId)?.name}</small></div><Status value={task.status} /><span>Priority {task.priority}</span><div className="machine"><code>queue {shortId(task.codexQueuedSubmissionId)}</code><code>turn {shortId(task.codexTurnId)}</code></div>{task.lastError ? <span className="inline-error" title={task.lastError}>Reconcile issue</span> : <span className="muted">Healthy</span>}<button className="button compact secondary" disabled={!['READY', 'BLOCKED'].includes(task.status)} onClick={() => onDispatch(task.id)}>Dispatch</button>
+        <div><strong>{task.title}</strong><small>{projectById.get(task.projectId)?.name} / {agentById.get(task.assignedAgentId)?.name}</small></div><Status value={task.status} /><span>Priority {task.priority}</span><div className="machine"><code>queue {shortId(task.queuedSubmissionId)}</code><code>turn {shortId(task.turnId)}</code></div>{task.lastError ? <span className="inline-error" title={task.lastError}>Reconcile issue</span> : <span className="muted">Healthy</span>}<button className="button compact secondary" disabled={!['READY', 'BLOCKED'].includes(task.status)} onClick={() => onDispatch(task.id)}>Dispatch</button>
       </div>)}
     </div>}
   </section>;
@@ -309,21 +310,25 @@ function AgentForm({ projects, initialProjectId, onClose, onSubmit }: {
   projects: Project[];
   initialProjectId?: string;
   onClose: () => void;
-  onSubmit: (input: { projectId: string; name: string; responsibility: string; workspaceMode: WorkspaceMode; baseBranch?: string; branch?: string; queueMode: AgentQueueMode; humanControlMode: HumanControlMode; capabilityProfile: AgentCapabilityProfile }) => void;
+  onSubmit: (input: { projectId: string; name: string; responsibility: string; runtimeType: RuntimeType; runtimeProfileId?: string; workspaceMode: WorkspaceMode; baseBranch?: string; branch?: string; queueMode: AgentQueueMode; humanControlMode: HumanControlMode; capabilityProfile: AgentCapabilityProfile }) => void;
 }) {
   const [projectId, setProjectId] = useState(initialProjectId ?? projects[0]?.id ?? '');
   const [name, setName] = useState('');
   const [responsibility, setResponsibility] = useState('');
+  const [runtimeType, setRuntimeType] = useState<RuntimeType>('CODEX');
+  const [runtimeProfileId, setRuntimeProfileId] = useState('');
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ISOLATED_WORKTREE');
   const [branch, setBranch] = useState('');
   const [queueMode, setQueueMode] = useState<AgentQueueMode>('AUTO');
   const [humanControlMode, setHumanControlMode] = useState<HumanControlMode>('ON_THE_LOOP');
   const [capabilityProfile, setCapabilityProfile] = useState<AgentCapabilityProfile>('IMPLEMENTER');
   const project = projects.find((item) => item.id === projectId);
-  return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode, humanControlMode, capabilityProfile }); }}>
+  return <Modal title="Spawn agent" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ projectId, name, responsibility, runtimeType, runtimeProfileId: runtimeProfileId.trim() || undefined, workspaceMode, baseBranch: project?.defaultBranch, branch: branch || undefined, queueMode, humanControlMode, capabilityProfile }); }}>
     <label>Project<select required value={projectId} onChange={(e) => setProjectId(e.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label>Agent name<input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Backend Auth" /></label>
     <label>Responsibility<textarea required rows={5} value={responsibility} onChange={(e) => setResponsibility(e.target.value)} placeholder="Own authentication, token lifecycle, backend API and tests." /></label>
+    <label>Runtime<select required value={runtimeType} onChange={(e) => setRuntimeType(e.target.value as RuntimeType)}><option value="CODEX">Codex</option></select></label>
+    <label>Runtime profile <span className="optional">optional</span><input className="mono" value={runtimeProfileId} onChange={(e) => setRuntimeProfileId(e.target.value)} placeholder="default" /></label>
     <div className="form-grid"><label>Workspace<select value={workspaceMode} onChange={(e) => setWorkspaceMode(e.target.value as WorkspaceMode)}><option value="ISOLATED_WORKTREE">Isolated worktree</option><option value="SHARED_PROJECT">Shared project</option></select></label><label>Queue policy<select value={queueMode} onChange={(e) => setQueueMode(e.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></label></div>
     <label>Human control<select value={humanControlMode} onChange={(e) => setHumanControlMode(e.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop — autonomous by default</option><option value="IN_THE_LOOP">Human in the loop — all approvals block</option></select></label>
     <label>Capability profile<select value={capabilityProfile} onChange={(e) => setCapabilityProfile(e.target.value as AgentCapabilityProfile)}><option value="IMPLEMENTER">Implementer — read, write, test, commit, message</option><option value="REVIEWER">Reviewer — read, test, review, message</option><option value="ARCHITECT">Architect — read, message</option><option value="OPS">Ops — read, test, message, deploy</option></select></label>

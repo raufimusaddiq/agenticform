@@ -2,8 +2,15 @@ package com.agenticform.codex;
 
 import com.agenticform.agent.AgentCapabilityProfile;
 
+import java.util.Map;
+
 public interface CodexGateway {
     ThreadHandle startThread(String cwd, String responsibility);
+
+    default Map<String, Object> startParameters(String cwd, String responsibility,
+                                                AgentCapabilityProfile capabilityProfile) {
+        throw new UnsupportedOperationException("Runtime start parameters are not available");
+    }
 
     default ThreadHandle startThread(String cwd, String responsibility, AgentCapabilityProfile capabilityProfile) {
         return startThread(cwd, responsibility);

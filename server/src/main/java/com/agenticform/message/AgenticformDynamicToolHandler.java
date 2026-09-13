@@ -6,6 +6,8 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.approval.HumanApprovalService;
+import com.agenticform.runtime.RuntimeApprovalRequest;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.codex.CodexJsonRpcClient;
 import com.agenticform.operation.OperationRunEntity;
 import com.agenticform.operation.OperationRunService;
@@ -86,8 +88,8 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             throw new IllegalArgumentException("Unsupported dynamic tool namespace: " + params.path("namespace").asText());
         }
         String threadId = requiredText(params, "threadId");
-        AgentEntity source = agentRepository.findByCodexThreadId(threadId)
-                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns Codex thread " + threadId));
+        AgentEntity source = agentRepository.findByRuntimeTypeAndRuntimeSessionId(com.agenticform.runtime.RuntimeType.CODEX, threadId)
+                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns runtime session " + threadId));
         String tool = requiredText(params, "tool");
         JsonNode arguments = params.path("arguments");
         return switch (tool) {
@@ -139,8 +141,9 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
                 yield CompletableFuture.completedFuture(updateIncident(source, arguments));
             }
-            case "request_action" -> approvalService.receiveDeclaredAction(request, source, arguments);
-            case "request_protected_action" -> approvalService.receiveProtectedAction(request, source, arguments);
+            case "request_action" -> approvalService.receiveDeclaredAction(new RuntimeApprovalRequest(
+                    request.id().isTextual() ? request.id().asText() : request.id().toString(), RuntimeType.CODEX,
+                    threadId, request.method(), params), source, arguments);
             default -> throw new IllegalArgumentException("Unknown Agenticform dynamic tool: " + tool);
         };
     }

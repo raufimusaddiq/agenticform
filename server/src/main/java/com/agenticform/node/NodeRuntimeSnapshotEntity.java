@@ -1,7 +1,10 @@
 package com.agenticform.node;
 
+import com.agenticform.runtime.RuntimeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -28,8 +31,12 @@ public class NodeRuntimeSnapshotEntity {
     @Column(name = "runtime_generation", nullable = false)
     private long runtimeGeneration;
 
-    @Column(name = "thread_id")
-    private String threadId;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "runtime_type", nullable = false, length = 32)
+    private RuntimeType runtimeType;
+
+    @Column(name = "runtime_session_id")
+    private String runtimeSessionId;
 
     @Column(name = "source_directory", columnDefinition = "text")
     private String sourceDirectory;
@@ -58,10 +65,11 @@ public class NodeRuntimeSnapshotEntity {
         if (observedAt == null) observedAt = Instant.now();
     }
 
-    public void observe(long runtimeGeneration, String threadId, String sourceDirectory,
+    public void observe(RuntimeType runtimeType, long runtimeGeneration, String runtimeSessionId, String sourceDirectory,
                         String workingDirectory, String branch, String runtimeStatus) {
+        this.runtimeType = java.util.Objects.requireNonNull(runtimeType, "Runtime type is required");
         this.runtimeGeneration = runtimeGeneration;
-        this.threadId = threadId;
+        this.runtimeSessionId = runtimeSessionId;
         this.sourceDirectory = sourceDirectory;
         this.workingDirectory = workingDirectory;
         this.branch = branch;
@@ -73,7 +81,8 @@ public class NodeRuntimeSnapshotEntity {
     public UUID getNodeId() { return nodeId; }
     public UUID getAgentId() { return agentId; }
     public long getRuntimeGeneration() { return runtimeGeneration; }
-    public String getThreadId() { return threadId; }
+    public RuntimeType getRuntimeType() { return runtimeType; }
+    public String getRuntimeSessionId() { return runtimeSessionId; }
     public String getSourceDirectory() { return sourceDirectory; }
     public String getWorkingDirectory() { return workingDirectory; }
     public String getBranch() { return branch; }

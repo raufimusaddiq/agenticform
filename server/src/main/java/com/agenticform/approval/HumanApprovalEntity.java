@@ -28,8 +28,8 @@ public class HumanApprovalEntity {
     @Column(name = "agent_id", nullable = false)
     private UUID agentId;
 
-    @Column(name = "codex_request_id", nullable = false)
-    private String codexRequestId;
+    @Column(name = "runtime_request_id", nullable = false)
+    private String runtimeRequestId;
 
     @Column(nullable = false)
     private String method;
@@ -50,8 +50,8 @@ public class HumanApprovalEntity {
     @Column(nullable = false)
     private HumanApprovalStatus status;
 
-    @Column(name = "thread_id", nullable = false)
-    private String threadId;
+    @Column(name = "runtime_session_id", nullable = false)
+    private String runtimeSessionId;
 
     @Column(name = "turn_id")
     private String turnId;
@@ -101,19 +101,19 @@ public class HumanApprovalEntity {
 
     protected HumanApprovalEntity() {}
 
-    public HumanApprovalEntity(UUID projectId, UUID agentId, String codexRequestId, String method,
+    public HumanApprovalEntity(UUID projectId, UUID agentId, String runtimeRequestId, String method,
                                HumanApprovalType type, HumanControlMode controlMode, HumanApprovalRisk risk,
-                               HumanApprovalStatus status, String threadId, String turnId, String itemId,
+                               HumanApprovalStatus status, String runtimeSessionId, String turnId, String itemId,
                                String summary, String requestPayload) {
         this.projectId = projectId;
         this.agentId = agentId;
-        this.codexRequestId = codexRequestId;
+        this.runtimeRequestId = runtimeRequestId;
         this.method = method;
         this.type = type;
         this.controlMode = controlMode;
         this.risk = risk;
         this.status = status;
-        this.threadId = threadId;
+        this.runtimeSessionId = runtimeSessionId;
         this.turnId = turnId;
         this.itemId = itemId;
         this.summary = summary;
@@ -126,13 +126,13 @@ public class HumanApprovalEntity {
     public UUID getId() { return id; }
     public UUID getProjectId() { return projectId; }
     public UUID getAgentId() { return agentId; }
-    public String getCodexRequestId() { return codexRequestId; }
+    public String getRuntimeRequestId() { return runtimeRequestId; }
     public String getMethod() { return method; }
     public HumanApprovalType getType() { return type; }
     public HumanControlMode getControlMode() { return controlMode; }
     public HumanApprovalRisk getRisk() { return risk; }
     public HumanApprovalStatus getStatus() { return status; }
-    public String getThreadId() { return threadId; }
+    public String getRuntimeSessionId() { return runtimeSessionId; }
     public String getTurnId() { return turnId; }
     public String getItemId() { return itemId; }
     public String getSummary() { return summary; }
@@ -175,7 +175,7 @@ public class HumanApprovalEntity {
 
     public void orphan() {
         this.status = HumanApprovalStatus.ORPHANED;
-        this.lastError = "Agenticform restarted before the local Codex server request was resolved";
+        this.lastError = "Agenticform restarted before the local runtime request was resolved";
         this.resolvedAt = Instant.now();
     }
 }

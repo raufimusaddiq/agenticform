@@ -1,6 +1,8 @@
 package com.agenticform.approval;
 
 import com.agenticform.codex.CodexJsonRpcClient;
+import com.agenticform.runtime.RuntimeApprovalRequest;
+import com.agenticform.runtime.RuntimeType;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -37,6 +39,10 @@ public class HumanApprovalServerRequestHandler implements CodexJsonRpcClient.Ser
 
     @Override
     public CompletionStage<JsonNode> handle(CodexJsonRpcClient.ServerRequest request) {
-        return service.receive(request);
+        JsonNode params = request.params();
+        String sessionId = params.path("threadId").asText(null);
+        if (sessionId == null || sessionId.isBlank()) throw new IllegalArgumentException("Codex approval is missing threadId");
+        String requestId = request.id().isTextual() ? request.id().asText() : request.id().toString();
+        return service.receive(new RuntimeApprovalRequest(requestId, RuntimeType.CODEX, sessionId, request.method(), params));
     }
 }

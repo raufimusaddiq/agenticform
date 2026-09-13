@@ -85,7 +85,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
             <p className="message-route"><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><span>→</span><strong>{targetLabel}</strong><span>· hop {message.hopCount}/6</span></p>
             <p className="message-body">{message.content}</p>
             <button className="button ghost" type="button" onClick={() => { setReplyTo(message); setFromAgentId(message.toAgentId ?? source?.id ?? ''); setToAgentId(message.fromAgentId); }}>Reply</button>
-            <div className="message-machine"><code>message {shortId(message.id)}</code><code>conversation {shortId(message.conversationId)}</code><code>queue {shortId(message.codexQueuedSubmissionId)}</code><code>turn {shortId(message.codexTurnId)}</code></div>
+            <div className="message-machine"><code>message {shortId(message.id)}</code><code>conversation {shortId(message.conversationId)}</code><code>queue {shortId(message.queuedSubmissionId)}</code><code>turn {shortId(message.turnId)}</code></div>
             {message.lastError && <p className="inline-error">{message.lastError}</p>}
           </article>;
         })}

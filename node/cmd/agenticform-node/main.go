@@ -29,7 +29,10 @@ import (
 	"time"
 )
 
-const version = "0.2.0"
+const (
+	version         = "0.2.0"
+	protocolVersion = 1
+)
 
 type identity struct {
 	NodeID       string `json:"nodeId"`
@@ -77,8 +80,9 @@ type commandLedger struct {
 
 type runtimeRecord struct {
 	AgentID           string `json:"agentId"`
+	RuntimeType       string `json:"runtimeType"`
 	RuntimeGeneration int64  `json:"runtimeGeneration"`
-	ThreadID          string `json:"threadId"`
+	RuntimeSessionID  string `json:"runtimeSessionId"`
 	SourceDirectory   string `json:"sourceDirectory"`
 	WorkingDirectory  string `json:"workingDirectory"`
 	Branch            string `json:"branch"`
@@ -98,6 +102,12 @@ type interactionView struct {
 
 type rpcMessage map[string]any
 
+type runtimeIdentity struct {
+	RuntimeType       string
+	RuntimeSessionID  string
+	RuntimeGeneration int64
+}
+
 type rpcClient struct {
 	server               string
 	nodeID               string
@@ -110,7 +120,7 @@ type rpcClient struct {
 	pending              map[string]chan rpcMessage
 	seq                  uint64
 	http                 *http.Client
-	runtimeGenerationFor func(any) int64
+	runtimeIdentityFor   func(any) (runtimeIdentity, bool)
 	notificationObserver func(string, any)
 }
 
@@ -266,8 +276,17 @@ func (d *daemonRuntime) heartbeatLoop(ctx context.Context) {
 
 func (d *daemonRuntime) heartbeat() error {
 	hostname, _ := os.Hostname()
-	codexVersion, codexOK := detectCodex()
-	capabilities, _ := json.Marshal(map[string]bool{"git": commandExists("git"), "codex": codexOK})
+	codexVersion, codexAvailable, codexAuthenticated := detectCodex()
+	capabilities, _ := json.Marshal(map[string]any{
+		"git": commandExists("git"),
+		"runtimes": map[string]any{
+			"CODEX": map[string]any{
+				"available":     codexAvailable,
+				"authenticated": codexAuthenticated,
+				"version":       codexVersion,
+			},
+		},
+	})
 	labels, _ := json.Marshal(map[string]string{"runtime": "agenticform-node"})
 	d.stateMu.Lock()
 	runtimes := make([]runtimeRecord, 0, len(d.runtimes.Runtimes))
@@ -277,6 +296,7 @@ func (d *daemonRuntime) heartbeat() error {
 	d.stateMu.Unlock()
 	sort.Slice(runtimes, func(i, j int) bool { return runtimes[i].AgentID < runtimes[j].AgentID })
 	body, _ := json.Marshal(map[string]any{
+		"protocolVersion":  protocolVersion,
 		"labelsJson":       string(labels),
 		"capabilitiesJson": string(capabilities),
 		"maxAgents":        envInt("AGENTICFORM_NODE_MAX_AGENTS", 4),
@@ -284,7 +304,6 @@ func (d *daemonRuntime) heartbeat() error {
 		"arch":             runtime.GOARCH,
 		"hostname":         hostname,
 		"nodeVersion":      version,
-		"codexVersion":     codexVersion,
 		"cpuCores":         runtime.NumCPU(),
 		"memoryMb":         nil,
 		"diskFreeMb":       diskFreeMB(d.stateDir),
@@ -419,6 +438,13 @@ func (d *daemonRuntime) execute(command nodeCommand) (map[string]any, error) {
 	if generation != command.RuntimeGeneration {
 		return nil, errors.New("command runtime generation does not match signed command payload")
 	}
+	runtimeType := optionalString(payload, "runtimeType")
+	if runtimeType == "" {
+		return nil, errors.New("command runtime type is required")
+	}
+	if runtimeType != "CODEX" {
+		return nil, fmt.Errorf("unsupported runtime type: %s", runtimeType)
+	}
 	switch command.CommandType {
 	case "START_AGENT":
 		return d.startAgent(command, payload)
@@ -435,6 +461,7 @@ func (d *daemonRuntime) execute(command nodeCommand) (map[string]any, error) {
 
 func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) (map[string]any, error) {
 	repositoryURL := stringValue(payload, "repositoryUrl")
+	projectID := stringValue(payload, "projectId")
 	projectSlug := safeSegment(stringValue(payload, "projectSlug"))
 	agentID := safeSegment(stringValue(payload, "agentId"))
 	baseBranch := stringValue(payload, "baseBranch")
@@ -490,9 +517,9 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		}
 	}
 
-	params, ok := payload["threadStartParams"].(map[string]any)
+	params, ok := payload["runtimeStartParams"].(map[string]any)
 	if !ok {
-		return nil, errors.New("START_AGENT missing threadStartParams")
+		return nil, errors.New("START_AGENT missing runtimeStartParams")
 	}
 	params["cwd"] = workingDirectory
 	client, err := d.ensureCodex()
@@ -508,24 +535,27 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		return nil, errors.New("Codex thread/start returned no thread id")
 	}
 	record := runtimeRecord{
-		AgentID: agentID, RuntimeGeneration: command.RuntimeGeneration, ThreadID: threadID,
+		AgentID: agentID, RuntimeType: "CODEX", RuntimeGeneration: command.RuntimeGeneration, RuntimeSessionID: threadID,
 		SourceDirectory: repoRoot, WorkingDirectory: workingDirectory, Branch: branch, RuntimeStatus: "IDLE",
 	}
 	if err := d.putRuntime(record); err != nil {
 		return nil, fmt.Errorf("persist runtime state: %w", err)
 	}
+	if err := configureProjectRuntimeCredentialHelper(repoRoot, workingDirectory, command, projectID, repositoryURL, "CODEX", threadID); err != nil {
+		return nil, fmt.Errorf("configure runtime Git credential helper: %w", err)
+	}
 	return map[string]any{
-		"threadId": threadID, "sourceDirectory": repoRoot,
+		"runtimeSessionId": threadID, "sourceDirectory": repoRoot,
 		"workingDirectory": workingDirectory, "branch": branch,
-		"runtimeGeneration": command.RuntimeGeneration,
+		"runtimeGeneration": command.RuntimeGeneration, "runtimeType": "CODEX",
 	}, nil
 }
 
 func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (map[string]any, error) {
-	threadID := stringValue(payload, "threadId")
+	threadID := stringValue(payload, "runtimeSessionId")
 	prompt := stringValue(payload, "prompt")
 	if threadID == "" || prompt == "" {
-		return nil, errors.New(command.CommandType + " missing threadId or prompt")
+		return nil, errors.New(command.CommandType + " missing runtimeSessionId or prompt")
 	}
 	if err := d.requireRuntime(command.AgentID, command.RuntimeGeneration, threadID); err != nil {
 		return nil, err
@@ -541,9 +571,9 @@ func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (m
 		return nil, err
 	}
 	params := map[string]any{
-		"threadId": threadID,
+		"threadId":            threadID,
 		"clientUserMessageId": clientMessageID,
-		"input": []map[string]any{{"type": "text", "text": prompt}},
+		"input":               []map[string]any{{"type": "text", "text": prompt}},
 	}
 	result, err := client.request("thread/queue/add", params)
 	if err == nil {
@@ -564,10 +594,10 @@ func (d *daemonRuntime) dispatch(command nodeCommand, payload map[string]any) (m
 }
 
 func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (map[string]any, error) {
-	threadID := stringValue(payload, "threadId")
+	threadID := stringValue(payload, "runtimeSessionId")
 	turnID := stringValue(payload, "turnId")
 	if threadID == "" || turnID == "" {
-		return nil, errors.New("INTERRUPT_TURN missing threadId or turnId")
+		return nil, errors.New("INTERRUPT_TURN missing runtimeSessionId or turnId")
 	}
 	if err := d.requireRuntime(command.AgentID, command.RuntimeGeneration, threadID); err != nil {
 		return nil, err
@@ -584,14 +614,14 @@ func (d *daemonRuntime) interrupt(command nodeCommand, payload map[string]any) (
 }
 
 func (d *daemonRuntime) cleanupWorkspace(command nodeCommand, payload map[string]any) (map[string]any, error) {
-	threadID := optionalString(payload, "threadId")
+	threadID := optionalString(payload, "runtimeSessionId")
 	d.stateMu.Lock()
 	record, ok := d.runtimes.Runtimes[command.AgentID]
 	d.stateMu.Unlock()
 	if !ok || record.RuntimeGeneration != command.RuntimeGeneration {
 		return nil, errors.New("runtime is not owned by this generation")
 	}
-	if threadID != "" && record.ThreadID != threadID {
+	if threadID != "" && record.RuntimeSessionID != threadID {
 		return nil, errors.New("cleanup thread id does not match runtime")
 	}
 	if record.WorkingDirectory == "" || record.WorkingDirectory == record.SourceDirectory {
@@ -638,7 +668,7 @@ func (d *daemonRuntime) ensureCodex() (*rpcClient, error) {
 		return d.codex, nil
 	}
 	client, err := startCodex(d.server, d.id.NodeID, d.private, d.http,
-		d.generationForParams, d.observeNotification)
+		d.runtimeIdentityForParams, d.observeNotification)
 	if err != nil {
 		return nil, err
 	}
@@ -647,7 +677,7 @@ func (d *daemonRuntime) ensureCodex() (*rpcClient, error) {
 }
 
 func startCodex(server, nodeID string, private ed25519.PrivateKey, httpClient *http.Client,
-	generationFor func(any) int64, notificationObserver func(string, any)) (*rpcClient, error) {
+	runtimeIdentityFor func(any) (runtimeIdentity, bool), notificationObserver func(string, any)) (*rpcClient, error) {
 	cmd := exec.Command("codex", "app-server", "--stdio")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -663,7 +693,7 @@ func startCodex(server, nodeID string, private ed25519.PrivateKey, httpClient *h
 	}
 	client := &rpcClient{server: server, nodeID: nodeID, private: private, cmd: cmd,
 		stdin: stdin, stdout: stdout, pending: make(map[string]chan rpcMessage), http: httpClient,
-		runtimeGenerationFor: generationFor, notificationObserver: notificationObserver}
+		runtimeIdentityFor: runtimeIdentityFor, notificationObserver: notificationObserver}
 	go client.readLoop()
 	if _, err := client.request("initialize", map[string]any{
 		"clientInfo":   map[string]any{"name": "agenticform-node", "version": version},
@@ -762,17 +792,16 @@ func (c *rpcClient) readLoop() {
 }
 
 func (c *rpcClient) forwardServerRequest(id any, message rpcMessage) {
-	generation := int64(0)
-	if c.runtimeGenerationFor != nil {
-		generation = c.runtimeGenerationFor(message["params"])
-	}
-	if generation <= 0 {
+	identity, ok := c.runtimeIdentityFor(message["params"])
+	if !ok {
 		_ = c.write(rpcMessage{"id": id, "error": map[string]any{"code": -32000, "message": "runtime generation is unavailable"}})
 		return
 	}
 	body, _ := json.Marshal(map[string]any{
 		"requestId": id, "method": message["method"], "params": message["params"],
-		"runtimeGeneration": generation,
+		"runtimeGeneration": identity.RuntimeGeneration,
+		"runtimeType":       identity.RuntimeType,
+		"runtimeSessionId":  identity.RuntimeSessionID,
 	})
 	path := "/api/nodes/" + c.nodeID + "/codex/server-request"
 	resp, err := signedHTTP(c.http, c.server, c.nodeID, c.private, http.MethodPost, path, body)
@@ -842,16 +871,14 @@ func decodeInteractionResponse(resp *http.Response) (interactionView, error) {
 }
 
 func (c *rpcClient) forwardNotification(method string, params any) {
-	generation := int64(0)
-	if c.runtimeGenerationFor != nil {
-		generation = c.runtimeGenerationFor(params)
-	}
-	if generation <= 0 {
+	identity, ok := c.runtimeIdentityFor(params)
+	if !ok {
 		log.Printf("dropping %s notification without current runtime generation", method)
 		return
 	}
 	body, _ := json.Marshal(map[string]any{
-		"method": method, "params": params, "runtimeGeneration": generation,
+		"method": method, "params": params, "runtimeGeneration": identity.RuntimeGeneration,
+		"runtimeType": identity.RuntimeType, "runtimeSessionId": identity.RuntimeSessionID,
 	})
 	path := "/api/nodes/" + c.nodeID + "/codex/notification"
 	resp, err := signedHTTP(c.http, c.server, c.nodeID, c.private, http.MethodPost, path, body)
@@ -865,19 +892,23 @@ func shouldForwardNotification(method string) bool {
 	return method == "item/started" || method == "turn/completed"
 }
 
-func (d *daemonRuntime) generationForParams(params any) int64 {
+func (d *daemonRuntime) runtimeIdentityForParams(params any) (runtimeIdentity, bool) {
 	threadID := threadIDFromParams(params)
 	if threadID == "" {
-		return 0
+		return runtimeIdentity{}, false
 	}
 	d.stateMu.Lock()
 	defer d.stateMu.Unlock()
 	for _, record := range d.runtimes.Runtimes {
-		if record.ThreadID == threadID {
-			return record.RuntimeGeneration
+		if record.RuntimeSessionID == threadID {
+			if record.RuntimeType == "" || record.RuntimeSessionID == "" || record.RuntimeGeneration <= 0 {
+				return runtimeIdentity{}, false
+			}
+			return runtimeIdentity{RuntimeType: record.RuntimeType, RuntimeSessionID: record.RuntimeSessionID,
+				RuntimeGeneration: record.RuntimeGeneration}, true
 		}
 	}
-	return 0
+	return runtimeIdentity{}, false
 }
 
 func (d *daemonRuntime) observeNotification(method string, params any) {
@@ -889,7 +920,7 @@ func (d *daemonRuntime) observeNotification(method string, params any) {
 	defer d.stateMu.Unlock()
 	changed := false
 	for key, record := range d.runtimes.Runtimes {
-		if record.ThreadID != threadID {
+		if record.RuntimeSessionID != threadID {
 			continue
 		}
 		switch method {
@@ -929,7 +960,7 @@ func (d *daemonRuntime) requireRuntime(agentID string, generation int64, threadI
 	d.stateMu.Lock()
 	defer d.stateMu.Unlock()
 	record, ok := d.runtimes.Runtimes[agentID]
-	if !ok || record.RuntimeGeneration != generation || record.ThreadID != threadID {
+	if !ok || record.RuntimeGeneration != generation || record.RuntimeSessionID != threadID {
 		return errors.New("remote command targets a stale or unknown runtime")
 	}
 	return nil
@@ -1160,23 +1191,23 @@ func requireSecureServerURL(value string) error {
 	return nil
 }
 
-func detectCodex() (string, bool) {
+func detectCodex() (string, bool, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "codex", "--version").CombinedOutput()
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
 	versionText := strings.TrimSpace(string(out))
 	if os.Getenv("OPENAI_API_KEY") != "" {
-		return versionText, true
+		return versionText, true, true
 	}
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer statusCancel()
 	if err := exec.CommandContext(statusCtx, "codex", "login", "status").Run(); err != nil {
-		return versionText, false
+		return versionText, true, false
 	}
-	return versionText, true
+	return versionText, true, true
 }
 
 func withinRoot(root, path string) bool {

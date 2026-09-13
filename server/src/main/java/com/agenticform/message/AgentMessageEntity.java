@@ -60,11 +60,11 @@ public class AgentMessageEntity {
     @Column(nullable = false)
     private AgentMessageStatus status;
 
-    @Column(name = "codex_queued_submission_id")
-    private String codexQueuedSubmissionId;
+    @Column(name = "queued_submission_id")
+    private String queuedSubmissionId;
 
-    @Column(name = "codex_turn_id")
-    private String codexTurnId;
+    @Column(name = "turn_id")
+    private String turnId;
 
     @Column(name = "last_error", columnDefinition = "text")
     private String lastError;
@@ -121,29 +121,29 @@ public class AgentMessageEntity {
     public String getContent() { return content; }
     public int getHopCount() { return hopCount; }
     public AgentMessageStatus getStatus() { return status; }
-    public String getCodexQueuedSubmissionId() { return codexQueuedSubmissionId; }
-    public String getCodexTurnId() { return codexTurnId; }
+    public String getQueuedSubmissionId() { return queuedSubmissionId; }
+    public String getTurnId() { return turnId; }
     public String getLastError() { return lastError; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
     public void markQueued(String queuedSubmissionId) {
         this.status = AgentMessageStatus.QUEUED;
-        this.codexQueuedSubmissionId = queuedSubmissionId;
-        this.codexTurnId = null;
+        this.queuedSubmissionId = queuedSubmissionId;
+        this.turnId = null;
         this.lastError = null;
     }
 
     public void markDispatched(String queuedSubmissionId, String turnId) {
         this.status = turnId == null || turnId.isBlank() ? AgentMessageStatus.DISPATCHED : AgentMessageStatus.PROCESSING;
-        this.codexQueuedSubmissionId = queuedSubmissionId;
-        this.codexTurnId = turnId;
+        this.queuedSubmissionId = queuedSubmissionId;
+        this.turnId = turnId;
         this.lastError = null;
     }
 
     public void markProcessing(String turnId) {
         this.status = AgentMessageStatus.PROCESSING;
-        if (turnId != null && !turnId.isBlank()) this.codexTurnId = turnId;
+        if (turnId != null && !turnId.isBlank()) this.turnId = turnId;
         this.lastError = null;
     }
 

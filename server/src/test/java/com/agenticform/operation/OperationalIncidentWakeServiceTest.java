@@ -4,7 +4,6 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
@@ -14,6 +13,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeType;
 
 import java.util.List;
 import java.util.Map;
@@ -31,7 +33,8 @@ import static org.mockito.Mockito.when;
 class OperationalIncidentWakeServiceTest {
     @Mock OperationalIncidentRepository incidents;
     @Mock AgentRepository agents;
-    @Mock CodexGateway codexGateway;
+    @Mock AgentRuntime runtime;
+    @Mock AgentRuntimeRegistry runtimeRegistry;
     @Mock ExecutionNodeService nodeService;
     @Mock NodeCommandRepository commands;
 
@@ -40,7 +43,8 @@ class OperationalIncidentWakeServiceTest {
     @BeforeEach
     void setUp() {
         service = new OperationalIncidentWakeService(
-                incidents, agents, codexGateway, nodeService, commands, new ObjectMapper());
+                incidents, agents, runtimeRegistry, nodeService, commands, new ObjectMapper());
+        lenient().when(runtimeRegistry.get(any())).thenReturn(runtime);
     }
 
     @Test
@@ -57,7 +61,8 @@ class OperationalIncidentWakeServiceTest {
         AgentEntity agent = mock(AgentEntity.class);
         when(agent.getId()).thenReturn(agentId);
         when(agent.getStatus()).thenReturn(AgentStatus.IDLE);
-        when(agent.getCodexThreadId()).thenReturn("thread-1");
+        when(agent.getRuntimeSessionId()).thenReturn("session-1");
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
         when(agent.getExecutionNodeId()).thenReturn(nodeId);
         when(agent.getRuntimeGeneration()).thenReturn(4L);
         when(agents.findByProjectIdAndRole(projectId, AgentRole.OPERATIONAL)).thenReturn(Optional.of(agent));

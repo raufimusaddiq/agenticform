@@ -3,8 +3,10 @@ package com.agenticform.node;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.config.AgenticformProperties;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -25,12 +27,12 @@ import java.util.UUID;
 public class ExecutionNodeService {
     public record Enrollment(String token, Instant expiresAt, String setupCommand) {}
     public record EnrollmentResult(UUID nodeId, String name, String fingerprint, NodeTrustLevel trustLevel) {}
-    public record RuntimeObservation(UUID agentId, long runtimeGeneration, String threadId,
+    public record RuntimeObservation(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String runtimeSessionId,
                                      String sourceDirectory, String workingDirectory, String branch,
                                      String runtimeStatus) {}
     public record Heartbeat(int protocolVersion, String labelsJson, String capabilitiesJson, int maxAgents,
                             String os, String arch, String hostname, String nodeVersion,
-                            String codexVersion, Integer cpuCores, Long memoryMb, Long diskFreeMb,
+                            Integer cpuCores, Long memoryMb, Long diskFreeMb,
                             List<RuntimeObservation> runtimes) {}
     public record CommandCompletion(NodeCommandEntity command, boolean newlyCompleted) {}
 
@@ -128,7 +130,7 @@ public class ExecutionNodeService {
         ExecutionNodeEntity node = get(nodeId);
         node.heartbeat(heartbeat.protocolVersion(), heartbeat.labelsJson(), heartbeat.capabilitiesJson(), heartbeat.maxAgents(),
                 heartbeat.os(), heartbeat.arch(), heartbeat.hostname(), heartbeat.nodeVersion(),
-                heartbeat.codexVersion(), heartbeat.cpuCores(), heartbeat.memoryMb(), heartbeat.diskFreeMb());
+                heartbeat.cpuCores(), heartbeat.memoryMb(), heartbeat.diskFreeMb());
         ExecutionNodeEntity saved = nodes.save(node);
         reconcileRuntimeInventory(nodeId, heartbeat.runtimes());
         return saved;
@@ -144,17 +146,18 @@ public class ExecutionNodeService {
             NodeRuntimeSnapshotEntity snapshot = runtimeSnapshots
                     .findByNodeIdAndAgentId(nodeId, observation.agentId())
                     .orElseGet(() -> new NodeRuntimeSnapshotEntity(nodeId, observation.agentId()));
-            String status = agent.ownsRuntime(nodeId, observation.runtimeGeneration()) ? observation.runtimeStatus() : "STALE";
-            snapshot.observe(observation.runtimeGeneration(), observation.threadId(), observation.sourceDirectory(),
+            boolean assignmentMatch = agent.ownsRuntimeAssignment(nodeId, observation.runtimeGeneration(), observation.runtimeType());
+            boolean sessionMatch = agent.ownsRuntime(nodeId, observation.runtimeGeneration(), observation.runtimeType(),
+                    observation.runtimeSessionId());
+            boolean firstBind = assignmentMatch && (agent.getRuntimeSessionId() == null || agent.getRuntimeSessionId().isBlank())
+                    && observation.runtimeSessionId() != null && !observation.runtimeSessionId().isBlank();
+            String status = (sessionMatch || firstBind) ? observation.runtimeStatus() : "STALE";
+            snapshot.observe(observation.runtimeType(), observation.runtimeGeneration(), observation.runtimeSessionId(), observation.sourceDirectory(),
                     observation.workingDirectory(), observation.branch(), status);
             runtimeSnapshots.save(snapshot);
 
-            if (!agent.ownsRuntime(nodeId, observation.runtimeGeneration())) continue;
-            if (agent.getCodexThreadId() != null && observation.threadId() != null
-                    && !agent.getCodexThreadId().equals(observation.threadId())) {
-                continue;
-            }
-            agent.recoverFromSnapshot(observation.runtimeGeneration(), observation.threadId(),
+            if (!sessionMatch && !firstBind) continue;
+            agent.recoverFromSnapshot(observation.runtimeGeneration(), observation.runtimeSessionId(),
                     observation.sourceDirectory(), observation.workingDirectory(), observation.branch());
             agents.save(agent);
         }
@@ -223,7 +226,15 @@ public class ExecutionNodeService {
     private boolean commandRuntimeCurrent(NodeCommandEntity command) {
         if (command.getAgentId() == null) return true;
         AgentEntity agent = agents.findById(command.getAgentId()).orElse(null);
-        return agent != null && agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration());
+        if (agent == null) return false;
+        try {
+            JsonNode payload = mapper.readTree(command.getPayloadJson());
+            RuntimeType runtimeType = RuntimeType.valueOf(payload.path("runtimeType").asText());
+            String sessionId = payload.path("runtimeSessionId").asText(null);
+            return agent.ownsRuntime(command.getNodeId(), command.getRuntimeGeneration(), runtimeType, sessionId);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     @Transactional

@@ -115,7 +115,7 @@ function ApprovalDetails({ approval, payload, agent }: { approval: HumanApproval
     {cwd && <div><span>Working directory</span><code>{cwd}</code></div>}
     {grantRoot && <div><span>Requested write root</span><code>{grantRoot}</code></div>}
     {permissions != null && <div><span>Requested permissions</span><pre>{JSON.stringify(permissions, null, 2)}</pre></div>}
-    <div className="approval-machine"><code>thread {shortId(approval.threadId)}</code><code>turn {shortId(approval.turnId)}</code><code>item {shortId(approval.itemId)}</code>{agent && <code>workspace {agent.workingDirectory}</code>}</div>
+    <div className="approval-machine"><code>session {shortId(approval.runtimeSessionId)}</code><code>turn {shortId(approval.turnId)}</code><code>item {shortId(approval.itemId)}</code>{agent && <code>workspace {agent.workingDirectory}</code>}</div>
   </div>;
 }
 
@@ -145,7 +145,7 @@ function UserInputForm({ approval, payload, busy, onSubmit }: {
           </select>
         : <input required type={question.isSecret ? 'password' : 'text'} value={values[question.id] ?? ''} onChange={(event) => setValues((current) => ({ ...current, [question.id]: event.target.value }))} />}
     </label>)}
-    {!questions.length && <p className="inline-error">Codex supplied no structured questions. Inspect request {shortId(approval.codexRequestId)}.</p>}
+    {!questions.length && <p className="inline-error">Runtime supplied no structured questions. Inspect request {shortId(approval.runtimeRequestId)}.</p>}
     <footer className="approval-actions"><button className="button primary" disabled={busy || !questions.length}>Send answer</button></footer>
   </form>;
 }

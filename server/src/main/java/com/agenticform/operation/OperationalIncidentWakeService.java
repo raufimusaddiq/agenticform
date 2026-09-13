@@ -4,10 +4,14 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeDispatchReceipt;
+import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,20 +28,20 @@ public class OperationalIncidentWakeService {
 
     private final OperationalIncidentRepository incidents;
     private final AgentRepository agents;
-    private final CodexGateway codexGateway;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeService nodeService;
     private final NodeCommandRepository commands;
     private final ObjectMapper mapper;
 
     public OperationalIncidentWakeService(OperationalIncidentRepository incidents,
                                           AgentRepository agents,
-                                          CodexGateway codexGateway,
+                                          AgentRuntimeRegistry runtimeRegistry,
                                           ExecutionNodeService nodeService,
                                           NodeCommandRepository commands,
                                           ObjectMapper mapper) {
         this.incidents = incidents;
         this.agents = agents;
-        this.codexGateway = codexGateway;
+        this.runtimeRegistry = runtimeRegistry;
         this.nodeService = nodeService;
         this.commands = commands;
         this.mapper = mapper;
@@ -111,7 +115,7 @@ public class OperationalIncidentWakeService {
         if (target.getStatus() == AgentStatus.STOPPED || target.getStatus() == AgentStatus.FAILED) {
             throw new IllegalStateException("Operational Agent is unavailable: " + target.getStatus());
         }
-        if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+        if (runtimeSessionId(target) == null || runtimeSessionId(target).isBlank()) {
             throw new IllegalStateException("Operational Agent runtime is not ready");
         }
         incident.setOperationalAgentId(target.getId());
@@ -122,7 +126,8 @@ public class OperationalIncidentWakeService {
                     target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
                     commandKey, Map.of(
                             "incidentId", incident.getId().toString(),
-                            "threadId", target.getCodexThreadId(),
+                            "runtimeType", runtimeType(target).name(),
+                            "runtimeSessionId", runtimeSessionId(target),
                             "clientMessageId", clientMessageId,
                             "prompt", prompt(incident)));
             incident.queued(command.getId());
@@ -134,10 +139,18 @@ public class OperationalIncidentWakeService {
             return;
         }
 
-        CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                target.getCodexThreadId(), clientMessageId, prompt(incident));
+        RuntimeDispatchReceipt receipt = runtimeRegistry.get(target.getRuntimeType()).dispatch(
+                new RuntimeSession(runtimeSessionId(target)), clientMessageId, prompt(incident));
         incident.delivered(receipt.queuedSubmissionId(), receipt.turnId());
         incidents.save(incident);
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        return agent.getRuntimeSessionId();
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType();
     }
 
     private AgentEntity resolveOperationalAgent(OperationalIncidentEntity incident) {

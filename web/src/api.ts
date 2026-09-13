@@ -25,7 +25,8 @@ import type {
   WorkspaceCleanupInspection,
   WorkspaceCleanupRecord,
   WorkspaceMode,
-  CommunicationRule
+  CommunicationRule,
+  RuntimeType
 } from './types';
 
 const base = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -140,6 +141,8 @@ export const api = {
     projectId: string;
     name: string;
     responsibility: string;
+    runtimeType: RuntimeType;
+    runtimeProfileId?: string;
     workspaceMode: WorkspaceMode;
     baseBranch?: string;
     branch?: string;

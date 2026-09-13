@@ -190,7 +190,7 @@ export function OperationsView({ projects, agents, projectFilter }: {
             <div><strong>{project.name}</strong><small>Default operational coordinator</small></div>
             {ops ? <Status value={ops.status} /> : <span className="muted">Not provisioned</span>}
             <span>{ops ? 'System managed' : 'Provision on demand'}</span>
-            <code>{ops ? shortId(ops.codexThreadId) : '—'}</code>
+            <code>{ops ? shortId(ops.runtimeSessionId) : '—'}</code>
             {!ops && <button className="button compact secondary" disabled={busy} onClick={() => void ensureOps(project.id)}>Provision</button>}
           </div>;
         })}

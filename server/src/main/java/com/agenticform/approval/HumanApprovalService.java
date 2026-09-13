@@ -3,11 +3,11 @@ package com.agenticform.approval;
 import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexJsonRpcClient;
-import com.agenticform.node.RemoteCodexInteractionService;
+import com.agenticform.node.RemoteInteractionService;
 import com.agenticform.node.RemoteInteractionContext;
 import com.agenticform.policy.PolicyEffect;
 import com.agenticform.policy.PolicyPreauthorizationService;
+import com.agenticform.runtime.RuntimeApprovalRequest;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -30,14 +30,14 @@ public class HumanApprovalService {
     private final HumanApprovalPolicy policy;
     private final PolicyPreauthorizationService preauthorizations;
     private final RemoteInteractionContext remoteContext;
-    private final RemoteCodexInteractionService remoteInteractions;
+    private final RemoteInteractionService remoteInteractions;
     private final ObjectMapper mapper;
     private final Map<UUID, CompletableFuture<JsonNode>> pendingResponses = new ConcurrentHashMap<>();
 
     public HumanApprovalService(HumanApprovalRepository repository, AgentRepository agentRepository,
                                 HumanApprovalPolicy policy, PolicyPreauthorizationService preauthorizations,
                                 RemoteInteractionContext remoteContext,
-                                RemoteCodexInteractionService remoteInteractions,
+                                RemoteInteractionService remoteInteractions,
                                 ObjectMapper mapper) {
         this.repository = repository;
         this.agentRepository = agentRepository;
@@ -74,11 +74,10 @@ public class HumanApprovalService {
         return repository.findAllByOrderByCreatedAtDesc();
     }
 
-    public CompletionStage<JsonNode> receive(CodexJsonRpcClient.ServerRequest request) {
+    public CompletionStage<JsonNode> receive(RuntimeApprovalRequest request) {
         JsonNode params = request.params();
-        String threadId = requiredText(params, "threadId");
-        AgentEntity agent = agentRepository.findByCodexThreadId(threadId)
-                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns Codex thread " + threadId));
+        AgentEntity agent = agentRepository.findByRuntimeTypeAndRuntimeSessionId(request.runtimeType(), request.runtimeSessionId())
+                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns runtime session " + request.runtimeSessionId()));
 
         HumanApprovalType type = typeForMethod(request.method());
         HumanApprovalPolicy.Evaluation evaluation = policy.evaluate(agent, type, params);
@@ -100,16 +99,7 @@ public class HumanApprovalService {
         return applyDecision(approval, agent, type, params, evaluation);
     }
 
-    public CompletionStage<JsonNode> receiveProtectedAction(CodexJsonRpcClient.ServerRequest request,
-                                                              AgentEntity agent,
-                                                              JsonNode arguments) {
-        HumanApprovalPolicy.Evaluation evaluation = policy.evaluate(agent, HumanApprovalType.PROTECTED_ACTION, arguments);
-        HumanApprovalEntity approval = createApproval(request, agent, HumanApprovalType.PROTECTED_ACTION,
-                "agenticform/request_protected_action", arguments, evaluation);
-        return applyDecision(approval, agent, HumanApprovalType.PROTECTED_ACTION, arguments, evaluation);
-    }
-
-    public CompletionStage<JsonNode> receiveDeclaredAction(CodexJsonRpcClient.ServerRequest request,
+    public CompletionStage<JsonNode> receiveDeclaredAction(RuntimeApprovalRequest request,
                                                              AgentEntity agent,
                                                              JsonNode arguments) {
         HumanApprovalPolicy.Evaluation evaluation = policy.evaluateDeclaredAction(agent, arguments);
@@ -118,7 +108,7 @@ public class HumanApprovalService {
         return applyDecision(approval, agent, HumanApprovalType.PROTECTED_ACTION, arguments, evaluation);
     }
 
-    private HumanApprovalEntity createApproval(CodexJsonRpcClient.ServerRequest request,
+    private HumanApprovalEntity createApproval(RuntimeApprovalRequest request,
                                                 AgentEntity agent,
                                                 HumanApprovalType type,
                                                 String method,
@@ -131,9 +121,9 @@ public class HumanApprovalService {
         };
 
         HumanApprovalEntity approval = new HumanApprovalEntity(
-                agent.getProjectId(), agent.getId(), requestId(request.id()), method, type,
+                agent.getProjectId(), agent.getId(), request.requestId(), method, type,
                 agent.getHumanControlMode(), evaluation.risk(), initialStatus,
-                requiredText(request.params(), "threadId"), nullableText(request.params(), "turnId"),
+                request.runtimeSessionId(), nullableText(request.params(), "turnId"),
                 nullableText(request.params(), "itemId"), evaluation.summary(), toJson(payload));
         approval.attachPolicy(evaluation.action(), evaluation.environment(), evaluation.effect(),
                 evaluation.configuredDecision().matchedRuleId());
@@ -365,10 +355,6 @@ public class HumanApprovalService {
             case "item/tool/requestUserInput" -> HumanApprovalType.USER_INPUT;
             default -> throw new IllegalArgumentException("Unsupported approval request: " + method);
         };
-    }
-
-    private String requestId(JsonNode id) {
-        return id.isTextual() ? id.asText() : id.toString();
     }
 
     private String requiredText(JsonNode node, String field) {

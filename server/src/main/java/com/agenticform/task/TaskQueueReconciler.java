@@ -1,7 +1,9 @@
 package com.agenticform.task;
 
 import com.agenticform.agent.AgentRepository;
-import com.agenticform.codex.CodexGateway;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeSession;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -9,14 +11,14 @@ import org.springframework.stereotype.Component;
 public class TaskQueueReconciler {
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
-    private final CodexGateway codexGateway;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final TaskDependencyService dependencies;
 
     public TaskQueueReconciler(TaskRepository taskRepository, AgentRepository agentRepository,
-                               CodexGateway codexGateway, TaskDependencyService dependencies) {
+                               AgentRuntimeRegistry runtimeRegistry, TaskDependencyService dependencies) {
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
-        this.codexGateway = codexGateway;
+        this.runtimeRegistry = runtimeRegistry;
         this.dependencies = dependencies;
     }
 
@@ -29,12 +31,13 @@ public class TaskQueueReconciler {
         }
 
         for (TaskEntity task : taskRepository.findTop20ByStatusOrderByUpdatedAtAsc(TaskStatus.DISPATCHED)) {
-            if (task.getCodexQueuedSubmissionId() == null) {
+            if (task.getQueuedSubmissionId() == null) {
                 continue;
             }
             agentRepository.findById(task.getAssignedAgentId()).ifPresent(agent -> {
                 try {
-                    codexGateway.resumeThread(agent.getCodexThreadId());
+                    String sessionId = agent.getRuntimeSessionId();
+                    runtimeRegistry.get(agent.getRuntimeType()).resume(new RuntimeSession(sessionId));
                     updateError(task.getId(), null);
                 } catch (RuntimeException error) {
                     updateError(task.getId(), "Queue wake/reconcile failed: " + error.getMessage());

@@ -5,8 +5,12 @@ import com.agenticform.agent.AgentQueueMode;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeDispatchReceipt;
+import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,16 +23,16 @@ import java.util.UUID;
 public class TaskDispatchService {
     private final TaskRepository taskRepository;
     private final AgentRepository agentRepository;
-    private final CodexGateway codexGateway;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeService nodeService;
     private final TaskDependencyService dependencyService;
 
     public TaskDispatchService(TaskRepository taskRepository, AgentRepository agentRepository,
-                               CodexGateway codexGateway, ExecutionNodeService nodeService,
+                               AgentRuntimeRegistry runtimeRegistry, ExecutionNodeService nodeService,
                                TaskDependencyService dependencyService) {
         this.taskRepository = taskRepository;
         this.agentRepository = agentRepository;
-        this.codexGateway = codexGateway;
+        this.runtimeRegistry = runtimeRegistry;
         this.nodeService = nodeService;
         this.dependencyService = dependencyService;
     }
@@ -108,16 +112,17 @@ public class TaskDispatchService {
                     + (agent.getExecutionNodeId() == null ? "" : ":g" + agent.getRuntimeGeneration());
 
             if (agent.getExecutionNodeId() != null) {
-                if (agent.getCodexThreadId() == null || agent.getCodexThreadId().isBlank()) {
+                if (runtimeSessionId(agent) == null || runtimeSessionId(agent).isBlank()) {
                     throw new IllegalStateException("Remote agent runtime is not ready");
                 }
                 var command = nodeService.enqueue(agent.getExecutionNodeId(), agent.getId(), "DISPATCH_TASK",
                         "dispatch-task:" + task.getId() + ":g" + agent.getRuntimeGeneration(), Map.of(
                                 "taskId", task.getId().toString(),
-                                "threadId", agent.getCodexThreadId(),
+                                "runtimeType", runtimeType(agent).name(),
+                                "runtimeSessionId", runtimeSessionId(agent),
                                 "clientMessageId", clientMessageId,
                                 "prompt", task.getPrompt()));
-                task.setCodexQueuedSubmissionId("node-command:" + command.getId());
+                task.setQueuedSubmissionId("node-command:" + command.getId());
                 task.setStatus(TaskStatus.DISPATCHED);
                 taskRepository.save(task);
                 agent.setStatus(AgentStatus.WORKING);
@@ -127,11 +132,11 @@ public class TaskDispatchService {
                 return;
             }
 
-            CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                    agent.getCodexThreadId(), clientMessageId, task.getPrompt());
+            RuntimeDispatchReceipt receipt = runtimeRegistry.get(agent.getRuntimeType()).dispatch(
+                    new RuntimeSession(agent.getRuntimeSessionId()), clientMessageId, task.getPrompt());
             TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
-            currentTask.setCodexQueuedSubmissionId(receipt.queuedSubmissionId());
-            if (receipt.turnId() != null) currentTask.setCodexTurnId(receipt.turnId());
+                currentTask.setQueuedSubmissionId(receipt.queuedSubmissionId());
+                if (receipt.turnId() != null) currentTask.setTurnId(receipt.turnId());
             if (currentTask.getStatus() == TaskStatus.DISPATCHING) {
                 currentTask.setStatus(receipt.turnId() == null ? TaskStatus.DISPATCHED : TaskStatus.RUNNING);
             }
@@ -153,5 +158,13 @@ public class TaskDispatchService {
             currentAgent.setStatus(AgentStatus.DISCONNECTED);
             agentRepository.save(currentAgent);
         }
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        return agent.getRuntimeSessionId();
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType();
     }
 }

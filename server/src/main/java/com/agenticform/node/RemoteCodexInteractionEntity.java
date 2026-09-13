@@ -1,5 +1,7 @@
 package com.agenticform.node;
 
+import com.agenticform.runtime.RuntimeType;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -30,6 +32,13 @@ public class RemoteCodexInteractionEntity {
 
     @Column(name = "runtime_generation", nullable = false)
     private long runtimeGeneration;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "runtime_type", nullable = false, length = 32)
+    private RuntimeType runtimeType;
+
+    @Column(name = "runtime_session_id", nullable = false)
+    private String runtimeSessionId;
 
     @Column(name = "codex_request_id", nullable = false)
     private String codexRequestId;
@@ -62,10 +71,13 @@ public class RemoteCodexInteractionEntity {
     protected RemoteCodexInteractionEntity() {}
 
     public RemoteCodexInteractionEntity(UUID nodeId, UUID agentId, long runtimeGeneration,
+                                        RuntimeType runtimeType, String runtimeSessionId,
                                         String codexRequestId, String method, String paramsJson) {
         this.nodeId = nodeId;
         this.agentId = agentId;
         this.runtimeGeneration = runtimeGeneration;
+        this.runtimeType = runtimeType;
+        this.runtimeSessionId = runtimeSessionId;
         this.codexRequestId = codexRequestId;
         this.method = method;
         this.paramsJson = paramsJson;
@@ -99,6 +111,8 @@ public class RemoteCodexInteractionEntity {
     public UUID getNodeId() { return nodeId; }
     public UUID getAgentId() { return agentId; }
     public long getRuntimeGeneration() { return runtimeGeneration; }
+    public RuntimeType getRuntimeType() { return runtimeType; }
+    public String getRuntimeSessionId() { return runtimeSessionId; }
     public String getCodexRequestId() { return codexRequestId; }
     public String getMethod() { return method; }
     public String getParamsJson() { return paramsJson; }

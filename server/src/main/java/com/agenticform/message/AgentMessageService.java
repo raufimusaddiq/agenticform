@@ -4,8 +4,12 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeDispatchReceipt;
+import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -34,7 +38,7 @@ public class AgentMessageService {
     private final AgentGroupRepository groupRepository;
     private final AgentGroupMembershipRepository membershipRepository;
     private final CommunicationRuleService communicationRules;
-    private final CodexGateway codexGateway;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeService nodeService;
     private final ObjectMapper mapper;
 
@@ -44,7 +48,7 @@ public class AgentMessageService {
                                AgentGroupRepository groupRepository,
                                AgentGroupMembershipRepository membershipRepository,
                                CommunicationRuleService communicationRules,
-                               CodexGateway codexGateway,
+                               AgentRuntimeRegistry runtimeRegistry,
                                ExecutionNodeService nodeService,
                                ObjectMapper mapper) {
         this.repository = repository;
@@ -53,7 +57,7 @@ public class AgentMessageService {
         this.groupRepository = groupRepository;
         this.membershipRepository = membershipRepository;
         this.communicationRules = communicationRules;
-        this.codexGateway = codexGateway;
+        this.runtimeRegistry = runtimeRegistry;
         this.nodeService = nodeService;
         this.mapper = mapper;
     }
@@ -216,24 +220,25 @@ public class AgentMessageService {
                           AgentEntity source, AgentEntity target) {
         try {
             if (target.getExecutionNodeId() != null) {
-                if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+                if (runtimeSessionId(target) == null || runtimeSessionId(target).isBlank()) {
                     throw new IllegalStateException("Target remote runtime is not ready");
                 }
                 var command = nodeService.enqueue(target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE",
                         "message:" + message.getId() + ":" + target.getId() + ":g" + target.getRuntimeGeneration(), Map.of(
                                 "messageId", message.getId().toString(),
                                 "conversationId", message.getConversationId().toString(),
-                                "threadId", target.getCodexThreadId(),
+                                "runtimeType", runtimeType(target).name(),
+                                "runtimeSessionId", runtimeSessionId(target),
                                 "clientMessageId", "agenticform-message:" + message.getId() + ":" + delivery.getId()
                                         + ":g" + target.getRuntimeGeneration(),
                                 "prompt", deliveryPrompt(message, source, target)));
                 delivery.markQueuedOnNode(command.getId().toString());
             } else {
-                if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+                if (runtimeSessionId(target) == null || runtimeSessionId(target).isBlank()) {
                     throw new IllegalStateException("Target agent runtime is not ready");
                 }
-                CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                        target.getCodexThreadId(),
+                RuntimeDispatchReceipt receipt = runtimeRegistry.get(target.getRuntimeType()).dispatch(
+                        new RuntimeSession(runtimeSessionId(target)),
                         "agenticform-message:" + message.getId() + ":" + delivery.getId(),
                         deliveryPrompt(message, source, target));
                 delivery.markDispatched(receipt.queuedSubmissionId(), receipt.turnId());
@@ -243,6 +248,14 @@ public class AgentMessageService {
             delivery.markFailed(safeMessage(error));
             deliveryRepository.save(delivery);
         }
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        return agent.getRuntimeSessionId();
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType();
     }
 
     private void updateAggregate(AgentMessageEntity message, List<AgentMessageDeliveryEntity> deliveries) {
@@ -264,17 +277,17 @@ public class AgentMessageService {
         } else if (terminal) {
             message.markPartial(failed + " of " + deliveries.size() + " message deliveries failed");
         } else if (processing > 0 || completed > 0) {
-            String turnId = deliveries.stream().map(AgentMessageDeliveryEntity::getCodexTurnId)
+            String turnId = deliveries.stream().map(AgentMessageDeliveryEntity::getTurnId)
                     .filter(value -> value != null && !value.isBlank()).findFirst().orElse(null);
             message.markProcessing(turnId);
         } else if (dispatched > 0) {
             AgentMessageDeliveryEntity first = deliveries.stream()
                     .filter(d -> d.getStatus() == AgentMessageStatus.DISPATCHED).findFirst().orElse(deliveries.get(0));
-            message.markDispatched(first.getCodexQueuedSubmissionId(), first.getCodexTurnId());
+            message.markDispatched(first.getQueuedSubmissionId(), first.getTurnId());
         } else if (queued > 0) {
             AgentMessageDeliveryEntity first = deliveries.stream()
                     .filter(d -> d.getStatus() == AgentMessageStatus.QUEUED).findFirst().orElse(deliveries.get(0));
-            message.markQueued(first.getCodexQueuedSubmissionId());
+            message.markQueued(first.getQueuedSubmissionId());
         } else {
             message.markCreated();
         }

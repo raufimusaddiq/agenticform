@@ -22,8 +22,8 @@ type gitCredentialResponse struct {
 }
 
 func gitCredentialHelper(stateDir, server string, args []string) error {
-	if len(args) < 5 {
-		return errors.New("git credential helper requires agentId runtimeGeneration projectId repositoryUrl operation")
+	if len(args) < 7 {
+		return errors.New("git credential helper requires agentId runtimeGeneration projectId repositoryUrl runtimeType runtimeSessionId operation")
 	}
 	agentID := args[0]
 	generation, err := strconv.ParseInt(args[1], 10, 64)
@@ -32,7 +32,9 @@ func gitCredentialHelper(stateDir, server string, args []string) error {
 	}
 	projectID := args[2]
 	repositoryURL := args[3]
-	operation := args[len(args)-1]
+	runtimeType := args[4]
+	runtimeSessionID := args[5]
+	operation := args[6]
 	_, _ = io.Copy(io.Discard, io.LimitReader(os.Stdin, 4096))
 	if operation != "get" {
 		return nil
@@ -44,8 +46,13 @@ func gitCredentialHelper(stateDir, server string, args []string) error {
 	body, _ := json.Marshal(map[string]any{
 		"agentId": agentID, "runtimeGeneration": generation,
 		"projectId": projectID, "repositoryUrl": repositoryURL,
+		"runtimeType": runtimeType, "runtimeSessionId": runtimeSessionID,
 	})
-	path := "/api/nodes/" + id.NodeID + "/git-credential"
+	mode := "runtime"
+	if runtimeSessionID == "" {
+		mode = "bootstrap"
+	}
+	path := "/api/nodes/" + id.NodeID + "/git-credential/" + mode
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := signedHTTP(client, server, id.NodeID, private, http.MethodPost, path, body)
 	if err != nil {
@@ -73,7 +80,8 @@ func (d *daemonRuntime) ensureProjectRepository(command nodeCommand, payload map
 	if projectID == "" {
 		return errors.New("START_AGENT missing projectId for repository authorization")
 	}
-	helper := credentialHelperCommand(command.AgentID, command.RuntimeGeneration, projectID, repositoryURL)
+	runtimeType := stringValue(payload, "runtimeType")
+	helper := credentialHelperCommand(command.AgentID, command.RuntimeGeneration, projectID, repositoryURL, runtimeType, "")
 	if _, err := os.Stat(filepath.Join(repoRoot, ".git")); err == nil {
 		if err := configureCredentialHelper(repoRoot, helper); err != nil {
 			return err
@@ -106,10 +114,23 @@ func configureCredentialHelper(repoRoot, helper string) error {
 	return runGit(repoRoot, "config", "--local", "--add", "credential.helper", helper)
 }
 
-func credentialHelperCommand(agentID string, generation int64, projectID, repositoryURL string) string {
+func configureProjectRuntimeCredentialHelper(repoRoot, workingDirectory string, command nodeCommand,
+	projectID, repositoryURL, runtimeType, runtimeSessionID string) error {
+	helper := credentialHelperCommand(command.AgentID, command.RuntimeGeneration, projectID, repositoryURL, runtimeType, runtimeSessionID)
+	if err := configureCredentialHelper(repoRoot, helper); err != nil {
+		return err
+	}
+	if workingDirectory != repoRoot {
+		return configureCredentialHelper(workingDirectory, helper)
+	}
+	return nil
+}
+
+func credentialHelperCommand(agentID string, generation int64, projectID, repositoryURL, runtimeType, runtimeSessionID string) string {
 	return "!agenticform-node git-credential " + shellQuote(agentID) + " " +
 		shellQuote(strconv.FormatInt(generation, 10)) + " " +
-		shellQuote(projectID) + " " + shellQuote(repositoryURL)
+		shellQuote(projectID) + " " + shellQuote(repositoryURL) + " " +
+		shellQuote(runtimeType) + " " + shellQuote(runtimeSessionID)
 }
 
 func shellQuote(value string) string {

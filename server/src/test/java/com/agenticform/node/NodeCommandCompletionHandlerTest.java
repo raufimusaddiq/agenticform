@@ -5,6 +5,7 @@ import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentStatus;
 import com.agenticform.message.AgentMessageDeliveryRepository;
 import com.agenticform.task.TaskRepository;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,10 +46,10 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(4L);
-        when(command.getPayloadJson()).thenReturn("{}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\"}");
         when(command.getIdempotencyKey()).thenReturn("cleanup-runtime:" + agentId + ":g4");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 4L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, null)).thenReturn(true);
 
         handler.handle(command, false, null, "worktree is dirty; cleanup refused");
 
@@ -64,10 +65,10 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(2L);
-        when(command.getPayloadJson()).thenReturn("{}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\"}");
         when(command.getIdempotencyKey()).thenReturn("cleanup-runtime:" + agentId + ":g2");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 2L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 2L, RuntimeType.CODEX, null)).thenReturn(true);
 
         handler.handle(command, true, "{\"cleaned\":true}", null);
 
@@ -85,11 +86,12 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(7L);
-        when(command.getPayloadJson()).thenReturn("{\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true,\"defaultBranch\":\"main\"}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\",\"runtimeSessionId\":\"session-7\",\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true,\"defaultBranch\":\"main\"}");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
         when(agent.getId()).thenReturn(agentId);
-        when(agent.getCodexThreadId()).thenReturn("thread-7");
-        when(agent.ownsRuntime(nodeId, 7L)).thenReturn(true);
+        when(agent.getRuntimeSessionId()).thenReturn("session-7");
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.ownsRuntime(nodeId, 7L, RuntimeType.CODEX, "session-7")).thenReturn(true);
 
         handler.handle(command, true, "{\"interrupted\":true}", null);
 
@@ -106,9 +108,9 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(7L);
-        when(command.getPayloadJson()).thenReturn("{\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\",\"runtimeSessionId\":\"session-7\",\"stopLifecycle\":true,\"cleanupAfterInterrupt\":true}");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 7L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 7L, RuntimeType.CODEX, "session-7")).thenReturn(true);
 
         handler.handle(command, false, null, "interrupt failed");
 
@@ -125,15 +127,35 @@ class NodeCommandCompletionHandlerTest {
         when(command.getAgentId()).thenReturn(agentId);
         when(command.getNodeId()).thenReturn(nodeId);
         when(command.getRuntimeGeneration()).thenReturn(9L);
-        when(command.getPayloadJson()).thenReturn("{\"stopLifecycle\":true}");
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\",\"stopLifecycle\":true}");
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
-        when(agent.ownsRuntime(nodeId, 9L)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 9L, RuntimeType.CODEX, null)).thenReturn(true);
 
         handler.handle(command, false, null, "worktree branch is not proven merged");
 
         verify(agent).setStatus(AgentStatus.STOPPED);
         verify(agent).setActiveTaskId(null);
         verify(agent).setActiveTurnId(null);
+        verify(agents).save(agent);
+    }
+
+    @Test
+    void startCompletionAfterHeartbeatFirstBindIsAcceptedIdempotently() {
+        UUID agentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+        when(command.getCommandType()).thenReturn("START_AGENT");
+        when(command.getAgentId()).thenReturn(agentId);
+        when(command.getNodeId()).thenReturn(nodeId);
+        when(command.getRuntimeGeneration()).thenReturn(3L);
+        when(command.getPayloadJson()).thenReturn("{\"runtimeType\":\"CODEX\"}");
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntimeAssignment(nodeId, 3L, RuntimeType.CODEX)).thenReturn(true);
+        when(agent.getRuntimeSessionId()).thenReturn("session-3");
+        when(agent.ownsRuntime(nodeId, 3L, RuntimeType.CODEX, "session-3")).thenReturn(true);
+
+        handler.handle(command, true, "{\"runtimeType\":\"CODEX\",\"runtimeSessionId\":\"session-3\",\"sourceDirectory\":\"/repo\",\"workingDirectory\":\"/work\"}", null);
+
+        verify(agent).bindRuntime(3L, RuntimeType.CODEX, "session-3", "/repo", "/work", null);
         verify(agents).save(agent);
     }
 }

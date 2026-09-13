@@ -29,13 +29,16 @@ export type WorkspaceMode = 'ISOLATED_WORKTREE' | 'SHARED_PROJECT';
 export type HumanControlMode = 'IN_THE_LOOP' | 'ON_THE_LOOP';
 export type AgentRole = 'GENERAL' | 'OPERATIONAL';
 export type AgentCapabilityProfile = 'IMPLEMENTER' | 'REVIEWER' | 'ARCHITECT' | 'OPS';
+export type RuntimeType = 'CODEX';
 
 export type Agent = {
   id: string;
   projectId: string;
   name: string;
   responsibility: string;
-  codexThreadId: string;
+  runtimeType: RuntimeType;
+  runtimeProfileId: string | null;
+  runtimeSessionId: string;
   workspaceMode: WorkspaceMode;
   sourceDirectory: string | null;
   workingDirectory: string | null;
@@ -75,8 +78,8 @@ export type Task = {
   prompt: string;
   status: TaskStatus;
   priority: number;
-  codexQueuedSubmissionId: string | null;
-  codexTurnId: string | null;
+  queuedSubmissionId: string | null;
+  turnId: string | null;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
@@ -110,8 +113,8 @@ export type AgentMessage = {
   content: string;
   hopCount: number;
   status: AgentMessageStatus;
-  codexQueuedSubmissionId: string | null;
-  codexTurnId: string | null;
+  queuedSubmissionId: string | null;
+  turnId: string | null;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
@@ -174,13 +177,13 @@ export type HumanApproval = {
   id: string;
   projectId: string;
   agentId: string;
-  codexRequestId: string;
+  runtimeRequestId: string;
   method: string;
   type: HumanApprovalType;
   controlMode: HumanControlMode;
   risk: HumanApprovalRisk;
   status: HumanApprovalStatus;
-  threadId: string;
+  runtimeSessionId: string;
   turnId: string | null;
   itemId: string | null;
   summary: string;

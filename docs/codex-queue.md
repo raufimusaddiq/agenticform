@@ -237,8 +237,8 @@ Task
 - dispatchMode
 - notBefore
 - idempotencyKey
-- codexQueuedSubmissionId
-- codexTurnId
+- queuedSubmissionId
+- turnId
 - dispatchAttempts
 - lastDispatchError
 - requestedBy
@@ -250,7 +250,7 @@ Task
 - completedAt
 ```
 
-`codexQueuedSubmissionId` is integration metadata, not the primary key or product identity.
+`queuedSubmissionId` is runtime integration metadata, not the primary key or product identity.
 
 ### 5.2 Task dependency
 
@@ -352,7 +352,7 @@ Then outside the database transaction:
 4. Re-read thread state after resume.
 5. Create a deterministic clientUserMessageId from the Agenticform task id.
 6. Call thread/queue/add.
-7. Persist codexQueuedSubmissionId and transition to DISPATCHED.
+7. Persist `queuedSubmissionId` and transition to DISPATCHED.
 8. Reconcile thread/queue/changed and turn events asynchronously.
 ```
 
@@ -584,8 +584,8 @@ tasks
   + dispatch_mode
   + not_before
   + idempotency_key
-  + codex_queued_submission_id
-  + codex_turn_id
+  + queued_submission_id
+  + turn_id
   + dispatch_attempts
   + last_dispatch_error
   + queued_at

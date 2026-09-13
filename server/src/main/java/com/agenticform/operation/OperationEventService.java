@@ -4,10 +4,14 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.node.NodeCommandEntity;
 import com.agenticform.node.NodeCommandRepository;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeDispatchReceipt;
+import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -24,7 +28,7 @@ public class OperationEventService {
 
     private final OperationEventRepository repository;
     private final AgentRepository agentRepository;
-    private final CodexGateway codexGateway;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final OperationalSignalService signals;
     private final ExecutionNodeService nodeService;
     private final NodeCommandRepository nodeCommands;
@@ -32,14 +36,14 @@ public class OperationEventService {
 
     public OperationEventService(OperationEventRepository repository,
                                  AgentRepository agentRepository,
-                                 CodexGateway codexGateway,
+                                 AgentRuntimeRegistry runtimeRegistry,
                                  OperationalSignalService signals,
                                  ExecutionNodeService nodeService,
                                  NodeCommandRepository nodeCommands,
                                  ObjectMapper mapper) {
         this.repository = repository;
         this.agentRepository = agentRepository;
-        this.codexGateway = codexGateway;
+        this.runtimeRegistry = runtimeRegistry;
         this.signals = signals;
         this.nodeService = nodeService;
         this.nodeCommands = nodeCommands;
@@ -82,8 +86,8 @@ public class OperationEventService {
         for (OperationEventEntity event : deliverable) {
             if (event.getAttempts() >= MAX_ATTEMPTS) continue;
             if (event.getStatus() == OperationEventEntity.Status.FAILED
-                    && event.getCodexQueuedSubmissionId() != null
-                    && event.getCodexQueuedSubmissionId().startsWith("node-command:")) {
+                    && event.getQueuedSubmissionId() != null
+                    && event.getQueuedSubmissionId().startsWith("node-command:")) {
                 // A terminal remote command failure may be ambiguous after node crash. Fail closed instead of
                 // creating another command that could duplicate a Codex turn.
                 continue;
@@ -106,7 +110,7 @@ public class OperationEventService {
         if (target.getStatus() == AgentStatus.STOPPED || target.getStatus() == AgentStatus.FAILED) {
             throw new IllegalStateException("Operational Agent is unavailable: " + target.getStatus());
         }
-        if (target.getCodexThreadId() == null || target.getCodexThreadId().isBlank()) {
+        if (runtimeSessionId(target) == null || runtimeSessionId(target).isBlank()) {
             throw new IllegalStateException("Operational Agent runtime is not ready");
         }
         String clientMessageId = "agenticform-operation-event:" + event.getId() + ":g" + target.getRuntimeGeneration();
@@ -115,7 +119,8 @@ public class OperationEventService {
                     target.getExecutionNodeId(), target.getId(), "DELIVER_MESSAGE", clientMessageId,
                     Map.of(
                             "operationEventId", event.getId().toString(),
-                            "threadId", target.getCodexThreadId(),
+                            "runtimeType", runtimeType(target).name(),
+                            "runtimeSessionId", runtimeSessionId(target),
                             "clientMessageId", clientMessageId,
                             "prompt", deliveryPrompt(event)));
             event.queued(command.getId());
@@ -124,10 +129,18 @@ public class OperationEventService {
             return;
         }
 
-        CodexGateway.DispatchReceipt receipt = codexGateway.dispatchTask(
-                target.getCodexThreadId(), clientMessageId, deliveryPrompt(event));
+        RuntimeDispatchReceipt receipt = runtimeRegistry.get(target.getRuntimeType()).dispatch(
+                new RuntimeSession(runtimeSessionId(target)), clientMessageId, deliveryPrompt(event));
         event.delivered(receipt.queuedSubmissionId(), receipt.turnId());
         repository.save(event);
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        return agent.getRuntimeSessionId();
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType();
     }
 
     private void reconcileQueued(OperationEventEntity event) {

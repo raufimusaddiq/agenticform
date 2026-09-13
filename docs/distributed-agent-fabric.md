@@ -131,7 +131,24 @@ Mutable tags such as `latest` are allowed only for local development. A non-loca
 
 ## Node placement
 
-Execution nodes heartbeat capacity and observed runtime capabilities such as Codex and Git availability. These are scheduling availability signals, not authorization claims. Trust level is assigned by the operator during enrollment and is not accepted from heartbeat data.
+Execution nodes heartbeat capacity and observed runtime capabilities. These are scheduling availability signals, not authorization claims. Trust level is assigned by the operator during enrollment and is not accepted from heartbeat data.
+
+The capability payload uses a runtime-neutral inventory:
+
+```json
+{
+  "git": true,
+  "runtimes": {
+    "CODEX": {
+      "available": true,
+      "authenticated": true,
+      "version": "0.154.0"
+    }
+  }
+}
+```
+
+Placement requests use requirements such as `runtime:CODEX`. Runtime observations and commands require an explicit `runtimeType` and `runtimeSessionId`; unsupported runtime types are rejected at the node command boundary.
 
 The scheduler considers:
 
@@ -142,7 +159,7 @@ The scheduler considers:
 - active agent load;
 - optional explicitly preferred node.
 
-GIT-backed projects can run on remote nodes. Legacy `LOCAL_PATH` projects remain bound to the local control-plane host for backward compatibility.
+GIT-backed projects can run on remote nodes. `LOCAL_PATH` projects remain bound to the local control-plane host.
 
 Repository URLs are metadata, not credentials. GIT project registration accepts credential-free HTTPS URLs only; userinfo, query-string tokens, fragments, SSH URLs, and plaintext HTTP are rejected. Private-repository credential brokerage is deliberately not implemented by storing a PAT in project metadata or node commands; use public repositories or node-local supported credentials for this MVP until a scoped short-lived credential provider is added.
 

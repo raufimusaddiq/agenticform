@@ -37,34 +37,34 @@ class ExecutionNodeSchedulerTest {
     void preferredNodeMustMeetTrustCapabilityAndCapacity() {
         UUID id = UUID.randomUUID();
         ExecutionNodeEntity node = node(id, "worker", NodeTrustLevel.STANDARD,
-                "{\"codex\":true,\"git\":true}", 2, 1000L);
+                "{\"git\":true,\"runtimes\":{\"CODEX\":{\"available\":true,\"authenticated\":true}}}", 2, 1000L);
         when(nodes.findById(id)).thenReturn(Optional.of(node));
 
         assertThrows(IllegalStateException.class,
-                () -> scheduler.select(id, NodeTrustLevel.TRUSTED, Set.of("codex", "git")));
+                () -> scheduler.select(id, NodeTrustLevel.TRUSTED, Set.of("runtime:CODEX", "git")));
     }
 
     @Test
     void preferredNodeMissingCapabilityIsRejected() {
         UUID id = UUID.randomUUID();
         ExecutionNodeEntity node = node(id, "worker", NodeTrustLevel.TRUSTED,
-                "{\"codex\":true,\"git\":false}", 2, 1000L);
+                "{\"git\":false,\"runtimes\":{\"CODEX\":{\"available\":true,\"authenticated\":true}}}", 2, 1000L);
         when(nodes.findById(id)).thenReturn(Optional.of(node));
 
         assertThrows(IllegalStateException.class,
-                () -> scheduler.select(id, NodeTrustLevel.STANDARD, Set.of("codex", "git")));
+                () -> scheduler.select(id, NodeTrustLevel.STANDARD, Set.of("runtime:CODEX", "git")));
     }
 
     @Test
     void fullNodeIsRejected() {
         UUID id = UUID.randomUUID();
         ExecutionNodeEntity node = node(id, "worker", NodeTrustLevel.TRUSTED,
-                "{\"codex\":true,\"git\":true}", 1, 1000L);
+                "{\"git\":true,\"runtimes\":{\"CODEX\":{\"available\":true,\"authenticated\":true}}}", 1, 1000L);
         when(nodes.findById(id)).thenReturn(Optional.of(node));
         when(agents.countByExecutionNodeIdAndStatusIn(eq(id), anyList())).thenReturn(1L);
 
         assertThrows(IllegalStateException.class,
-                () -> scheduler.select(id, NodeTrustLevel.STANDARD, Set.of("codex", "git")));
+                () -> scheduler.select(id, NodeTrustLevel.STANDARD, Set.of("runtime:CODEX", "git")));
     }
 
     @Test
@@ -72,14 +72,26 @@ class ExecutionNodeSchedulerTest {
         UUID busyId = UUID.randomUUID();
         UUID freeId = UUID.randomUUID();
         ExecutionNodeEntity busy = node(busyId, "busy", NodeTrustLevel.TRUSTED,
-                "{\"codex\":true,\"git\":true}", 4, 5000L);
+                "{\"git\":true,\"runtimes\":{\"CODEX\":{\"available\":true,\"authenticated\":true}}}", 4, 5000L);
         ExecutionNodeEntity free = node(freeId, "free", NodeTrustLevel.TRUSTED,
-                "{\"codex\":true,\"git\":true}", 4, 1000L);
+                "{\"git\":true,\"runtimes\":{\"CODEX\":{\"available\":true,\"authenticated\":true}}}", 4, 1000L);
         when(nodes.findAllByStatusOrderByName(ExecutionNodeStatus.ONLINE)).thenReturn(List.of(busy, free));
         when(agents.countByExecutionNodeIdAndStatusIn(eq(busyId), anyList())).thenReturn(3L);
         when(agents.countByExecutionNodeIdAndStatusIn(eq(freeId), anyList())).thenReturn(1L);
 
-        assertEquals(freeId, scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("codex", "git")).getId());
+        assertEquals(freeId, scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("runtime:CODEX", "git")).getId());
+    }
+
+    @Test
+    void structuredRuntimeCapabilitySatisfiesRuntimeRequirement() {
+        UUID id = UUID.randomUUID();
+        ExecutionNodeEntity node = node(id, "runtime-worker", NodeTrustLevel.TRUSTED,
+                "{\"git\":true,\"runtimes\":{\"CODEX\":{\"available\":true,\"authenticated\":true}}}",
+                2, 1000L);
+        when(nodes.findById(id)).thenReturn(Optional.of(node));
+
+        assertEquals(id, scheduler.select(id, NodeTrustLevel.STANDARD,
+                Set.of("runtime:CODEX", "git")).getId());
     }
 
     private ExecutionNodeEntity node(UUID id, String name, NodeTrustLevel trust, String capabilities,

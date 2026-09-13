@@ -4,6 +4,7 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.codex.CodexJsonRpcClient;
 import com.agenticform.codex.CodexServerRequestRouter;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -12,7 +13,7 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @Service
-public class RemoteCodexInteractionService {
+public class RemoteCodexInteractionService implements RemoteInteractionService {
     public record InteractionView(UUID id, RemoteCodexInteractionEntity.Status status,
                                   String responseJson, String error) {}
 
@@ -34,16 +35,18 @@ public class RemoteCodexInteractionService {
         this.mapper = mapper;
     }
 
-    public InteractionView begin(UUID nodeId, long runtimeGeneration,
+    public InteractionView begin(UUID nodeId, long runtimeGeneration, RuntimeType runtimeType,
+                                 String runtimeSessionId,
                                  CodexJsonRpcClient.ServerRequest request) {
-        AgentEntity agent = requireRuntime(nodeId, runtimeGeneration, request.params());
+        AgentEntity agent = requireRuntime(nodeId, runtimeGeneration, runtimeType, runtimeSessionId);
         String requestId = requestId(request.id());
         var existing = repository.findByNodeIdAndAgentIdAndRuntimeGenerationAndCodexRequestId(
                 nodeId, agent.getId(), runtimeGeneration, requestId);
         if (existing.isPresent()) return view(existing.get());
 
         RemoteCodexInteractionEntity interaction = repository.save(new RemoteCodexInteractionEntity(
-                nodeId, agent.getId(), runtimeGeneration, requestId, request.method(), toJson(request.params())));
+                nodeId, agent.getId(), runtimeGeneration, runtimeType, runtimeSessionId,
+                requestId, request.method(), toJson(request.params())));
         try {
             context.within(interaction.getId(), () -> {
                 router.route(request).whenComplete((result, error) -> {
@@ -88,14 +91,13 @@ public class RemoteCodexInteractionService {
         });
     }
 
-    public AgentEntity requireRuntime(UUID nodeId, long generation, JsonNode params) {
-        String threadId = params == null ? null : params.path("threadId").asText(null);
-        if (threadId == null || threadId.isBlank()) {
-            throw new IllegalArgumentException("Remote Codex request requires threadId");
+    public AgentEntity requireRuntime(UUID nodeId, long generation, RuntimeType runtimeType, String sessionId) {
+        if (runtimeType == null || sessionId == null || sessionId.isBlank()) {
+            throw new IllegalArgumentException("Remote request requires runtimeType and runtimeSessionId");
         }
-        AgentEntity agent = agents.findByCodexThreadId(threadId)
-                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns Codex thread " + threadId));
-        if (!agent.ownsRuntime(nodeId, generation)) {
+        AgentEntity agent = agents.findByRuntimeTypeAndRuntimeSessionId(runtimeType, sessionId)
+                .orElseThrow(() -> new NoSuchElementException("No Agenticform agent owns runtime session " + sessionId));
+        if (!agent.ownsRuntime(nodeId, generation, runtimeType, sessionId)) {
             throw new IllegalStateException("Remote Codex request belongs to a stale runtime generation");
         }
         return agent;
@@ -104,7 +106,8 @@ public class RemoteCodexInteractionService {
     private void requireCurrentGeneration(RemoteCodexInteractionEntity interaction) {
         AgentEntity agent = agents.findById(interaction.getAgentId())
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + interaction.getAgentId()));
-        if (!agent.ownsRuntime(interaction.getNodeId(), interaction.getRuntimeGeneration())) {
+        if (!agent.ownsRuntime(interaction.getNodeId(), interaction.getRuntimeGeneration(),
+                interaction.getRuntimeType(), interaction.getRuntimeSessionId())) {
             throw new IllegalStateException("Remote Codex interaction belongs to a stale runtime generation");
         }
     }

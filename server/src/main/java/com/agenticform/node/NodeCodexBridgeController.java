@@ -2,6 +2,7 @@ package com.agenticform.node;
 
 import com.agenticform.codex.CodexEventBridge;
 import com.agenticform.codex.CodexJsonRpcClient;
+import com.agenticform.runtime.RuntimeType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,7 +43,7 @@ public class NodeCodexBridgeController {
         String path = "/api/nodes/" + nodeId + "/codex/notification";
         signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         BridgeMessage message = mapper.readValue(body, BridgeMessage.class);
-        events.handleRemote(nodeId, message.runtimeGeneration(),
+        events.handleRemote(nodeId, message.runtimeGeneration(), message.runtimeType(), message.runtimeSessionId(),
                 new CodexJsonRpcClient.Notification(message.method(), message.params()));
     }
 
@@ -57,7 +58,7 @@ public class NodeCodexBridgeController {
         signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         BridgeMessage message = mapper.readValue(body, BridgeMessage.class);
         JsonNode requestId = message.requestId() == null ? LongNode.valueOf(0L) : message.requestId();
-        return interactions.begin(nodeId, message.runtimeGeneration(),
+        return interactions.begin(nodeId, message.runtimeGeneration(), message.runtimeType(), message.runtimeSessionId(),
                 new CodexJsonRpcClient.ServerRequest(requestId, message.method(), message.params()));
     }
 
@@ -85,5 +86,6 @@ public class NodeCodexBridgeController {
         return interactions.acknowledge(nodeId, interactionId);
     }
 
-    public record BridgeMessage(JsonNode requestId, String method, JsonNode params, long runtimeGeneration) {}
+    public record BridgeMessage(JsonNode requestId, String method, JsonNode params, long runtimeGeneration,
+                                RuntimeType runtimeType, String runtimeSessionId) {}
 }

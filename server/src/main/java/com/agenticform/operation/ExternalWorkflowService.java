@@ -46,11 +46,8 @@ public class ExternalWorkflowService {
         String mode = request.mode().toUpperCase(Locale.ROOT);
         if (!mode.equals("WAIT") && !mode.equals("DISPATCH")) throw new IllegalArgumentException("Unsupported GitHub workflow mode: " + mode);
         String expectedHeadSha = request.expectedHeadSha();
-        if ((expectedHeadSha == null || expectedHeadSha.isBlank()) && mode.equals("DISPATCH") && request.inputs() != null) {
-            expectedHeadSha = request.inputs().get("sha");
-        }
         if (expectedHeadSha == null || expectedHeadSha.isBlank()) {
-            throw new IllegalArgumentException("Durable GitHub workflow waits require expectedHeadSha (or DISPATCH input sha)");
+            throw new IllegalArgumentException("Durable GitHub workflow waits require expectedHeadSha");
         }
         expectedHeadSha = expectedHeadSha.trim();
 

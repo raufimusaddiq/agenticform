@@ -2,11 +2,14 @@ package com.agenticform.agent;
 
 import com.agenticform.approval.HumanApprovalRepository;
 import com.agenticform.approval.HumanApprovalStatus;
-import com.agenticform.codex.CodexGateway;
 import com.agenticform.event.ControlPlaneEventBus;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.project.ProjectEntity;
 import com.agenticform.project.ProjectService;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
+import com.agenticform.runtime.RuntimeSession;
+import com.agenticform.runtime.RuntimeType;
 import com.agenticform.task.TaskDependencyService;
 import com.agenticform.task.TaskEntity;
 import com.agenticform.task.TaskRepository;
@@ -28,7 +31,7 @@ public class AgentLifecycleService {
     private final TaskDependencyService dependencies;
     private final HumanApprovalRepository approvals;
     private final ProjectService projects;
-    private final CodexGateway codex;
+    private final AgentRuntimeRegistry runtimeRegistry;
     private final ExecutionNodeService nodes;
     private final WorkspaceLifecycleService workspaces;
     private final ControlPlaneEventBus events;
@@ -36,7 +39,7 @@ public class AgentLifecycleService {
     public AgentLifecycleService(AgentRepository agents, TaskRepository tasks,
                                  TaskDependencyService dependencies,
                                  HumanApprovalRepository approvals,
-                                 ProjectService projects, CodexGateway codex,
+                                 ProjectService projects, AgentRuntimeRegistry runtimeRegistry,
                                  ExecutionNodeService nodes,
                                  WorkspaceLifecycleService workspaces,
                                  ControlPlaneEventBus events) {
@@ -45,7 +48,7 @@ public class AgentLifecycleService {
         this.dependencies = dependencies;
         this.approvals = approvals;
         this.projects = projects;
-        this.codex = codex;
+        this.runtimeRegistry = runtimeRegistry;
         this.nodes = nodes;
         this.workspaces = workspaces;
         this.events = events;
@@ -76,13 +79,16 @@ public class AgentLifecycleService {
     private AgentEntity stopLocal(AgentEntity agent) {
         if (hasActiveTurn(agent)) {
             try {
-                codex.interruptTurn(agent.getCodexThreadId(), agent.getActiveTurnId());
+                runtimeRegistry.get(agent.getRuntimeType()).interrupt(new RuntimeSession(runtimeSessionId(agent)), agent.getActiveTurnId());
             } catch (RuntimeException error) {
                 agent.setStatus(AgentStatus.DISCONNECTED);
                 agents.save(agent);
                 events.publish("agent.stop_failed", agent.getProjectId(), agent.getId());
                 throw new IllegalStateException("Unable to interrupt active local Codex turn before stop", error);
             }
+        }
+        if (runtimeSessionId(agent) != null && !runtimeSessionId(agent).isBlank()) {
+            runtimeRegistry.get(agent.getRuntimeType()).stop(new RuntimeSession(runtimeSessionId(agent)));
         }
         agent.setActiveTaskId(null);
         agent.setActiveTurnId(null);
@@ -112,7 +118,8 @@ public class AgentLifecycleService {
 
         if (activeTurn) {
             Map<String, Object> interrupt = new LinkedHashMap<>();
-            interrupt.put("threadId", agent.getCodexThreadId());
+            interrupt.put("runtimeType", runtimeType(agent).name());
+            interrupt.put("runtimeSessionId", runtimeSessionId(agent));
             interrupt.put("turnId", agent.getActiveTurnId());
             interrupt.put("stopLifecycle", true);
             interrupt.put("finalizeStop", !isolated);
@@ -140,7 +147,8 @@ public class AgentLifecycleService {
 
     private void enqueueStopCleanup(AgentEntity agent, String defaultBranch) {
         Map<String, Object> cleanup = new LinkedHashMap<>();
-        cleanup.put("threadId", agent.getCodexThreadId() == null ? "" : agent.getCodexThreadId());
+        cleanup.put("runtimeSessionId", runtimeSessionId(agent));
+        cleanup.put("runtimeType", runtimeType(agent).name());
         cleanup.put("defaultBranch", defaultBranch);
         cleanup.put("stopLifecycle", true);
         nodes.enqueue(agent.getExecutionNodeId(), agent.getId(), "CLEANUP_WORKSPACE",
@@ -163,7 +171,15 @@ public class AgentLifecycleService {
 
     private boolean hasActiveTurn(AgentEntity agent) {
         return agent.getActiveTurnId() != null && !agent.getActiveTurnId().isBlank()
-                && agent.getCodexThreadId() != null && !agent.getCodexThreadId().isBlank();
+                && runtimeSessionId(agent) != null && !runtimeSessionId(agent).isBlank();
+    }
+
+    private String runtimeSessionId(AgentEntity agent) {
+        return agent.getRuntimeSessionId();
+    }
+
+    private RuntimeType runtimeType(AgentEntity agent) {
+        return agent.getRuntimeType();
     }
 
     private AgentEntity agent(UUID id) {

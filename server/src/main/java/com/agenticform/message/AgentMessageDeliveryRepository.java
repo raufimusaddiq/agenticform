@@ -11,5 +11,5 @@ public interface AgentMessageDeliveryRepository extends JpaRepository<AgentMessa
     List<AgentMessageDeliveryEntity> findAllByToAgentIdOrderByCreatedAtDesc(UUID toAgentId);
     List<AgentMessageDeliveryEntity> findTop50ByStatusOrderByCreatedAtAsc(AgentMessageStatus status);
     Optional<AgentMessageDeliveryEntity> findByMessageIdAndToAgentId(UUID messageId, UUID toAgentId);
-    Optional<AgentMessageDeliveryEntity> findByCodexTurnId(String codexTurnId);
+    Optional<AgentMessageDeliveryEntity> findByTurnId(String turnId);
 }

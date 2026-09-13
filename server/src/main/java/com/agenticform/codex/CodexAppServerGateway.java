@@ -8,6 +8,7 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.util.Locale;
+import java.util.Map;
 
 @Component
 public class CodexAppServerGateway implements CodexGateway {
@@ -32,6 +33,12 @@ public class CodexAppServerGateway implements CodexGateway {
         JsonNode result = client.request("thread/start",
                 threadConfiguration.startParams(cwd, responsibility, capabilityProfile));
         return new ThreadHandle(result.path("thread").path("id").asText());
+    }
+
+    @Override
+    public Map<String, Object> startParameters(String cwd, String responsibility,
+                                               AgentCapabilityProfile capabilityProfile) {
+        return mapper.convertValue(threadConfiguration.startParams(cwd, responsibility, capabilityProfile), Map.class);
     }
 
     @Override

@@ -40,11 +40,11 @@ public class TaskEntity {
     @Column(nullable = false)
     private int priority;
 
-    @Column(name = "codex_queued_submission_id")
-    private String codexQueuedSubmissionId;
+    @Column(name = "queued_submission_id")
+    private String queuedSubmissionId;
 
-    @Column(name = "codex_turn_id")
-    private String codexTurnId;
+    @Column(name = "turn_id")
+    private String turnId;
 
     @Column(name = "last_error", columnDefinition = "text")
     private String lastError;
@@ -79,14 +79,14 @@ public class TaskEntity {
     public String getPrompt() { return prompt; }
     public TaskStatus getStatus() { return status; }
     public int getPriority() { return priority; }
-    public String getCodexQueuedSubmissionId() { return codexQueuedSubmissionId; }
-    public String getCodexTurnId() { return codexTurnId; }
+    public String getQueuedSubmissionId() { return queuedSubmissionId; }
+    public String getTurnId() { return turnId; }
     public String getLastError() { return lastError; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
     public void setStatus(TaskStatus status) { this.status = status; }
-    public void setCodexQueuedSubmissionId(String value) { this.codexQueuedSubmissionId = value; }
-    public void setCodexTurnId(String value) { this.codexTurnId = value; }
+    public void setQueuedSubmissionId(String value) { this.queuedSubmissionId = value; }
+    public void setTurnId(String value) { this.turnId = value; }
     public void setLastError(String value) { this.lastError = value; }
 }

@@ -25,7 +25,6 @@ public class CodexThreadConfiguration {
 
             Before a governed semantic action that is not represented by a registered runbook, call agenticform.request_action with the exact action name, environment, summary, details, and when the action will be followed by a native command approval, an effectKey that exactly identifies that native effect. For command execution use the exact intended command plus cwd in the effectKey format described by the tool. If an exact effectKey cannot be produced, omit it and expect the native request to require a second human approval.
             The default policy requires a fresh human decision for PRODUCTION_DEPLOY in production, PRODUCTION_DML in production, DELETE_DATA in any environment, and genuine USER_INPUT.
-            For backward compatibility, agenticform.request_protected_action is also available for PRODUCTION_DEPLOY, PRODUCTION_DML, and DELETE_DATA.
             Continue ordinary development autonomously when the deterministic policy result is ALLOW.
             A DENY result cannot be overridden. A human approval is valid only for the action/request that produced it unless Agenticform explicitly states otherwise.
             """;
@@ -156,16 +155,6 @@ public class CodexThreadConfiguration {
         property(actionProps, "details", "string", "Relevant target, command, resource, and scope for audit and human review.");
         property(actionProps, "effectKey", "string", "Optional exact native-effect key for one-shot preauthorization. For command execution use: command=<exact command>\\ncwd=<exact cwd or empty>\\nactions=<exact commandActions JSON or empty>. If uncertain, omit it so the native effect is approved separately.");
         required(requestAction, "action", "summary", "details");
-
-        ObjectNode protectedAction = function(namespaceTools, "request_protected_action",
-                "Compatibility helper for default protected actions. Prefer request_operation for registered runbooks and request_action for other configurable policy actions.");
-        ObjectNode protectedProps = schema(protectedAction).putObject("properties");
-        enumProperty(protectedProps, "kind", "PRODUCTION_DEPLOY", "PRODUCTION_DML", "DELETE_DATA");
-        property(protectedProps, "environment", "string", "Target environment.");
-        property(protectedProps, "summary", "string", "Concise description of the exact governed action.");
-        property(protectedProps, "details", "string", "Relevant target/environment/command/data scope.");
-        property(protectedProps, "effectKey", "string", "Optional exact native-effect key for one-shot preauthorization; omit when no exact native effect can be identified.");
-        required(protectedAction, "kind", "summary", "details");
 
         tools.add(namespace);
         return tools;

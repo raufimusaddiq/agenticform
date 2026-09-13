@@ -108,7 +108,7 @@ See [Distributed Agent Fabric](docs/distributed-agent-fabric.md) for enrollment,
 
 ## Distributed runtime recovery
 
-Remote agents are bound to a monotonically increasing runtime generation. Commands, Codex events, approvals, Git credentials, and runtime snapshots are accepted only for the current `(node, generation)` pair.
+Remote agents are bound to a monotonically increasing runtime generation and opaque runtime identity. Commands, Codex events, approvals, Git credentials, and runtime snapshots are accepted only for the current `(node, generation, runtimeType, runtimeSessionId)` identity.
 
 Node command transport is intentionally at-least-once, while node effects are fenced by a persistent local execution ledger. A duplicate terminal command returns its cached result. A command left in `STARTED` after a crash is treated as ambiguous and is **not** replayed automatically.
 

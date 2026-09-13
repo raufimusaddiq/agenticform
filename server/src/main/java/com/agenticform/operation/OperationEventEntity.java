@@ -45,11 +45,11 @@ public class OperationEventEntity {
     @Column(nullable = false)
     private int attempts;
 
-    @Column(name = "codex_queued_submission_id")
-    private String codexQueuedSubmissionId;
+    @Column(name = "queued_submission_id")
+    private String queuedSubmissionId;
 
-    @Column(name = "codex_turn_id")
-    private String codexTurnId;
+    @Column(name = "turn_id")
+    private String turnId;
 
     @Column(name = "last_error", columnDefinition = "text")
     private String lastError;
@@ -80,8 +80,8 @@ public class OperationEventEntity {
 
     public void queued(UUID commandId) {
         this.status = Status.QUEUED;
-        this.codexQueuedSubmissionId = "node-command:" + commandId;
-        this.codexTurnId = null;
+        this.queuedSubmissionId = "node-command:" + commandId;
+        this.turnId = null;
         this.lastError = null;
         this.attempts++;
     }
@@ -89,8 +89,8 @@ public class OperationEventEntity {
     public void delivered(String queuedSubmissionId, String turnId) {
         boolean alreadyAttempted = this.status == Status.QUEUED;
         this.status = Status.DISPATCHED;
-        this.codexQueuedSubmissionId = queuedSubmissionId;
-        this.codexTurnId = turnId;
+        this.queuedSubmissionId = queuedSubmissionId;
+        this.turnId = turnId;
         this.lastError = null;
         if (!alreadyAttempted) this.attempts++;
     }
@@ -108,10 +108,10 @@ public class OperationEventEntity {
     }
 
     public UUID queuedNodeCommandId() {
-        if (status != Status.QUEUED || codexQueuedSubmissionId == null
-                || !codexQueuedSubmissionId.startsWith("node-command:")) return null;
+        if (status != Status.QUEUED || queuedSubmissionId == null
+                || !queuedSubmissionId.startsWith("node-command:")) return null;
         try {
-            return UUID.fromString(codexQueuedSubmissionId.substring("node-command:".length()));
+            return UUID.fromString(queuedSubmissionId.substring("node-command:".length()));
         } catch (IllegalArgumentException ignored) {
             return null;
         }
@@ -127,8 +127,8 @@ public class OperationEventEntity {
     public String getPayload() { return payload; }
     public Status getStatus() { return status; }
     public int getAttempts() { return attempts; }
-    public String getCodexQueuedSubmissionId() { return codexQueuedSubmissionId; }
-    public String getCodexTurnId() { return codexTurnId; }
+    public String getQueuedSubmissionId() { return queuedSubmissionId; }
+    public String getTurnId() { return turnId; }
     public String getLastError() { return lastError; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

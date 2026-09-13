@@ -2,7 +2,8 @@ package com.agenticform.agent;
 
 import com.agenticform.approval.HumanApprovalRepository;
 import com.agenticform.approval.HumanApprovalStatus;
-import com.agenticform.codex.CodexThreadConfiguration;
+import com.agenticform.runtime.AgentRuntime;
+import com.agenticform.runtime.AgentRuntimeRegistry;
 import com.agenticform.node.ExecutionNodeEntity;
 import com.agenticform.node.ExecutionNodeScheduler;
 import com.agenticform.node.ExecutionNodeService;
@@ -13,6 +14,7 @@ import com.agenticform.project.ProjectService;
 import com.agenticform.project.ProjectSourceType;
 import com.agenticform.task.TaskRepository;
 import com.agenticform.workspace.WorkspaceMode;
+import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,7 +45,8 @@ class AgentRuntimeRecoveryServiceTest {
     @Mock HumanApprovalRepository approvals;
     @Mock ExecutionNodeScheduler scheduler;
     @Mock ExecutionNodeService nodeService;
-    @Mock CodexThreadConfiguration threadConfiguration;
+    @Mock AgentRuntimeRegistry runtimeRegistry;
+    @Mock AgentRuntime runtime;
     @Mock AgentEntity agent;
     @Mock ProjectEntity project;
     @Mock ExecutionNodeEntity oldNode;
@@ -54,7 +57,7 @@ class AgentRuntimeRecoveryServiceTest {
     @BeforeEach
     void setUp() {
         service = new AgentRuntimeRecoveryService(agents, projects, tasks, approvals, scheduler,
-                nodeService, threadConfiguration, new ObjectMapper());
+                nodeService, runtimeRegistry);
     }
 
     @Test
@@ -87,6 +90,8 @@ class AgentRuntimeRecoveryServiceTest {
         when(agent.getBranch()).thenReturn("agent/coder");
         when(agent.getActiveTaskId()).thenReturn(null);
         when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getCapabilityProfile()).thenReturn(AgentCapabilityProfile.IMPLEMENTER);
         when(agent.getResponsibility()).thenReturn("Implement features");
         when(agent.reassignRuntime(eq(newNodeId), any())).thenReturn(2L);
         when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
@@ -101,9 +106,10 @@ class AgentRuntimeRecoveryServiceTest {
         when(nodeService.get(oldNodeId)).thenReturn(oldNode);
         when(oldNode.getStatus()).thenReturn(ExecutionNodeStatus.OFFLINE);
         when(replacement.getId()).thenReturn(newNodeId);
-        when(scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("codex", "git"), Set.of(oldNodeId)))
+        when(scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("runtime:CODEX", "git"), Set.of(oldNodeId)))
                 .thenReturn(replacement);
-        when(threadConfiguration.startParams("", "Implement features")).thenReturn(new ObjectMapper().createObjectNode());
+        when(runtimeRegistry.get(RuntimeType.CODEX)).thenReturn(runtime);
+        when(runtime.startParameters("", "Implement features", AgentCapabilityProfile.IMPLEMENTER)).thenReturn(Map.of());
 
         AgentEntity recovered = service.recover(agentId);
 
@@ -119,5 +125,35 @@ class AgentRuntimeRecoveryServiceTest {
         assertEquals(oldNodeId.toString(), payload.getValue().get("previousNodeId"));
         assertEquals(true, payload.getValue().get("recovery"));
         assertTrue(String.valueOf(payload.getValue().get("requestedBranch")).endsWith("-g2"));
+    }
+
+    @Test
+    void cleanupFailedUnboundRuntimeOmitsSessionId() {
+        UUID agentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.getId()).thenReturn(agentId);
+        when(agent.getExecutionNodeId()).thenReturn(nodeId);
+        when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
+        when(agent.getActiveTaskId()).thenReturn(null);
+        when(agent.getActiveTurnId()).thenReturn(null);
+        when(agent.getStatus()).thenReturn(AgentStatus.FAILED);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getRuntimeSessionId()).thenReturn(null);
+        when(agent.getRuntimeGeneration()).thenReturn(2L);
+        when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
+        when(nodeService.get(nodeId)).thenReturn(replacement);
+        when(replacement.getId()).thenReturn(nodeId);
+        when(replacement.getStatus()).thenReturn(ExecutionNodeStatus.ONLINE);
+        when(agents.save(agent)).thenReturn(agent);
+
+        service.cleanup(agentId);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> payload = ArgumentCaptor.forClass(Map.class);
+        verify(nodeService).enqueue(eq(nodeId), eq(agentId), eq("CLEANUP_WORKSPACE"),
+                eq("cleanup-runtime:" + agentId + ":g2"), payload.capture());
+        assertEquals("CODEX", payload.getValue().get("runtimeType"));
+        assertTrue(!payload.getValue().containsKey("runtimeSessionId"));
     }
 }
