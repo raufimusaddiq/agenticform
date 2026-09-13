@@ -149,7 +149,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const visibleTasks = useMemo(() => projectFilter === 'all' ? tasks : tasks.filter((task) => task.projectId === projectFilter), [tasks, projectFilter]);
   const visibleMessages = useMemo(() => projectFilter === 'all' ? messages : messages.filter((message) => message.projectId === projectFilter), [messages, projectFilter]);
   const visibleApprovals = useMemo(() => projectFilter === 'all' ? approvals : approvals.filter((approval) => approval.projectId === projectFilter), [approvals, projectFilter]);
-  const taskAgents = useMemo(() => (visibleAgents.length ? visibleAgents : agents).filter((agent) => !agent.systemManaged), [visibleAgents, agents]);
+  const taskAgents = useMemo(() => (visibleAgents.length ? visibleAgents : agents).filter((agent) => agent.role !== 'OPERATIONAL'), [visibleAgents, agents]);
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
 
