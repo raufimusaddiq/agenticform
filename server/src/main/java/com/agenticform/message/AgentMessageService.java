@@ -101,6 +101,8 @@ public class AgentMessageService {
                     AgentMessageStatus status = delivery.getStatus();
                     delivery.markCompleted();
                     deliveryRepository.save(delivery);
+                    updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(message.getId()));
+                    repository.save(message);
                     return new InboxItem(message.getId(), message.getFromAgentId(), message.getSubject(),
                             message.getContent(), message.getType(), status, message.getCreatedAt());
                 }).orElse(null))
@@ -221,6 +223,13 @@ public class AgentMessageService {
                 updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(message.getId()));
                 repository.save(message);
             }
+        }
+        for (AgentMessageEntity message : repository.findTop50ByStatusInOrderByCreatedAtAsc(List.of(
+                AgentMessageStatus.CREATED, AgentMessageStatus.QUEUED,
+                AgentMessageStatus.DISPATCHED, AgentMessageStatus.PROCESSING,
+                AgentMessageStatus.PARTIAL))) {
+            updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(message.getId()));
+            repository.save(message);
         }
     }
 

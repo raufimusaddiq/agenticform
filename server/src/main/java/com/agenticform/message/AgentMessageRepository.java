@@ -9,4 +9,5 @@ public interface AgentMessageRepository extends JpaRepository<AgentMessageEntity
     List<AgentMessageEntity> findAllByProjectIdOrderByCreatedAtDesc(UUID projectId);
     List<AgentMessageEntity> findAllByToAgentIdOrderByCreatedAtDesc(UUID toAgentId);
     List<AgentMessageEntity> findAllByConversationIdOrderByCreatedAtAsc(UUID conversationId);
+    List<AgentMessageEntity> findTop50ByStatusInOrderByCreatedAtAsc(List<AgentMessageStatus> statuses);
 }
