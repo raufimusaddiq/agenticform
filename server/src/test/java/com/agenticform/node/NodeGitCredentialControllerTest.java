@@ -14,6 +14,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.util.Base64;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,8 +24,10 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +39,7 @@ class NodeGitCredentialControllerTest {
     @Mock GitHubAppCredentialBroker broker;
     @Mock AgentEntity agent;
     @Mock ProjectEntity project;
+    @Mock ExecutionNodeEntity node;
 
     private NodeGitCredentialController controller;
     private ObjectMapper mapper;
@@ -42,6 +48,15 @@ class NodeGitCredentialControllerTest {
     void setUp() {
         mapper = new ObjectMapper();
         controller = new NodeGitCredentialController(signatures, agents, projects, broker, mapper);
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            KeyPair pair = generator.generateKeyPair();
+            lenient().when(node.getEncryptionPublicKeyBase64()).thenReturn(Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()));
+            lenient().when(signatures.verify(any(), anyString(), anyString(), anyString(), anyString(), anyString(), any())).thenReturn(node);
+        } catch (Exception error) {
+            throw new RuntimeException(error);
+        }
     }
 
     @Test
@@ -58,6 +73,8 @@ class NodeGitCredentialControllerTest {
         when(projects.get(projectId)).thenReturn(project);
         when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);
         when(project.getRepositoryUrl()).thenReturn(repositoryUrl);
+        when(project.getId()).thenReturn(projectId);
+        when(projects.githubToken(projectId)).thenReturn("");
         Instant expiresAt = Instant.now().plusSeconds(1800);
         when(broker.issue(repositoryUrl)).thenReturn(
                 new GitHubAppCredentialBroker.Credential("x-access-token", "short-lived-token", expiresAt));
@@ -66,7 +83,7 @@ class NodeGitCredentialControllerTest {
                 nodeId, "timestamp", "nonce", "signature", body);
 
         assertEquals("x-access-token", response.username());
-        assertEquals("short-lived-token", response.password());
+        org.junit.jupiter.api.Assertions.assertTrue(response.password().startsWith("afenc1."));
         assertEquals(expiresAt, response.expiresAt());
         verify(signatures).verify(eq(nodeId), eq("timestamp"), eq("nonce"), eq("signature"),
                 eq("POST"), eq("/api/nodes/" + nodeId + "/git-credential/bootstrap"), eq(body));

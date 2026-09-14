@@ -118,7 +118,7 @@ public class ExecutionNodeService {
     }
 
     @Transactional
-    public EnrollmentResult enroll(String rawToken, String publicKeyBase64) {
+    public EnrollmentResult enroll(String rawToken, String publicKeyBase64, String encryptionPublicKeyBase64) {
         if (rawToken == null || !rawToken.startsWith("afenroll_")) {
             throw new IllegalArgumentException("Invalid enrollment token");
         }
@@ -127,18 +127,37 @@ public class ExecutionNodeService {
         if (!token.usable(Instant.now())) throw new IllegalArgumentException("Enrollment token is expired or already used");
 
         String fingerprint = NodeSignatureVerifier.fingerprint(publicKeyBase64);
+        validateEncryptionKey(encryptionPublicKeyBase64);
         if (nodes.findByFingerprint(fingerprint).isPresent()) {
             throw new IllegalArgumentException("Node public key is already enrolled");
         }
-        if (nodes.findByName(token.getRequestedName()).filter(node -> node.getStatus() != ExecutionNodeStatus.REVOKED).isPresent()) {
+        ExecutionNodeEntity existing = nodes.findByName(token.getRequestedName()).orElse(null);
+        if (existing != null && existing.getStatus() != ExecutionNodeStatus.REVOKED) {
             throw new IllegalArgumentException("Execution node name already exists");
         }
 
         token.consume();
         tokens.save(token);
-        ExecutionNodeEntity node = nodes.save(new ExecutionNodeEntity(
-                token.getRequestedName(), token.getRequestedTrustLevel(), publicKeyBase64, fingerprint));
+        ExecutionNodeEntity node;
+        if (existing == null) {
+            node = nodes.save(new ExecutionNodeEntity(
+                    token.getRequestedName(), token.getRequestedTrustLevel(), publicKeyBase64, fingerprint,
+                    encryptionPublicKeyBase64));
+        } else {
+            existing.reenroll(token.getRequestedTrustLevel(), publicKeyBase64, fingerprint, encryptionPublicKeyBase64);
+            node = nodes.save(existing);
+        }
         return new EnrollmentResult(node.getId(), node.getName(), node.getFingerprint(), node.getTrustLevel());
+    }
+
+    private void validateEncryptionKey(String encoded) {
+        try {
+            byte[] der = Base64.getDecoder().decode(encoded);
+            java.security.PublicKey key = java.security.KeyFactory.getInstance("RSA")
+                    .generatePublic(new java.security.spec.X509EncodedKeySpec(der));
+            if (key.getAlgorithm().equalsIgnoreCase("RSA") && ((java.security.interfaces.RSAPublicKey) key).getModulus().bitLength() >= 2048) return;
+        } catch (Exception ignored) { }
+        throw new IllegalArgumentException("Node encryption public key must be a valid RSA-2048+ public key");
     }
 
     @Transactional

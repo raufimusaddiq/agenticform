@@ -137,6 +137,7 @@ export const api = {
     path?: string;
     repositoryUrl?: string;
     defaultBranch: string;
+    githubToken?: string;
   }) => request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
 
   spawnAgent: (input: {

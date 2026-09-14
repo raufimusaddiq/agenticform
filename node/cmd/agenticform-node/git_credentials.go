@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,7 +42,7 @@ func gitCredentialHelper(stateDir, server string, args []string) error {
 	if operation != "get" {
 		return nil
 	}
-	id, private, err := loadIdentity(filepath.Join(stateDir, "identity.json"))
+	id, private, encryptionPrivate, err := loadIdentity(filepath.Join(stateDir, "identity.json"))
 	if err != nil {
 		return err
 	}
@@ -70,8 +73,27 @@ func gitCredentialHelper(stateDir, server string, args []string) error {
 	if credential.Username == "" || credential.Password == "" || credential.ExpiresAt.Before(time.Now().Add(time.Minute)) {
 		return errors.New("control plane returned an invalid or nearly expired Git credential")
 	}
+	credential.Password, err = decryptCredential(credential.Password, encryptionPrivate)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("username=%s\npassword=%s\n\n", credential.Username, credential.Password)
 	return nil
+}
+
+func decryptCredential(encoded string, private *rsa.PrivateKey) (string, error) {
+	if private == nil || !strings.HasPrefix(encoded, "afenc1.") {
+		return "", errors.New("control plane returned an invalid encrypted Git credential")
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(encoded, "afenc1."))
+	if err != nil {
+		return "", errors.New("control plane returned an invalid encrypted Git credential")
+	}
+	plaintext, err := rsa.DecryptOAEP(sha256.New(), nil, private, ciphertext, nil)
+	if err != nil {
+		return "", errors.New("unable to decrypt Git credential")
+	}
+	return string(plaintext), nil
 }
 
 func (d *daemonRuntime) ensureProjectRepository(command nodeCommand, payload map[string]any,

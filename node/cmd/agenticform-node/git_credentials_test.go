@@ -8,6 +8,12 @@ import (
 	"testing"
 )
 
+func TestDecryptCredentialRejectsPlaintext(t *testing.T) {
+	if _, err := decryptCredential("github-token", nil); err == nil {
+		t.Fatal("plaintext credential was accepted")
+	}
+}
+
 func TestConfigureCredentialHelperIsWorktreeScoped(t *testing.T) {
 	root := t.TempDir()
 	run := func(args ...string) {

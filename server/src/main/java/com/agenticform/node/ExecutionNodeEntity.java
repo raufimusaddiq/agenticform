@@ -35,6 +35,9 @@ public class ExecutionNodeEntity {
     @Column(name = "public_key_base64", nullable = false, columnDefinition = "text")
     private String publicKeyBase64;
 
+    @Column(name = "encryption_public_key_base64", columnDefinition = "text")
+    private String encryptionPublicKeyBase64;
+
     @Column(nullable = false, unique = true, length = 128)
     private String fingerprint;
 
@@ -87,10 +90,16 @@ public class ExecutionNodeEntity {
     protected ExecutionNodeEntity() {}
 
     public ExecutionNodeEntity(String name, NodeTrustLevel trustLevel, String publicKeyBase64, String fingerprint) {
+        this(name, trustLevel, publicKeyBase64, fingerprint, null);
+    }
+
+    public ExecutionNodeEntity(String name, NodeTrustLevel trustLevel, String publicKeyBase64, String fingerprint,
+                               String encryptionPublicKeyBase64) {
         this.name = name;
         this.trustLevel = trustLevel;
         this.publicKeyBase64 = publicKeyBase64;
         this.fingerprint = fingerprint;
+        this.encryptionPublicKeyBase64 = encryptionPublicKeyBase64;
         this.status = ExecutionNodeStatus.ONLINE;
         this.protocolVersion = ExecutionNodeProtocol.CURRENT;
         this.enrolledAt = Instant.now();
@@ -139,11 +148,25 @@ public class ExecutionNodeEntity {
         if (status == ExecutionNodeStatus.REVOKED) revokedAt = Instant.now();
     }
 
+    public void reenroll(NodeTrustLevel trustLevel, String publicKeyBase64, String fingerprint,
+                         String encryptionPublicKeyBase64) {
+        this.trustLevel = trustLevel;
+        this.publicKeyBase64 = publicKeyBase64;
+        this.fingerprint = fingerprint;
+        this.encryptionPublicKeyBase64 = encryptionPublicKeyBase64;
+        this.status = ExecutionNodeStatus.ONLINE;
+        this.drainRequested = false;
+        this.revokedAt = null;
+        this.enrolledAt = Instant.now();
+        this.lastSeenAt = this.enrolledAt;
+    }
+
     public UUID getId() { return id; }
     public String getName() { return name; }
     public ExecutionNodeStatus getStatus() { return status; }
     public NodeTrustLevel getTrustLevel() { return trustLevel; }
     public String getPublicKeyBase64() { return publicKeyBase64; }
+    public String getEncryptionPublicKeyBase64() { return encryptionPublicKeyBase64; }
     public String getFingerprint() { return fingerprint; }
     public boolean isDrainRequested() { return drainRequested; }
     public int getProtocolVersion() { return protocolVersion; }

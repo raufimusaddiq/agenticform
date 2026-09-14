@@ -15,8 +15,17 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import javax.crypto.Cipher;
+import javax.crypto.spec.OAEPParameterSpec;
+import javax.crypto.spec.PSource;
+import java.security.spec.MGF1ParameterSpec;
 
 @RestController
 @RequestMapping("/api/nodes/{nodeId}/git-credential")
@@ -60,7 +69,7 @@ public class NodeGitCredentialController {
     private CredentialResponse issue(UUID nodeId, String timestamp, String nonce, String signature, byte[] body,
                                      String mode) throws Exception {
         String path = "/api/nodes/" + nodeId + "/git-credential/" + mode;
-        signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
+        ExecutionNodeEntity node = signatures.verify(nodeId, timestamp, nonce, signature, "POST", path, body);
         CredentialRequest request = mapper.readValue(body, CredentialRequest.class);
         if (request.agentId() == null || request.projectId() == null || request.runtimeGeneration() <= 0
                 || request.runtimeType() == null) {
@@ -93,8 +102,27 @@ public class NodeGitCredentialController {
                 || !project.getRepositoryUrl().equals(request.repositoryUrl())) {
             throw new IllegalArgumentException("Requested repository does not match the registered project source");
         }
-        GitHubAppCredentialBroker.Credential credential = broker.issue(project.getRepositoryUrl());
-        return new CredentialResponse(credential.username(), credential.password(), credential.expiresAt());
+        String encryptionKey = node.getEncryptionPublicKeyBase64();
+        if (encryptionKey == null || encryptionKey.isBlank()) {
+            throw new IllegalStateException("Node must be re-enrolled with an encryption key before receiving credentials");
+        }
+        String configuredToken = projects.githubToken(project.getId());
+        GitHubAppCredentialBroker.Credential credential = configuredToken.isBlank()
+                ? broker.issue(project.getRepositoryUrl()) : broker.issueToken(configuredToken, project.getRepositoryUrl());
+        return new CredentialResponse(credential.username(), encryptForNode(credential.password(), encryptionKey), credential.expiresAt());
+    }
+
+    private String encryptForNode(String secret, String publicKeyBase64) {
+        try {
+            PublicKey key = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(
+                    Base64.getDecoder().decode(publicKeyBase64)));
+            Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, key, new OAEPParameterSpec("SHA-256", "MGF1",
+                    MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT));
+            return "afenc1." + Base64.getEncoder().encodeToString(cipher.doFinal(secret.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception error) {
+            throw new IllegalStateException("Unable to encrypt Git credential for node", error);
+        }
     }
 
     public record CredentialRequest(UUID agentId, UUID projectId, long runtimeGeneration, RuntimeType runtimeType,

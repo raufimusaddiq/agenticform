@@ -45,7 +45,7 @@ public class ExecutionNodeController {
 
     @PostMapping("/enroll")
     public ExecutionNodeService.EnrollmentResult enroll(@Valid @RequestBody EnrollRequest request) {
-        return service.enroll(request.token(), request.publicKeyBase64());
+        return service.enroll(request.token(), request.publicKeyBase64(), request.encryptionPublicKeyBase64());
     }
 
     @PostMapping("/{nodeId}/heartbeat")
@@ -111,7 +111,8 @@ public class ExecutionNodeController {
     }
 
     public record CreateEnrollmentRequest(@NotBlank String name, NodeTrustLevel trustLevel) {}
-    public record EnrollRequest(@NotBlank String token, @NotBlank String publicKeyBase64) {}
+    public record EnrollRequest(@NotBlank String token, @NotBlank String publicKeyBase64,
+                                @NotBlank String encryptionPublicKeyBase64) {}
     public record RuntimeObservationRequest(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String runtimeSessionId,
                                             String sourceDirectory, String workingDirectory, String branch,
                                             String runtimeStatus) {}

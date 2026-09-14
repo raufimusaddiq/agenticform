@@ -9,15 +9,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import com.agenticform.security.SecretBox;
 
 @Service
 public class ProjectService {
     private final ProjectRepository repository;
     private final ProjectPathPolicy pathPolicy;
+    private final SecretBox secrets;
 
-    public ProjectService(ProjectRepository repository, ProjectPathPolicy pathPolicy) {
+    public ProjectService(ProjectRepository repository, ProjectPathPolicy pathPolicy, SecretBox secrets) {
         this.repository = repository;
         this.pathPolicy = pathPolicy;
+        this.secrets = secrets;
     }
 
     public List<ProjectEntity> list() {
@@ -30,12 +33,12 @@ public class ProjectService {
 
     @Transactional
     public ProjectEntity register(String name, String path, String defaultBranch) {
-        return register(name, ProjectSourceType.LOCAL_PATH, path, null, defaultBranch);
+        return register(name, ProjectSourceType.LOCAL_PATH, path, null, defaultBranch, null);
     }
 
     @Transactional
     public ProjectEntity register(String name, ProjectSourceType sourceType, String path,
-                                  String repositoryUrl, String defaultBranch) {
+                                  String repositoryUrl, String defaultBranch, String githubToken) {
         ProjectSourceType type = sourceType == null ? ProjectSourceType.LOCAL_PATH : sourceType;
         String slug = slugify(name);
         if (repository.existsBySlug(slug)) throw new IllegalArgumentException("Project slug already exists: " + slug);
@@ -54,8 +57,15 @@ public class ProjectService {
         if (repository.existsByRepositoryUrl(normalizedRepository)) {
             throw new IllegalArgumentException("Git repository is already registered");
         }
-        return repository.save(new ProjectEntity(name.trim(), slug, type,
-                null, normalizedRepository, defaultBranch.trim()));
+        ProjectEntity project = new ProjectEntity(name.trim(), slug, type,
+                null, normalizedRepository, defaultBranch.trim());
+        if (githubToken != null && !githubToken.isBlank()) project.setGithubTokenCiphertext(secrets.encrypt(githubToken.trim()));
+        return repository.save(project);
+    }
+
+    public String githubToken(UUID projectId) {
+        String ciphertext = get(projectId).getGithubTokenCiphertext();
+        return ciphertext == null || ciphertext.isBlank() ? "" : secrets.decrypt(ciphertext);
     }
 
     private String normalizeRepositoryUrl(String value) {
