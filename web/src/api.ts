@@ -190,6 +190,9 @@ export const api = {
   intervene: (agentId: string) =>
     request<Agent>(`/api/agents/${agentId}/intervene`, { method: 'POST' }),
 
+  restartRuntime: (agentId: string) =>
+    request<Agent>(`/api/agents/${agentId}/restart-runtime`, { method: 'POST' }),
+
   cleanupWorkspace: (agentId: string, reason = 'Operator requested cleanup') =>
     request<WorkspaceCleanupRecord>(`/api/workspaces/agents/${agentId}/cleanup`, {
       method: 'POST',
