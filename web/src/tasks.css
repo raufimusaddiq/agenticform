@@ -1,0 +1,5 @@
+.task-group{border-bottom:1px solid var(--border)}
+.task-group-header{display:flex;align-items:center;gap:12px;min-height:42px;padding:10px 0;color:var(--muted);font-size:11px}
+.task-group-header strong{color:var(--text);font-size:12px}
+.task-group-header code{margin-left:auto}
+.child-task{padding-left:22px}
