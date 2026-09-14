@@ -41,6 +41,16 @@ const nav: Array<{ id: View; label: string }> = [
   { id: 'policy', label: 'Policy' }
 ];
 
+const routeByView: Record<View, string> = {
+  overview: '/', projects: '/projects', agents: '/agents', tasks: '/tasks',
+  messages: '/messages', operations: '/operations', approvals: '/approvals', policy: '/policy'
+};
+
+function viewFromPath(pathname: string): View {
+  const entry = Object.entries(routeByView).find(([, path]) => path === pathname);
+  return (entry?.[0] as View | undefined) ?? 'overview';
+}
+
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -73,13 +83,25 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const [policyRules, setPolicyRules] = useState<PolicyRule[]>([]);
   const [communicationRules, setCommunicationRules] = useState<CommunicationRule[]>([]);
   const [projectCandidates, setProjectCandidates] = useState<ProjectCandidate[]>([]);
-  const [view, setView] = useState<View>('overview');
+  const [view, setView] = useState<View>(() => viewFromPath(window.location.pathname));
   const [projectFilter, setProjectFilter] = useState('all');
   const [dialog, setDialog] = useState<Dialog>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionState>('CONNECTING');
+
+  const navigate = useCallback((nextView: View) => {
+    const path = routeByView[nextView];
+    if (window.location.pathname !== path) window.history.pushState({}, '', path);
+    setView(nextView);
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setView(viewFromPath(window.location.pathname));
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -200,11 +222,11 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
         <div className="brand"><span className="brand-mark" aria-hidden="true">A</span><div><strong>Agenticform</strong><small>control plane</small></div></div>
         <div className="nav-caption">Workspace</div>
         <nav>
-          {nav.slice(0, 4).map((item) => <button key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => setView(item.id)}>{item.label}</button>)}
+          {nav.slice(0, 4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}</button>)}
         </nav>
         <div className="nav-caption nav-caption-spaced">Supervision</div>
         <nav>
-          {nav.slice(4).map((item) => <button key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => setView(item.id)}>{item.label}{item.id === 'approvals' && approvals.some((approval) => approval.status === 'PENDING') && <span className="nav-count">{approvals.filter((approval) => approval.status === 'PENDING').length}</span>}</button>)}
+          {nav.slice(4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}{item.id === 'approvals' && approvals.some((approval) => approval.status === 'PENDING') && <span className="nav-count">{approvals.filter((approval) => approval.status === 'PENDING').length}</span>}</button>)}
         </nav>
         <div className="sidebar-footer"><ConnectionStatus state={connection} /></div>
       </aside>
@@ -226,7 +248,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
         {error && <div className="error-banner" role="alert"><strong>Action required</strong><span>{error}</span><button type="button" onClick={() => setError(null)}>Dismiss</button></div>}
         {loading ? <LoadingState label="Loading control-plane state" /> : (
           <>
-            {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} messages={visibleMessages} approvals={visibleApprovals} attention={attention} active={active} queued={queued} connection={connection} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => setView('approvals')} onOpenAgents={() => setView('agents')} onOpenTasks={() => setView('tasks')} onSpawn={() => setDialog('agent')} />}
+            {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} messages={visibleMessages} approvals={visibleApprovals} attention={attention} active={active} queued={queued} connection={connection} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => navigate('approvals')} onOpenAgents={() => navigate('agents')} onOpenTasks={() => navigate('tasks')} onSpawn={() => setDialog('agent')} />}
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onEdit={(projectId) => { setEditingProjectId(projectId); setDialog('project-edit'); }} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} onEnsureSystemAgents={(projectId) => void mutate(() => api.ensureOperationalAgent(projectId))} />}
             {view === 'agents' && <Agents agents={visibleAgents} tasks={visibleTasks} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} onRestart={(id) => void mutate(() => api.restartRuntime(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
