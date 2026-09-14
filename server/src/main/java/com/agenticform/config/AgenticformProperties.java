@@ -129,8 +129,11 @@ public class AgenticformProperties {
 
     public static class Security {
         private String adminToken = "";
+        private String secretKey = "";
 
         public String getAdminToken() { return adminToken; }
         public void setAdminToken(String adminToken) { this.adminToken = adminToken == null ? "" : adminToken; }
+        public String getSecretKey() { return secretKey; }
+        public void setSecretKey(String secretKey) { this.secretKey = secretKey == null ? "" : secretKey; }
     }
 }

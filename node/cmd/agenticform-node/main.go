@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -35,11 +36,13 @@ const (
 )
 
 type identity struct {
-	NodeID       string `json:"nodeId"`
-	Name         string `json:"name"`
-	Fingerprint  string `json:"fingerprint"`
-	PrivateKeyPK string `json:"privateKeyPkcs8"`
-	PublicKeyPK  string `json:"publicKeySpki"`
+	NodeID                 string `json:"nodeId"`
+	Name                   string `json:"name"`
+	Fingerprint            string `json:"fingerprint"`
+	PrivateKeyPK           string `json:"privateKeyPkcs8"`
+	PublicKeyPK            string `json:"publicKeySpki"`
+	EncryptionPrivateKeyPK string `json:"encryptionPrivateKeyPkcs8"`
+	EncryptionPublicKeyPK  string `json:"encryptionPublicKeySpki"`
 }
 
 type enrollmentResult struct {
@@ -182,13 +185,26 @@ func enroll(stateDir, server string) error {
 	if err != nil {
 		return fmt.Errorf("encode private key: %w", err)
 	}
+	encryptionPrivate, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return fmt.Errorf("generate node encryption key: %w", err)
+	}
+	encryptionPublicDER, err := x509.MarshalPKIXPublicKey(&encryptionPrivate.PublicKey)
+	if err != nil {
+		return fmt.Errorf("encode node encryption public key: %w", err)
+	}
+	encryptionPrivateDER, err := x509.MarshalPKCS8PrivateKey(encryptionPrivate)
+	if err != nil {
+		return fmt.Errorf("encode node encryption private key: %w", err)
+	}
 	body, _ := json.Marshal(map[string]string{
-		"token":           token,
-		"publicKeyBase64": base64.StdEncoding.EncodeToString(publicDER),
+		"token":                     token,
+		"publicKeyBase64":           base64.StdEncoding.EncodeToString(publicDER),
+		"encryptionPublicKeyBase64": base64.StdEncoding.EncodeToString(encryptionPublicDER),
 	})
 	req, _ := http.NewRequest(http.MethodPost, server+"/api/nodes/enroll", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
 	if err != nil {
 		return fmt.Errorf("enroll request: %w", err)
 	}
@@ -202,11 +218,13 @@ func enroll(stateDir, server string) error {
 		return fmt.Errorf("decode enrollment: %w", err)
 	}
 	id := identity{
-		NodeID:       result.NodeID,
-		Name:         result.Name,
-		Fingerprint:  result.Fingerprint,
-		PrivateKeyPK: base64.StdEncoding.EncodeToString(privateDER),
-		PublicKeyPK:  base64.StdEncoding.EncodeToString(publicDER),
+		NodeID:                 result.NodeID,
+		Name:                   result.Name,
+		Fingerprint:            result.Fingerprint,
+		PrivateKeyPK:           base64.StdEncoding.EncodeToString(privateDER),
+		PublicKeyPK:            base64.StdEncoding.EncodeToString(publicDER),
+		EncryptionPrivateKeyPK: base64.StdEncoding.EncodeToString(encryptionPrivateDER),
+		EncryptionPublicKeyPK:  base64.StdEncoding.EncodeToString(encryptionPublicDER),
 	}
 	encoded, _ := json.MarshalIndent(id, "", "  ")
 	if err := os.WriteFile(identityPath, encoded, 0600); err != nil {
@@ -217,7 +235,7 @@ func enroll(stateDir, server string) error {
 }
 
 func daemon(stateDir, server string) error {
-	id, private, err := loadIdentity(filepath.Join(stateDir, "identity.json"))
+	id, private, _, err := loadIdentity(filepath.Join(stateDir, "identity.json"))
 	if err != nil {
 		return err
 	}
@@ -1056,28 +1074,40 @@ func signedHTTP(client *http.Client, server, nodeID string, private ed25519.Priv
 	return client.Do(req)
 }
 
-func loadIdentity(path string) (identity, ed25519.PrivateKey, error) {
+func loadIdentity(path string) (identity, ed25519.PrivateKey, *rsa.PrivateKey, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return identity{}, nil, fmt.Errorf("load node identity: %w", err)
+		return identity{}, nil, nil, fmt.Errorf("load node identity: %w", err)
 	}
 	var id identity
 	if err := json.Unmarshal(data, &id); err != nil {
-		return identity{}, nil, err
+		return identity{}, nil, nil, err
 	}
 	privateDER, err := base64.StdEncoding.DecodeString(id.PrivateKeyPK)
 	if err != nil {
-		return identity{}, nil, err
+		return identity{}, nil, nil, err
 	}
 	key, err := x509.ParsePKCS8PrivateKey(privateDER)
 	if err != nil {
-		return identity{}, nil, err
+		return identity{}, nil, nil, err
 	}
 	private, ok := key.(ed25519.PrivateKey)
 	if !ok {
-		return identity{}, nil, errors.New("stored node key is not Ed25519")
+		return identity{}, nil, nil, errors.New("stored node key is not Ed25519")
 	}
-	return id, private, nil
+	encryptionDER, err := base64.StdEncoding.DecodeString(id.EncryptionPrivateKeyPK)
+	if err != nil {
+		return identity{}, nil, nil, errors.New("stored node encryption key is invalid")
+	}
+	encryptionAny, err := x509.ParsePKCS8PrivateKey(encryptionDER)
+	if err != nil {
+		return identity{}, nil, nil, errors.New("stored node encryption key is invalid")
+	}
+	encryptionPrivate, ok := encryptionAny.(*rsa.PrivateKey)
+	if !ok || encryptionPrivate.N.BitLen() < 2048 {
+		return identity{}, nil, nil, errors.New("stored node encryption key is not RSA-2048+")
+	}
+	return id, private, encryptionPrivate, nil
 }
 
 func loadCommandLedger(path string) (commandLedger, error) {

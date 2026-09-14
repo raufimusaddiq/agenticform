@@ -34,7 +34,7 @@ public class ProjectController {
     @PostMapping
     public ProjectEntity register(@Valid @RequestBody RegisterProjectRequest request) {
         return service.register(request.name(), request.sourceType(), request.path(),
-                request.repositoryUrl(), request.defaultBranch());
+                request.repositoryUrl(), request.defaultBranch(), request.githubToken());
     }
 
     public record RegisterProjectRequest(
@@ -42,6 +42,7 @@ public class ProjectController {
             ProjectSourceType sourceType,
             String path,
             String repositoryUrl,
-            @NotBlank String defaultBranch
+            @NotBlank String defaultBranch,
+            String githubToken
     ) {}
 }

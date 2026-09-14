@@ -113,6 +113,7 @@ For remote/non-loopback deployments configure at least:
 ```bash
 AGENTICFORM_PUBLIC_URL=https://agenticform.example.com
 AGENTICFORM_ADMIN_TOKEN=<random value at least 32 characters>
+AGENTICFORM_SECRET_KEY=<random value at least 32 characters; recommended for encrypted project credentials>
 AGENTICFORM_NODE_IMAGE=ghcr.io/raufimusaddiq/agenticform-node@sha256:<published digest>
 ```
 
@@ -158,7 +159,7 @@ Webhook delivery is the fast path; durable GitHub API reconciliation remains the
 
 ### Private GitHub repositories on execution nodes
 
-For private repository materialization, prefer the GitHub App credential broker instead of distributing a PAT to execution nodes:
+For private repository materialization, prefer the GitHub App credential broker. Alternatively, register one repository-scoped GitHub token in the web UI. The token is encrypted in the control plane and delivered to each enrolled node only as an RSA-encrypted, short-lived credential response; it is not persisted on nodes.
 
 ```bash
 AGENTICFORM_GITHUB_APP_ID=<app-id>

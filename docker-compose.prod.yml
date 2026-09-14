@@ -22,6 +22,8 @@ services:
   server:
     image: ${AGENTICFORM_SERVER_IMAGE:?set AGENTICFORM_SERVER_IMAGE to a published release image}
     restart: unless-stopped
+    env_file:
+      - .agenticform-secret.env
     environment:
       DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-agenticform}
       DATABASE_USER: ${POSTGRES_USER:-agenticform}

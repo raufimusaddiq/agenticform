@@ -32,6 +32,7 @@ agenticform:
   public-url: ${AGENTICFORM_PUBLIC_URL:http://localhost:8080}
   security:
     admin-token: ${AGENTICFORM_ADMIN_TOKEN:}
+    secret-key: ${AGENTICFORM_SECRET_KEY:}
   project-roots:
     - ${AGENTICFORM_PROJECT_ROOT:/srv/apps}
   project-discovery:

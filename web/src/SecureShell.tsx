@@ -84,6 +84,7 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
   const [enrollment, setEnrollment] = useState<NodeEnrollment | null>(null);
   const [projectName, setProjectName] = useState('');
   const [repositoryUrl, setRepositoryUrl] = useState('');
+  const [githubToken, setGithubToken] = useState('');
   const [defaultBranch, setDefaultBranch] = useState('main');
   const [projectCreated, setProjectCreated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,11 +126,12 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
     event.preventDefault();
     try {
       const project = await api.registerProject({
-        name: projectName.trim(), sourceType: 'GIT', repositoryUrl: repositoryUrl.trim(), defaultBranch: defaultBranch.trim()
+        name: projectName.trim(), sourceType: 'GIT', repositoryUrl: repositoryUrl.trim(), defaultBranch: defaultBranch.trim(), githubToken: githubToken || undefined
       });
       setProjectCreated(project.name);
       setProjectName('');
       setRepositoryUrl('');
+      setGithubToken('');
       setDefaultBranch('main');
       setError(null);
     } catch (cause) {
@@ -178,6 +180,7 @@ function NodesPanel({ onClose }: { onClose: () => void }) {
         <form onSubmit={registerGitProject} className="distributed-project-form">
           <input placeholder="Project name" value={projectName} onChange={(event) => setProjectName(event.target.value)} required />
           <input className="mono" type="url" placeholder="https://github.com/org/repo.git" value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} required />
+          <input className="mono" type="password" autoComplete="new-password" placeholder="Optional GitHub access token" value={githubToken} onChange={(event) => setGithubToken(event.target.value)} />
           <input className="mono" placeholder="main" value={defaultBranch} onChange={(event) => setDefaultBranch(event.target.value)} required />
           <button className="button secondary">Register GIT project</button>
         </form>

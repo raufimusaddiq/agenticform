@@ -76,6 +76,12 @@ public class GitHubAppCredentialBroker {
         }
     }
 
+    public Credential issueToken(String token, String repositoryUrl) {
+        if (token == null || token.isBlank()) throw new IllegalArgumentException("GitHub token is empty");
+        parseRepository(repositoryUrl);
+        return new Credential("x-access-token", token, Instant.now().plusSeconds(15 * 60));
+    }
+
     private String appJwt() throws Exception {
         Instant now = Instant.now();
         String header = base64Url(mapper.writeValueAsBytes(Map.of("alg", "RS256", "typ", "JWT")));

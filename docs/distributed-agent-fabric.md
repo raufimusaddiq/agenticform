@@ -51,8 +51,8 @@ From the UI choose **Execution nodes → Add execution node**. Agenticform creat
 The generated command uses an ephemeral enrollment container:
 
 1. require the setup command to be run as a non-root host user;
-2. generate an Ed25519 key pair on the node;
-3. send only the validated Ed25519 public key plus the one-time token to Agenticform;
+2. generate separate Ed25519 signing and RSA encryption key pairs on the node;
+3. send only the validated public keys plus the one-time token to Agenticform;
 4. atomically consume the enrollment token under a database row lock;
 5. persist the private key only in `$HOME/.agenticform-node` with mode `0600`;
 6. discard the enrollment container and token;

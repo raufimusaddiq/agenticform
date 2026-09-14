@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -39,6 +40,10 @@ public class ProjectEntity {
 
     @Column(name = "default_branch", nullable = false)
     private String defaultBranch;
+
+    @JsonIgnore
+    @Column(name = "github_token_ciphertext", columnDefinition = "text")
+    private String githubTokenCiphertext;
 
     @Column(nullable = false)
     private boolean enabled = true;
@@ -81,6 +86,8 @@ public class ProjectEntity {
     public ProjectSourceType getSourceType() { return sourceType; }
     public String getRepositoryUrl() { return repositoryUrl; }
     public String getDefaultBranch() { return defaultBranch; }
+    public String getGithubTokenCiphertext() { return githubTokenCiphertext; }
+    public void setGithubTokenCiphertext(String value) { this.githubTokenCiphertext = value; }
     public boolean isEnabled() { return enabled; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
