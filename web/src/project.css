@@ -1,0 +1,2 @@
+.checkbox-row{display:flex!important;align-items:center;gap:8px}
+.checkbox-row input{width:auto;min-height:0}

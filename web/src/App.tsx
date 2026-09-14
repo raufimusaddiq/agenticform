@@ -24,9 +24,10 @@ import type {
 import './approvals.css';
 import './human-control.css';
 import './tasks.css';
+import './project.css';
 
 type View = 'overview' | 'projects' | 'agents' | 'tasks' | 'messages' | 'operations' | 'approvals' | 'policy';
-type Dialog = 'project' | 'agent' | 'task' | null;
+type Dialog = 'project' | 'project-edit' | 'agent' | 'task' | null;
 type ProjectCandidate = { name: string; path: string; configuredRoot: string; detectedBranch: string | null; registered: boolean };
 
 const nav: Array<{ id: View; label: string }> = [
@@ -75,6 +76,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const [view, setView] = useState<View>('overview');
   const [projectFilter, setProjectFilter] = useState('all');
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionState>('CONNECTING');
@@ -225,7 +227,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
         {loading ? <LoadingState label="Loading control-plane state" /> : (
           <>
             {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} messages={visibleMessages} approvals={visibleApprovals} attention={attention} active={active} queued={queued} connection={connection} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => setView('approvals')} onOpenAgents={() => setView('agents')} onOpenTasks={() => setView('tasks')} onSpawn={() => setDialog('agent')} />}
-            {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} onEnsureSystemAgents={(projectId) => void mutate(() => api.ensureOperationalAgent(projectId))} />}
+            {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onEdit={(projectId) => { setEditingProjectId(projectId); setDialog('project-edit'); }} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} onEnsureSystemAgents={(projectId) => void mutate(() => api.ensureOperationalAgent(projectId))} />}
             {view === 'agents' && <Agents agents={visibleAgents} tasks={visibleTasks} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} onRestart={(id) => void mutate(() => api.restartRuntime(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
             {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} communicationRules={communicationRules} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} onSaveRule={async (input) => { await mutate(() => api.saveCommunicationRule(input)); }} onDeleteRule={async (id) => { await mutate(() => api.deleteCommunicationRule(id)); }} />}
@@ -237,6 +239,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
       </main>
 
       {dialog === 'project' && <ProjectForm onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.registerProject(input))} />}
+      {dialog === 'project-edit' && editingProjectId && <ProjectEditForm project={projects.find((item) => item.id === editingProjectId)!} onClose={() => { setDialog(null); setEditingProjectId(null); }} onSubmit={(input) => mutate(() => api.updateProject(editingProjectId, input))} />}
       {dialog === 'agent' && <AgentForm projects={projects} templates={agentTemplates} initialProjectId={projectFilter === 'all' ? projects[0]?.id : projectFilter} onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.spawnAgent(input))} />}
       {dialog === 'task' && <TaskForm agents={taskAgents} onClose={() => setDialog(null)} onSubmit={(input) => mutate(() => api.createTask(input))} />}
     </div>
@@ -280,7 +283,7 @@ function relativeTime(value: string) {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-function Projects({ projects, agents, tasks, candidates, onRegister, onDiscover, onRegisterCandidate, onEnsureSystemAgents }: { projects: Project[]; agents: Agent[]; tasks: Task[]; candidates: ProjectCandidate[]; onRegister: () => void; onDiscover: () => void; onRegisterCandidate: (candidate: ProjectCandidate) => void; onEnsureSystemAgents: (projectId: string) => void }) {
+function Projects({ projects, agents, tasks, candidates, onRegister, onEdit, onDiscover, onRegisterCandidate, onEnsureSystemAgents }: { projects: Project[]; agents: Agent[]; tasks: Task[]; candidates: ProjectCandidate[]; onRegister: () => void; onEdit: (projectId: string) => void; onDiscover: () => void; onRegisterCandidate: (candidate: ProjectCandidate) => void; onEnsureSystemAgents: (projectId: string) => void }) {
   const [selectedId, setSelectedId] = useState<string | null>(projects[0]?.id ?? null);
   const selected = projects.find((project) => project.id === selectedId);
   return <section className="panel"><div className="section-header"><div><h2>Projects</h2></div><div className="form-actions"><button className="button secondary" onClick={onDiscover}>Scan roots</button><button className="button primary" onClick={onRegister}>Register project</button></div></div>
@@ -295,7 +298,7 @@ function Projects({ projects, agents, tasks, candidates, onRegister, onDiscover,
           <span>{project.name}</span><code title={(project.sourceType === 'GIT' ? project.repositoryUrl : project.rootDirectory) ?? undefined}>{project.sourceType === 'GIT' ? project.repositoryUrl : project.rootDirectory}</code><code>{project.defaultBranch}</code><span>{projectAgents.length}</span><span>{openTasks.length}</span><Status value={unhealthy ? 'FAILED' : 'IDLE'} />
         </button>;
       })}
-    </div><aside className="inspector">{selected ? <><h3>{selected.name}</h3><dl><dt>Source</dt><dd>{selected.sourceType}</dd><dt>Location</dt><dd><code>{selected.sourceType === 'GIT' ? selected.repositoryUrl : selected.rootDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.defaultBranch}</code></dd><dt>Agents</dt><dd>{agents.filter((agent) => agent.projectId === selected.id).length}</dd><dt>Open tasks</dt><dd>{tasks.filter((task) => task.projectId === selected.id && !['COMPLETED', 'CANCELLED'].includes(task.status)).length}</dd><dt>System agents</dt><dd>{(() => { const scoped = agents.filter((agent) => agent.projectId === selected.id); return scoped.some((agent) => agent.role === 'OPERATIONAL') && scoped.some((agent) => agent.role === 'ORCHESTRATOR') ? 'Ready' : 'Not provisioned'; })()}</dd></dl>{(() => { const scoped = agents.filter((agent) => agent.projectId === selected.id); return (!scoped.some((agent) => agent.role === 'OPERATIONAL') || !scoped.some((agent) => agent.role === 'ORCHESTRATOR')) && <button className="button compact secondary" onClick={() => onEnsureSystemAgents(selected.id)}>Enable system agents</button>; })()}</> : <p className="muted">Select a project.</p>}</aside></div>}
+    </div><aside className="inspector">{selected ? <><h3>{selected.name}</h3><dl><dt>Source</dt><dd>{selected.sourceType}</dd><dt>Location</dt><dd><code>{selected.sourceType === 'GIT' ? selected.repositoryUrl : selected.rootDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.defaultBranch}</code></dd><dt>Agents</dt><dd>{agents.filter((agent) => agent.projectId === selected.id).length}</dd><dt>Open tasks</dt><dd>{tasks.filter((task) => task.projectId === selected.id && !['COMPLETED', 'CANCELLED'].includes(task.status)).length}</dd><dt>GitHub token</dt><dd>{selected.githubTokenConfigured ? 'Configured' : 'Not configured'}</dd><dt>System agents</dt><dd>{(() => { const scoped = agents.filter((agent) => agent.projectId === selected.id); return scoped.some((agent) => agent.role === 'OPERATIONAL') && scoped.some((agent) => agent.role === 'ORCHESTRATOR') ? 'Ready' : 'Not provisioned'; })()}</dd></dl><div className="form-actions"><button className="button secondary" onClick={() => onEdit(selected.id)}>Manage project</button>{(() => { const scoped = agents.filter((agent) => agent.projectId === selected.id); return (!scoped.some((agent) => agent.role === 'OPERATIONAL') || !scoped.some((agent) => agent.role === 'ORCHESTRATOR')) && <button className="button compact secondary" onClick={() => onEnsureSystemAgents(selected.id)}>Enable system agents</button>; })()}</div></> : <p className="muted">Select a project.</p>}</aside></div>}
     {candidates.length > 0 && <div className="data-list"><div className="section-header"><div><p className="eyebrow">Discovery results</p><h2>Repositories</h2></div></div>{candidates.map((candidate) => <div className="data-row" key={candidate.path}><div><strong>{candidate.name}</strong><code>{candidate.path}</code></div><span>{candidate.detectedBranch || 'main'}</span><span>{candidate.registered ? 'Registered' : 'Unregistered'}</span>{!candidate.registered && <button className="button compact secondary" onClick={() => onRegisterCandidate(candidate)}>Register</button>}</div>)}</div>}
   </section>;
 }
@@ -347,6 +350,20 @@ function ProjectForm({ onClose, onSubmit }: { onClose: () => void; onSubmit: (in
     {sourceType === 'GIT' ? <><label>Repository URL<input required type="url" className="mono" value={repositoryUrl} onChange={(e) => setRepositoryUrl(e.target.value)} placeholder="https://github.com/org/repository.git" /><small>Use a credential-free HTTPS URL. Agents clone this repository on the selected node.</small></label><label>GitHub access token<input type="password" autoComplete="new-password" className="mono" value={githubToken} onChange={(e) => setGithubToken(e.target.value)} placeholder="Optional repository-scoped token" /><small>Encrypted in the control plane; never shown again or stored on nodes.</small></label></> : <label>Server directory<input required className="mono" value={path} onChange={(e) => setPath(e.target.value)} /><small>The backend validates this path against configured project roots.</small></label>}
     <label>Default branch<input required className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Register project</button></footer>
+  </form></Modal>;
+}
+
+function ProjectEditForm({ project, onClose, onSubmit }: { project: Project; onClose: () => void; onSubmit: (input: { name: string; defaultBranch: string; enabled: boolean; githubToken?: string }) => void }) {
+  const [name, setName] = useState(project.name);
+  const [branch, setBranch] = useState(project.defaultBranch);
+  const [enabled, setEnabled] = useState(project.enabled);
+  const [githubToken, setGithubToken] = useState('');
+  return <Modal title="Manage project" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); onSubmit({ name: name.trim(), defaultBranch: branch.trim(), enabled, githubToken: githubToken || undefined }); }}>
+    <label>Project name<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
+    <label>Default branch<input required className="mono" value={branch} onChange={(event) => setBranch(event.target.value)} /></label>
+    {project.sourceType === 'GIT' && <label>Replace GitHub access token<input type="password" autoComplete="new-password" className="mono" value={githubToken} onChange={(event) => setGithubToken(event.target.value)} placeholder={project.githubTokenConfigured ? 'Token configured; leave blank to keep' : 'Optional repository-scoped token'} /><small>Token access and push permission are verified before saving.</small></label>}
+    <label className="checkbox-row"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled</label>
+    <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Validate and save</button></footer>
   </form></Modal>;
 }
 

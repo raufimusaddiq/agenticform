@@ -140,6 +140,9 @@ export const api = {
     githubToken?: string;
   }) => request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
 
+  updateProject: (projectId: string, input: { name: string; defaultBranch: string; enabled: boolean; githubToken?: string }) =>
+    request<Project>(`/api/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(input) }),
+
   spawnAgent: (input: {
     projectId: string;
     name: string;
