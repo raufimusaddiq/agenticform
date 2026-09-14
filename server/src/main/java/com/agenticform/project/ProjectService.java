@@ -16,11 +16,14 @@ public class ProjectService {
     private final ProjectRepository repository;
     private final ProjectPathPolicy pathPolicy;
     private final SecretBox secrets;
+    private final GitHubRepositoryValidator github;
 
-    public ProjectService(ProjectRepository repository, ProjectPathPolicy pathPolicy, SecretBox secrets) {
+    public ProjectService(ProjectRepository repository, ProjectPathPolicy pathPolicy, SecretBox secrets,
+                          GitHubRepositoryValidator github) {
         this.repository = repository;
         this.pathPolicy = pathPolicy;
         this.secrets = secrets;
+        this.github = github;
     }
 
     public List<ProjectEntity> list() {
@@ -59,7 +62,27 @@ public class ProjectService {
         }
         ProjectEntity project = new ProjectEntity(name.trim(), slug, type,
                 null, normalizedRepository, defaultBranch.trim());
-        if (githubToken != null && !githubToken.isBlank()) project.setGithubTokenCiphertext(secrets.encrypt(githubToken.trim()));
+        if (githubToken != null && !githubToken.isBlank()) {
+            github.requirePushAccess(normalizedRepository, githubToken);
+            project.setGithubTokenCiphertext(secrets.encrypt(githubToken.trim()));
+        }
+        return repository.save(project);
+    }
+
+    @Transactional
+    public ProjectEntity update(UUID id, String name, String defaultBranch, boolean enabled, String githubToken) {
+        ProjectEntity project = get(id);
+        if (defaultBranch == null || defaultBranch.isBlank()) throw new IllegalArgumentException("Default branch is required");
+        String slug = slugify(name);
+        if (repository.existsBySlugAndIdNot(slug, id)) throw new IllegalArgumentException("Project slug already exists: " + slug);
+        if (githubToken != null && !githubToken.isBlank()) {
+            if (project.getSourceType() != ProjectSourceType.GIT || project.getRepositoryUrl() == null) {
+                throw new IllegalArgumentException("GitHub token requires a GIT project");
+            }
+            github.requirePushAccess(project.getRepositoryUrl(), githubToken);
+            project.setGithubTokenCiphertext(secrets.encrypt(githubToken.trim()));
+        }
+        project.updateMetadata(name.trim(), slug, defaultBranch.trim(), enabled);
         return repository.save(project);
     }
 

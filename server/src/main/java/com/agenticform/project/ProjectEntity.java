@@ -11,6 +11,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -87,7 +88,15 @@ public class ProjectEntity {
     public String getRepositoryUrl() { return repositoryUrl; }
     public String getDefaultBranch() { return defaultBranch; }
     public String getGithubTokenCiphertext() { return githubTokenCiphertext; }
+    @JsonProperty("githubTokenConfigured")
+    public boolean isGithubTokenConfigured() { return githubTokenCiphertext != null && !githubTokenCiphertext.isBlank(); }
     public void setGithubTokenCiphertext(String value) { this.githubTokenCiphertext = value; }
+    public void updateMetadata(String name, String slug, String defaultBranch, boolean enabled) {
+        this.name = name;
+        this.slug = slug;
+        this.defaultBranch = defaultBranch;
+        this.enabled = enabled;
+    }
     public boolean isEnabled() { return enabled; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

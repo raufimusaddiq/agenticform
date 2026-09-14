@@ -9,6 +9,7 @@ export type Project = {
   repositoryUrl: string | null;
   defaultBranch: string;
   enabled: boolean;
+  githubTokenConfigured?: boolean;
   createdAt: string;
   updatedAt: string;
 };
