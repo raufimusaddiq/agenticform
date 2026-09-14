@@ -184,6 +184,7 @@ class AgentRuntimeRecoveryServiceTest {
         when(project.getRepositoryUrl()).thenReturn("https://github.com/acme/demo.git");
         when(project.getDefaultBranch()).thenReturn("main");
         when(nodeService.get(nodeId)).thenReturn(oldNode);
+        when(oldNode.getId()).thenReturn(nodeId);
         when(oldNode.getStatus()).thenReturn(ExecutionNodeStatus.ONLINE);
         when(runtimeRegistry.get(RuntimeType.CODEX)).thenReturn(runtime);
         when(runtime.startParameters("", "Implement features", AgentCapabilityProfile.IMPLEMENTER)).thenReturn(Map.of());
