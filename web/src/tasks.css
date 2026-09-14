@@ -1,5 +1,7 @@
 .task-group{border-bottom:1px solid var(--border)}
 .task-group-header{display:flex;align-items:center;gap:12px;min-height:42px;padding:10px 0;color:var(--muted);font-size:11px}
+.task-group-toggle{display:flex;align-items:center;gap:8px;border:0;background:transparent;color:inherit;padding:0;text-align:left;cursor:pointer}
+.task-group-toggle span{width:12px;color:var(--subtle);font-family:monospace}
 .task-group-header strong{color:var(--text);font-size:12px}
 .task-group-header code{margin-left:auto}
 .child-task{padding-left:22px}
