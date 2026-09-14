@@ -156,4 +156,43 @@ class AgentRuntimeRecoveryServiceTest {
         assertEquals("CODEX", payload.getValue().get("runtimeType"));
         assertTrue(!payload.getValue().containsKey("runtimeSessionId"));
     }
+
+    @Test
+    void recoveryReusesOnlineNodeAfterDaemonRestart() {
+        UUID agentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.getId()).thenReturn(agentId);
+        when(agent.getExecutionNodeId()).thenReturn(nodeId);
+        when(agent.getStatus()).thenReturn(AgentStatus.DISCONNECTED);
+        when(agent.getProjectId()).thenReturn(projectId);
+        when(agent.getRuntimeGeneration()).thenReturn(1L);
+        when(agent.getName()).thenReturn("Coder");
+        when(agent.getBranch()).thenReturn("agent/coder");
+        when(agent.getActiveTaskId()).thenReturn(null);
+        when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getCapabilityProfile()).thenReturn(AgentCapabilityProfile.IMPLEMENTER);
+        when(agent.getResponsibility()).thenReturn("Implement features");
+        when(agent.reassignRuntime(eq(nodeId), any())).thenReturn(2L);
+        when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
+        when(projects.get(projectId)).thenReturn(project);
+        when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);
+        when(project.getId()).thenReturn(projectId);
+        when(project.getSlug()).thenReturn("demo");
+        when(project.getRepositoryUrl()).thenReturn("https://github.com/acme/demo.git");
+        when(project.getDefaultBranch()).thenReturn("main");
+        when(nodeService.get(nodeId)).thenReturn(oldNode);
+        when(oldNode.getId()).thenReturn(nodeId);
+        when(oldNode.getStatus()).thenReturn(ExecutionNodeStatus.ONLINE);
+        when(runtimeRegistry.get(RuntimeType.CODEX)).thenReturn(runtime);
+        when(runtime.startParameters("", "Implement features", AgentCapabilityProfile.IMPLEMENTER)).thenReturn(Map.of());
+
+        service.recover(agentId);
+
+        verify(scheduler, never()).select(any(), any(), any(), any());
+        verify(nodeService).enqueue(eq(nodeId), eq(agentId), eq("START_AGENT"),
+                eq("start-agent:" + agentId + ":g2"), any());
+    }
 }

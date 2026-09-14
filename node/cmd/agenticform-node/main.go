@@ -36,6 +36,14 @@ const (
 	protocolVersion = 1
 )
 
+func randomID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("boot-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
 type identity struct {
 	NodeID                 string `json:"nodeId"`
 	Name                   string `json:"name"`
@@ -248,14 +256,20 @@ func daemon(stateDir, server string) error {
 	if err != nil {
 		return err
 	}
+	// Codex app-server threads are process-local. Never advertise sessions from a prior daemon.
+	runtimes = runtimeState{Runtimes: map[string]runtimeRecord{}}
+	if err := writeJSONAtomic(filepath.Join(stateDir, "runtime-state.json"), runtimes); err != nil {
+		return fmt.Errorf("reset runtime state after daemon restart: %w", err)
+	}
 	d := &daemonRuntime{
-		stateDir: stateDir,
-		server:   server,
-		id:       id,
-		private:  private,
-		http:     &http.Client{Timeout: 45 * time.Second},
-		ledger:   ledger,
-		runtimes: runtimes,
+		stateDir:          stateDir,
+		server:            server,
+		id:                id,
+		private:           private,
+		http:              &http.Client{Timeout: 45 * time.Second},
+		ledger:            ledger,
+		runtimes:          runtimes,
+		runtimeInstanceID: randomID(),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -266,16 +280,17 @@ func daemon(stateDir, server string) error {
 }
 
 type daemonRuntime struct {
-	stateDir string
-	server   string
-	id       identity
-	private  ed25519.PrivateKey
-	http     *http.Client
-	codexMu  sync.Mutex
-	codex    *rpcClient
-	stateMu  sync.Mutex
-	ledger   commandLedger
-	runtimes runtimeState
+	stateDir          string
+	server            string
+	id                identity
+	private           ed25519.PrivateKey
+	http              *http.Client
+	codexMu           sync.Mutex
+	codex             *rpcClient
+	stateMu           sync.Mutex
+	ledger            commandLedger
+	runtimes          runtimeState
+	runtimeInstanceID string
 }
 
 func (d *daemonRuntime) heartbeatLoop(ctx context.Context) {
@@ -306,7 +321,7 @@ func (d *daemonRuntime) heartbeat() error {
 			},
 		},
 	})
-	labels, _ := json.Marshal(map[string]string{"runtime": "agenticform-node"})
+	labels, _ := json.Marshal(map[string]string{"runtime": "agenticform-node", "runtimeInstanceId": d.runtimeInstanceID})
 	d.stateMu.Lock()
 	runtimes := make([]runtimeRecord, 0, len(d.runtimes.Runtimes))
 	for _, record := range d.runtimes.Runtimes {
