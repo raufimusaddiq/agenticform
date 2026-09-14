@@ -222,3 +222,29 @@ func TestCleanupRefusesWorkspaceOutsideManagedRoot(t *testing.T) {
 		t.Fatalf("expected unmanaged path cleanup to be refused, got %v", err)
 	}
 }
+
+func TestCodexAPIKeyConfiguredUsesProviderEnvKey(t *testing.T) {
+	temp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(temp, "config.toml"), []byte("[model_providers.router]\nenv_key = \"ROUTER_API_KEY\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", temp)
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ROUTER_API_KEY", "configured")
+	if !codexAPIKeyConfigured() {
+		t.Fatal("expected configured provider API key")
+	}
+}
+
+func TestCodexAPIKeyConfiguredRejectsMissingProviderEnvKey(t *testing.T) {
+	temp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(temp, "config.toml"), []byte("env_key = \"ROUTER_API_KEY\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", temp)
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ROUTER_API_KEY", "")
+	if codexAPIKeyConfigured() {
+		t.Fatal("expected missing provider API key")
+	}
+}
