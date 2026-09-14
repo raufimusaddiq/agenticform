@@ -92,9 +92,16 @@ Remote Codex server requests also validate that the supplied Codex thread belong
 The node image defines a non-root user by default. The generated permanent Docker invocation additionally runs as the invoking host UID/GID with:
 
 ```text
+--security-opt seccomp=unconfined
+--security-opt apparmor=unconfined
 --security-opt no-new-privileges:true
 --cap-drop ALL
 ```
+
+The unconfined profile options are required because the node uses bubblewrap (`bwrap`) for the
+inner Codex sandbox. The node remains non-root, drops all capabilities, enables
+`no-new-privileges`, and does not mount the Docker socket or host root filesystem. The generated
+command applies these options to both the one-shot enrollment container and permanent daemon.
 
 It does not mount the Docker socket, host root filesystem, or publish inbound ports. It receives only:
 
