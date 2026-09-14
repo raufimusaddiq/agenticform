@@ -31,9 +31,11 @@ public class AgentRuntimeRecoveryScheduler {
         Instant cutoff = Instant.now().minus(properties.getNode().getRecoveryGrace());
         for (AgentEntity agent : agents.findAll()) {
             if (agent.getExecutionNodeId() == null || agent.getStatus() != AgentStatus.DISCONNECTED) continue;
-            if (agent.getUpdatedAt() == null || agent.getUpdatedAt().isAfter(cutoff)) continue;
             try {
-                if (nodes.get(agent.getExecutionNodeId()).getStatus() != ExecutionNodeStatus.OFFLINE) continue;
+                ExecutionNodeStatus nodeStatus = nodes.get(agent.getExecutionNodeId()).getStatus();
+                if (nodeStatus != ExecutionNodeStatus.OFFLINE && nodeStatus != ExecutionNodeStatus.ONLINE) continue;
+                if (nodeStatus == ExecutionNodeStatus.OFFLINE
+                        && (agent.getUpdatedAt() == null || agent.getUpdatedAt().isAfter(cutoff))) continue;
                 recovery.recover(agent.getId());
             } catch (RuntimeException ignored) {
                 // Fail closed. Manual recovery remains available when placement, approval, or source constraints block automation.

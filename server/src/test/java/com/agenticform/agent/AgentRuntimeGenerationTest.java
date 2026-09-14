@@ -63,4 +63,22 @@ class AgentRuntimeGenerationTest {
         assertEquals("/work-2", agent.getWorkingDirectory());
         assertEquals("branch-2", agent.getBranch());
     }
+
+    @Test
+    void daemonRestartInvalidatesSessionAndFencesOldGeneration() {
+        UUID node = UUID.randomUUID();
+        AgentEntity agent = new AgentEntity(
+                UUID.randomUUID(), "coder", "code", "thread-1",
+                WorkspaceMode.ISOLATED_WORKTREE, "/src", "/work", "agent/coder",
+                AgentQueueMode.AUTO, HumanControlMode.ON_THE_LOOP,
+                AgentRole.GENERAL, false, node);
+        agent.setRuntimeType(RuntimeType.CODEX);
+
+        agent.invalidateRuntime();
+
+        assertEquals(2L, agent.getRuntimeGeneration());
+        assertEquals(AgentStatus.DISCONNECTED, agent.getStatus());
+        assertFalse(agent.ownsRuntime(node, 1, RuntimeType.CODEX, "thread-1"));
+        assertTrue(agent.ownsRuntimeAssignment(node, 2, RuntimeType.CODEX));
+    }
 }

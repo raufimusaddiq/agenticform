@@ -71,12 +71,10 @@ public class AgentRuntimeRecoveryService {
         }
         UUID oldNodeId = agent.getExecutionNodeId();
         ExecutionNodeEntity oldNode = nodeService.get(oldNodeId);
-        if (oldNode.getStatus() == ExecutionNodeStatus.ONLINE) {
-            throw new IllegalStateException("Current execution node is online; reconcile it instead of creating a second runtime");
-        }
-
         RuntimeType runtimeType = agent.getRuntimeType();
-        ExecutionNodeEntity replacement = scheduler.select(null, NodeTrustLevel.STANDARD,
+        ExecutionNodeEntity replacement = oldNode.getStatus() == ExecutionNodeStatus.ONLINE
+                ? oldNode
+                : scheduler.select(null, NodeTrustLevel.STANDARD,
                         Set.of("runtime:" + runtimeType.name(), "git"), Set.of(oldNodeId));
         long nextGeneration = agent.getRuntimeGeneration() + 1;
         String recoveryBranch = "recovery/" + safe(agent.getName()) + "-"

@@ -234,6 +234,15 @@ public class AgentEntity {
         return runtimeGeneration;
     }
 
+    public void invalidateRuntime() {
+        runtimeGeneration++;
+        runtimeSessionId = null;
+        sourceDirectory = null;
+        workingDirectory = null;
+        activeTurnId = null;
+        status = AgentStatus.DISCONNECTED;
+    }
+
     public void bindRuntime(long generation, RuntimeType runtimeType, String runtimeSessionId,
                             String sourceDirectory, String workingDirectory, String branch) {
         if (runtimeGeneration != generation) {

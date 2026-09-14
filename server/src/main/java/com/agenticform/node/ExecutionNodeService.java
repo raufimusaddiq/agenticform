@@ -172,12 +172,34 @@ public class ExecutionNodeService {
     @Transactional
     public ExecutionNodeEntity heartbeat(UUID nodeId, Heartbeat heartbeat) {
         ExecutionNodeEntity node = get(nodeId);
+        if (runtimeInstanceChanged(node.getLabelsJson(), heartbeat.labelsJson())) {
+            for (AgentEntity agent : agents.findAllByExecutionNodeId(nodeId)) {
+                if (agent.getStatus() == AgentStatus.STOPPED || agent.getStatus() == AgentStatus.STOPPING) continue;
+                agent.invalidateRuntime();
+                agents.save(agent);
+            }
+        }
         node.heartbeat(heartbeat.protocolVersion(), heartbeat.labelsJson(), heartbeat.capabilitiesJson(), heartbeat.maxAgents(),
                 heartbeat.os(), heartbeat.arch(), heartbeat.hostname(), heartbeat.nodeVersion(),
                 heartbeat.cpuCores(), heartbeat.memoryMb(), heartbeat.diskFreeMb());
         ExecutionNodeEntity saved = nodes.save(node);
         reconcileRuntimeInventory(nodeId, heartbeat.runtimes());
         return saved;
+    }
+
+    private boolean runtimeInstanceChanged(String previousLabels, String currentLabels) {
+        String previous = runtimeInstance(previousLabels);
+        String current = runtimeInstance(currentLabels);
+        return current != null && !current.isBlank() && !Objects.equals(previous, current);
+    }
+
+    private String runtimeInstance(String labelsJson) {
+        try {
+            JsonNode labels = mapper.readTree(labelsJson == null ? "{}" : labelsJson);
+            return labels.path("runtimeInstanceId").asText(null);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private void reconcileRuntimeInventory(UUID nodeId, List<RuntimeObservation> observations) {
