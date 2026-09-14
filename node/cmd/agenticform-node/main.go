@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -1252,7 +1253,7 @@ func detectCodex() (string, bool, bool) {
 		return "", false, false
 	}
 	versionText := strings.TrimSpace(string(out))
-	if os.Getenv("OPENAI_API_KEY") != "" {
+	if codexAPIKeyConfigured() {
 		return versionText, true, true
 	}
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1261,6 +1262,19 @@ func detectCodex() (string, bool, bool) {
 		return versionText, true, false
 	}
 	return versionText, true, true
+}
+
+func codexAPIKeyConfigured() bool {
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		return true
+	}
+	configPath := filepath.Join(os.Getenv("CODEX_HOME"), "config.toml")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		return false
+	}
+	keyName := regexp.MustCompile(`(?m)^\s*env_key\s*=\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*$`).FindSubmatch(config)
+	return len(keyName) == 2 && os.Getenv(string(keyName[1])) != ""
 }
 
 func withinRoot(root, path string) bool {
