@@ -32,6 +32,15 @@ import java.util.UUID;
 
 @Service
 public class ExecutionNodeService {
+    private static final String DOCKER_RUNTIME_SECURITY_OPTIONS =
+            // bwrap creates the inner per-command namespaces; Docker's default profiles deny them.
+            "--security-opt seccomp=unconfined --security-opt apparmor=unconfined "
+                    + "--security-opt no-new-privileges:true --cap-drop ALL";
+
+    static String dockerRuntimeSecurityOptions() {
+        return DOCKER_RUNTIME_SECURITY_OPTIONS;
+    }
+
     public record Enrollment(String token, Instant expiresAt, String setupCommand) {}
     public record EnrollmentResult(UUID nodeId, String name, String fingerprint, NodeTrustLevel trustLevel) {}
     public record RuntimeObservation(UUID agentId, RuntimeType runtimeType, long runtimeGeneration, String runtimeSessionId,
@@ -105,12 +114,12 @@ public class ExecutionNodeService {
                 + "test -d \"$HOME/.codex\" || { echo 'Codex login is required on this node first'; exit 1; }; "
                 + "mkdir -p \"$HOME/.agenticform-node\" && chmod 700 \"$HOME/.agenticform-node\" && "
                 + "docker run --rm --user \"$(id -u):$(id -g)\" "
-                + "--security-opt no-new-privileges:true --cap-drop ALL "
+                + DOCKER_RUNTIME_SECURITY_OPTIONS + " "
                 + "-v \"$HOME/.agenticform-node:/var/lib/agenticform-node\" "
                 + "-e AGENTICFORM_SERVER='" + server + "' "
                 + "-e AGENTICFORM_ENROLLMENT_TOKEN='" + token + "' " + image + " enroll"
                 + " && docker run -d --name " + containerName + " --restart unless-stopped "
-                + "--user \"$(id -u):$(id -g)\" --security-opt no-new-privileges:true --cap-drop ALL "
+                + "--user \"$(id -u):$(id -g)\" " + DOCKER_RUNTIME_SECURITY_OPTIONS + " "
                 + "-v \"$HOME/.agenticform-node:/var/lib/agenticform-node\" "
                 + "-v \"$HOME/.codex:/codex-home\" -e CODEX_HOME=/codex-home "
                 + "-e AGENTICFORM_SERVER='" + server + "' " + image + " daemon";
