@@ -419,3 +419,26 @@ ci/test/build) and prints a pass/fail summary. Last local run 2026-09-15
 (run 35028371564, all 8 jobs green including all four journeys). The four journey scripts (clean
 install, browser, node loss, restore) provide the end-to-end layer and run as
 CI jobs on every push.
+
+## Proof-of-completion summary
+
+The full objective for PR #33 is evidenced as follows on `fix/product-reliability-audit`
+(PR #34, OPEN/MERGEABLE):
+
+| Evidence layer | Artifact | Status |
+| --- | --- | --- |
+| Fix implementation | commit `f39b82c` (V9 contract, report identity, async auth, proxy, recovery, install, ops binding) | landed |
+| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 154 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
+| Clean install | `tests/clean-install-journey.sh` | PASS, CI `clean-install-journey` |
+| Real browser | `tests/browser-journey.sh` (headless Chromium, 10 checks) | PASS, CI `browser-journey` |
+| Credential restore | `tests/credential-restore.sh` (pg_dump/pg_restore) | PASS, CI `restore-evidence` |
+| Node loss | `tests/node-recovery-journey.sh` (enroll→kill→OFFLINE→incident→DISCONNECTED) | PASS, CI `node-loss-journey` |
+| Final CI | run 35028684447 on `91f0c66` | all 8 jobs success |
+
+Every in-repo gate named in PR #33 is proven by a committed, repeatable script or
+test that CI re-runs. The only remaining items are operator/release actions
+requiring infrastructure outside this repository (published release install with
+immutable digest + HTTPS/Traefik, a real deployment target with smoke transcript,
+matched release digests, operator transcripts). Those are listed explicitly and
+are not claimed as done. Untracked `backups/` and `web/web/` were left untouched;
+all temporary test containers/networks/volumes were removed.
