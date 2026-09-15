@@ -96,3 +96,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build server container
         run: docker build -f server/Dockerfile .
+
+  restore-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify encrypted credentials and durable state survive restore
+        run: sh tests/credential-restore.sh

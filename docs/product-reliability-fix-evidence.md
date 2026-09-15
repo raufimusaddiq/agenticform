@@ -312,3 +312,27 @@ Result: journey passed in the full suite run finished 19:14 UTC on 2026-09-15:
 153 tests, zero failures/errors, one skipped (proxy-only idle test). This closes
 the in-repo portion of the P0-6 deployment journey; a production-target run with
 a published release remains an operator/release action outside this repository.
+
+## P0-5 credential and durable-state restore (executed)
+
+tests/credential-restore.sh performs a real backup/restore on throwaway
+PostgreSQL containers (removed afterwards):
+
+1. Seed an isolated database with the application: project with an encrypted
+GitHub credential, a CODEX agent, a COMPLETED task with a durable report.
+2. `pg_dump -Fc` the source database.
+3. `createdb` a separate target database and `pg_restore` into it.
+4. Re-run the application against only the restored database and assert: the
+encrypted credential is still present and decrypts with the documented separate
+key; the task report and terminal status survived; the seeded policy rules are
+intact.
+
+Result: `RESTORE VERIFIED` on 2026-09-15 against `postgres:17-alpine` with a
+separate `AGENTICFORM_SECRET_KEY`. This exercises the documented restore path
+without touching production data, and confirms the credential survives because
+the encryption key is independent of the admin token. CI job `restore-evidence`
+runs the same script.
+
+Limits: operator-side verification of a real production backup, HTTPS target, and
+worktree/node state remains outside this repository; the disposable test proves
+the mechanism, not a specific production backup.
