@@ -281,3 +281,31 @@ rejection, and active-task fallback.
 Final verification after all P0 changes: mvn -B -ntp test at 18:19 UTC passed with
 152 tests, zero failures/errors, one skipped (proxy-only idle test). Go daemon
 go test ./... and go vet ./... pass; web npm ci, npm test, and npm run build pass.
+
+## End-to-end delivery journey (real services, disposable database)
+
+FlywayMigrationSmokeTest now includes a full delivery journey against a real
+Spring Boot server instance on a disposable PostgreSQL (agenticform-journey-db,
+loopback 55443, container removed after the run; never a production database):
+
+1. Register a LOCAL_PATH project bound to a temp git worktree fixture.
+2. Persist a root application task (deliverable IMPLEMENTATION, deployment
+required, environment staging).
+3. Register a deploy runbook: ASSERT_GIT_SHA on the exact revision + HTTP_CHECK
+against a live local health endpoint.
+4. Start the run through OperationRunService (real policy evaluation), execute it
+through the real RunbookExecutor against the real filesystem and HTTP endpoint.
+5. Assert the run SUCCEEDED and the root task is DELIVERED with the correct
+environment, exact revision, operation-run ID, verification timestamp, and health
+evidence persisted.
+
+Negative paths in the same journey: a run without an exact revision completes but
+never marks the task delivered; a prose-only report on a pending-delivery root is
+rejected by the task service. Staging is used intentionally: the seeded policy
+only gates production, and deployment-policy gating is separately covered by
+DeterministicPolicyEngineTest plus the V1 REQUIRE_HUMAN seeds.
+
+Result: journey passed in the full suite run finished 19:14 UTC on 2026-09-15:
+153 tests, zero failures/errors, one skipped (proxy-only idle test). This closes
+the in-repo portion of the P0-6 deployment journey; a production-target run with
+a published release remains an operator/release action outside this repository.
