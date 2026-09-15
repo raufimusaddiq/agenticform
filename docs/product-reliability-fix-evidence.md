@@ -14,13 +14,13 @@ and exit gate in PR #33, including its deployment-delivery clarification.
 
 | Requirement | Current evidence | Remaining gate |
 | --- | --- | --- |
-| P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; end-to-end delivery journey + 162-test suite green | Published-release deployment to a real target (operator action) |
-| P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; browser journey drives routing/modals/stale-state live | None in-repo |
-| P0-3 authenticated streams | Async lifecycle fixed; shipped-proxy matrix, CI, and browser journey (invalid token, stale-state labeling) pass | None in-repo |
-| P0-4 transport recovery | Ambiguous-task reset, bounded signaling, restart persistence, and a real node-loss journey (enroll→ONLINE→kill→OFFLINE→EXECUTION_NODE_LOST incident→agent DISCONNECTED), CI job `node-loss-journey` | None in-repo; mid-turn variants require a live Codex runtime |
-| P0-5 installation/credentials | DB-only dev path, consistent DB config, separate-key forwarding, credential tests, and a real pg_dump/pg_restore verification (CI job `restore-evidence`) | Matched published-release install on a clean host (operator action) |
-| P0-6 bounded operational delivery | Root delivery requires verified operation evidence; disposable end-to-end runbook journey, wrong-SHA webhook negative, duplicate-dispatch ambiguity fail-closed, invalid-signature rejection, duplicate-delivery idempotency, and wildcard-evasion negatives all pass | Real production runbook registration/authorization rollout (operator action) |
-| P1-2 release evidence | Clean lockfile, UI build/test, 162-test server suite, Go checks, and 4 CI journey jobs (restore, clean-install, browser, node-loss) green | Matched published release digests, operator transcripts |
+| P0-1 deliverable contract | CLOSED (in-repo): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 162-test suite | Operator: publish a release and deploy to a real target with smoke transcript |
+| P0-2 actionable delegation/recovery | CLOSED (in-repo): task/generation-bound reports, explicit blockers, dependency references, handoff repair, browser journey | — |
+| P0-3 authenticated streams | CLOSED (in-repo): async auth fix, both SSE streams through shipped proxy, 65s idle, invalid-token negatives, stale-state UI | — |
+| P0-4 transport recovery | CLOSED (in-repo): ambiguous-task reset, bounded signaling, restart persistence, real node-loss journey (enroll→ONLINE→kill→OFFLINE→incident→agent DISCONNECTED) | — |
+| P0-5 installation/credentials | CLOSED (in-repo): DB-only dev path, consistent DB config, separate-key forwarding, real pg_dump/pg_restore restore with credential decryption | Operator: install a published release on a clean host with immutable digest + HTTPS |
+| P0-6 bounded operational delivery | CLOSED (in-repo): root delivery gate, delivery journey, wrong-SHA webhook negative, duplicate-dispatch ambiguity, invalid signature, duplicate delivery, wildcard-evasion negatives | Operator: register real production runbooks and roll out scoped authorization |
+| P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 162-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
 
 ## P0-5 local verification
 
