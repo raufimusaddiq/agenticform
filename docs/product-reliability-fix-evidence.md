@@ -415,6 +415,7 @@ evidence table marks closed has direct command/test evidence above; the table's
 `sh tests/verify-audit-evidence.sh` re-runs the source-level evidence in one
 command (server tests + migrations on a disposable database, Go test/vet, web
 ci/test/build) and prints a pass/fail summary. Last local run 2026-09-15
-21:54 UTC: all three steps PASS, 154 tests. The four journey scripts (clean
+21:54 UTC: all three steps PASS, 154 tests. CI-verified on `c33a883`
+(run 35028371564, all 8 jobs green including all four journeys). The four journey scripts (clean
 install, browser, node loss, restore) provide the end-to-end layer and run as
 CI jobs on every push.
