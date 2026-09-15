@@ -14,12 +14,12 @@ deployment-delivery clarification.
 
 | Requirement | Current evidence | Remaining gate |
 | --- | --- | --- |
-| P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; suite green | Full operations-backed deployment journey and release verification |
-| P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; focused tests passed | Complete recovery UI/API journey, retry safety and restart/concurrency verification |
-| P0-3 authenticated streams | Async lifecycle regression reproduced and fixed; shipped-proxy matrix passed below | Full browser recovery/journey evidence and deployed release verification |
+| P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; end-to-end delivery journey + 153-test suite green | Published-release deployment to a real target (operator action) |
+| P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; tests pass | Browser-level blocked-task recovery journey |
+| P0-3 authenticated streams | Async lifecycle fixed; shipped-proxy matrix and CI both pass | Browser network-toggle recovery journey |
 | P0-4 transport recovery | Existing recovery retained; ambiguous-task reset and bounded recovery signaling added and tested | Full disposable restart/loss matrix with deployed proxy timeouts |
 | P0-5 installation/credentials | Partial implementation below | Matched published install, credential restore/application checks, full isolated restore |
-| P0-6 bounded operational delivery | Existing runbook/policy surfaces retained; root delivery now requires verified operation evidence | Complete disposable operations journey, authorization matrix and negative tests |
+| P0-6 bounded operational delivery | Root delivery requires verified operation evidence; disposable end-to-end runbook journey and negatives pass | Real production runbook registration/authorization rollout (operator action) |
 | P1-2 release evidence | Clean lockfile, UI build/test pass; 152-test server suite and Go checks green | Browser journeys, matched release digests, operator transcripts |
 
 ## P0-5 local verification
