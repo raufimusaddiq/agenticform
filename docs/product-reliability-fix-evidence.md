@@ -1,7 +1,10 @@
 # PR #33 repair evidence
 
 Status: **in progress; not release acceptance**. September 15, 2026.
-Branch `fix/product-reliability-audit`; implementation commit `bbf0329`. Source baseline `a66ca9c`. Owner: implementation
+Branch `fix/product-reliability-audit`; implementation commit `bbf0329`. Source baseline `a66ca9c`.
+PR #34: https://github.com/raufimusaddiq/agenticform/pull/34 — CI run
+35007795790 on `f39b82c`: all jobs green (server, node, web incl. both-stream
+shipped-proxy verification, server-image). Owner: implementation
 agent; release/operator sign-off remains required. Historical Sprint 15 records
 are unchanged. Scope: every workstream and exit gate in PR #33, including its
 deployment-delivery clarification.
