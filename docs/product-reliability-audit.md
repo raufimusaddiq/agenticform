@@ -4,6 +4,8 @@
 
 Keep the self-hosted-first objective: an operator registers a repository, delegates useful work, sees trustworthy progress, approves constrained effects, and receives a verifiable deliverable without SQL or undocumented repair. Stabilize that loop before adding Cloud, billing, another runtime, or more orchestration infrastructure.
 
+Owner clarification, September 15, 2026: application-change tasks are not delivered until deployed and verified in the intended target environment. A PR, merge, green CI, published image, or successful deployment command is an intermediate milestone. Explicitly scoped analysis/docs-only requests remain exceptions; this PR is still documentation only. Operational Agents should finish routine delivery through preauthorized, bounded runbooks without repeated human intervention, not receive unrestricted production access.
+
 This is a documentation-only audit and proposed implementation backlog, not a claim that the defects below are fixed. It complements the pending platform roadmap in PR #15; it does not replace that PR or declare its proposals shipped. The [Alpha exit gate](sprint-15-self-hosted-alpha-checklist.md#exit-gate) remains open.
 
 Source baseline: `390eda2e855d60679fcaaad3c29caf168891cb5e` (`main`, PR #32). The original working branch at `a66ca9c` has identical tracked content. Findings cover the Spring control plane, React UI/proxy, Go execution node, deployment configuration, database aggregates, and product/architecture/recovery/operations specifications. Source review targeted lifecycle and user-facing contracts; it is not an exhaustive security certification or a review of every line.
@@ -60,7 +62,7 @@ Host `mvn`, `go`, and `npm` are absent. Fresh container-based checks ran against
 - Maven/Java 21: 118 tests, zero failures/errors, one skipped migration test; passed September 15 at 09:21 UTC. Initial bridge-network dependency resolution failed; host-network retry passed.
 - Go 1.24: `go test ./...` and `go vet ./...` passed.
 - Node 24: clean `npm ci` failed with EUSAGE/missing lockfile entries. The CI-equivalent `npm install --no-audit --no-fund && npm run build` passed in a separate temporary copy; tracked lockfile/source were not changed. Initial bridge-network npm attempt timed out and was stopped before the host-network checks.
-- Documentation: `git diff --check` passed; all 32 relative file links across this document and README resolve. Link checking verifies target files, not section anchors or runtime behavior.
+- Documentation: `git diff --check` passed; relative file links across this document and README resolve. Link checking verifies target files, not section anchors or runtime behavior.
 
 The migration test calls Flyway `clean()` and must only receive a disposable database. Never point it at this installation. Its local skip is not a migration pass; the exact-baseline CI run above supplies separate migration execution evidence.
 
@@ -82,7 +84,10 @@ Owner: task/orchestration backend, product. Acceptance:
 - Documentation task completes with the requested document/PR and documentation checks; no application-code requirement is added.
 - Implementation cannot complete with missing artifacts, unresolved required children, CANCELLED evidence, another workflow's report, or unverified validation.
 - “No blockers” and “zero failures” do not fail lexical checks; saying “implemented; validation” does not prove implementation.
-- UI distinguishes task execution finished, deliverable verified, PR opened, and PR merged. User-requested scope determines which is terminal.
+- UI distinguishes implementation finished, review/CI passed, merged, artifact published, deploying, deployment verified, and delivered. These are proposed delivery milestones, not claims that matching persisted enum values already exist. Only verified deployment satisfies the default application-change objective; explicit narrower requests retain their own terminal gate.
+- Persist the intended environment/service, accepted revision and artifact digest, deployment operation/run reference, timestamp, and post-deployment health/readiness plus user-facing smoke evidence. Validate all evidence against the same release and target; a green workflow for another SHA/environment cannot satisfy delivery.
+- Missing deployment configuration leaves the root task blocked with a setup action. Failed deployment, failed verification, pending approval, or rollback leaves the requested change undelivered. A healthy rollback restores service but does not deliver the new change.
+- Keep root workflow ownership until deployment verification succeeds; continue through durable operations handoff and external waits across restarts. Never mark the root complete at coding-child completion or delegate deployment as an optional follow-up.
 
 ### P0-2 — Make delegation, reporting, and recovery actionable
 
@@ -139,13 +144,35 @@ Owner: packaging/security/operator documentation. Acceptance:
 - Existing fallback-key installations migrate without losing credentials; missing/wrong key fails closed with an actionable recovery message.
 - Restore into an isolated environment and verify projects, task/report history, policy, pending state, and encrypted credentials. Preserve the original database; no production `clean()` or destructive reset.
 
-### P1-1 — Deliver the operations loop, not just its screens
+### P0-6 — Deliver through deployment with bounded operational autonomy
 
 Evidence: [operations contract](operations.md) promises policy-gated runbooks and durable external waits. This deployment has no runbooks, services, or operation runs. [OperationsView](../web/src/OperationsView.tsx), [ExternalWorkflowService](../server/src/main/java/com/agenticform/operation/ExternalWorkflowService.java), and [OperationalIncidentWakeService](../server/src/main/java/com/agenticform/operation/OperationalIncidentWakeService.java) provide implementation surfaces, not current end-to-end evidence.
 
-Change: provide a guided, project-scoped first runbook/service setup and one safe CI verification scenario before any production deploy scenario. Explain missing integration configuration in the UI. Preserve immutable runbook snapshots, expected commit SHA, webhook verification, reconciliation fallback, policy decisions, and explicit retry for ambiguous remote wakes.
+Policy evidence: the [seed rules](../server/src/main/resources/db/migration/V1__baseline.sql) default to global ALLOW, with REQUIRE_HUMAN for production deploy, production data mutation, persistent-data deletion, and user input. This is not a blanket deny policy. The [OPS profile](../server/src/main/java/com/agenticform/agent/AgentCapabilityProfile.java) has READ/TEST/MESSAGE/DEPLOY, not WRITE/MERGE. [AgentCapabilityPolicy](../server/src/main/java/com/agenticform/agent/AgentCapabilityPolicy.java) classifies many raw Docker/kubectl commands as WRITE; [HumanApprovalPolicy](../server/src/main/java/com/agenticform/approval/HumanApprovalPolicy.java) can deny a capability even when policy says ALLOW, and IN_THE_LOOP promotes allowed native requests to human approval. These are separate sources of friction. This source review does not establish which rule or capability caused each historical denial.
+
+The [policy engine](../server/src/main/java/com/agenticform/policy/DeterministicPolicyEngine.java) matches scope/action/environment and prefers more-specific scope before action/environment; it does not constrain a rule by runbook revision, artifact, or service. [OperationRunService](../server/src/main/java/com/agenticform/operation/OperationRunService.java) evaluates the registered runbook action/environment, then queues, waits for approval, or denies. Consequently, a broad agent/project ALLOW is not a safe substitute for a deployment-specific authorization contract.
+
+Change: provide guided, project-scoped deployment setup: target environment/service, release workflow, immutable runbook, required checks, and rollback procedure. The owner reviews and activates a delivery policy once. Within that scope, the Operational Agent automatically coordinates CI, the approved merge/release path, deployment, post-deployment verification, and explicitly authorized rollback. Missing configuration must produce a setup action, not a generic denial or a falsely completed task. Treat a safe CI-only scenario as an initial test, not the final deliverable.
+
+Proposed effective permissions after owner activation:
+
+| Operation | Default within configured delivery scope | Boundary |
+| --- | --- | --- |
+| Inspect logs/status; run registered health/CI checks | ALLOW | Read-only, project-scoped; redact secrets. |
+| Merge/release through an approved workflow | ALLOW after required review/CI | Respect branch protection; no direct bypass or arbitrary repository writes. |
+| Deploy the validated immutable artifact, including production | ALLOW through the preauthorized runbook | Exact project/service/environment, approved runbook revision, release identity, required checks, bounded parameters. No fresh prompt for each routine execution. |
+| Roll back to a known-good release | ALLOW only if explicitly included | Bound target/digest and retry count; verify recovery; do not declare the original change delivered. |
+| New target/runbook, changed authorization scope, missing evidence | REQUIRE_HUMAN or block configuration | Explain the missing prerequisite; changed scope invalidates previous authorization. |
+| Destructive migration, business-data deletion, production data mutation, privilege/secret changes | REQUIRE_HUMAN with exact effect | Separate from routine deployment authorization; no implicit coverage from a deployment label. |
+| Unauthorized cross-project access, invalid identity, stale generation, arbitrary production shell outside a runbook | DENY | No wildcard ALLOW workaround. |
+
+Implement the missing runbook/target/evidence checks before offering automatic production delivery. Do not infer standing authorization merely because an agent calls an action DEPLOY or an environment has a particular name. Validate runbook effects server-side; an approved deployment cannot hide data deletion in COMMAND steps. Keep source edits delegated to implementers and privileged execution in the registered workflow/executor; do not add broad WRITE/MERGE capability to OPS just to suppress native-tool errors. Show whether a block came from capability, policy, human-control mode, missing integration, or runtime readiness, with its matched rule and next action. Existing installations retain their effective permissions until an owner explicitly activates the new scoped policy; no silent migration from approval to automatic production deployment.
+
+Preserve immutable runbook snapshots, expected commit SHA, webhook verification, reconciliation fallback, policy decisions, and explicit retry for ambiguous remote wakes. Standing authorization must be revocable and revalidated before dispatching pending effects; changed runbook/target must not reuse stale authorization. Record policy revision, authorized target, artifact, execution evidence, and verification result without exposing production credentials to agents.
 
 Owner: operations backend, UI/product. Acceptance: coding-to-operations handoff, REQUIRE_HUMAN approve/reject, signed workflow completion, missed-webhook reconciliation, timeout, failed wake, and final report are exercised on a disposable repository. Include wrong-SHA and duplicate-webhook negatives. A recovered health probe adds evidence; it does not silently resolve an incident. No production credentials enter agent prompts or node state.
+
+Additional delivery acceptance: after one owner setup, complete a routine application-change journey through verified deployment without repeat approval prompts for already authorized effects. A failed deployment or smoke check keeps the root undelivered and triggers only the bounded authorized recovery path. A destructive step still requires fresh specific approval. Changed service/environment/runbook, revoked authorization, mismatched artifact, or missing tests cannot use the routine-deploy allowance. Verify the policy matrix with positive and negative tests, including an agent-scoped wildcard rule attempting to evade deployment constraints. Emit a final report containing the actual deployed release and target verification evidence, not merely a PR link.
 
 ### P1-2 — Replace milestone claims with release evidence
 
@@ -158,11 +185,11 @@ Owner: release/product. Acceptance: every claimed deliverable links its requirem
 ## Delivery order and exit contract
 
 1. Agree on deliverable semantics and the evidence schema (P0-1); reproduce streaming, transport, and credential/configuration failures in parallel.
-2. Implement focused fixes with regression checks (P0-2 through P0-5). Preserve authorization, HTTPS, immutable images, outbound-only nodes, generation fencing, and fail-closed replay/cleanup throughout.
-3. Validate a matched release on a clean disposable installation, then run the complete safe operations loop (P1-1). Capture UI evidence including empty, blocked, expired-auth, disconnected, and recovered states; keyboard actions and text status labels must work.
+2. Implement focused fixes with regression checks (P0-2 through P0-6). Preserve authorization, HTTPS, immutable images, outbound-only nodes, generation fencing, and fail-closed replay/cleanup throughout.
+3. Validate a matched release on a clean disposable installation, then run the complete deployment/verification loop (P0-6), including one-time authorization and exceptional approvals. Capture UI evidence including empty, blocked, expired-auth, disconnected, and recovered states; keyboard actions and text status labels must work.
 4. Dogfood analysis, docs-only PR, implementation/review, and approval-gated operation objectives through the UI. Record actual artifact references and elapsed time; no manual database repair. Publish the release evidence record (P1-2) before closing Alpha exit.
 
-Proposed release gates: all four journeys produce the requested artifact; zero unintended writes for read-only/docs-only scopes; zero duplicate side effects under the recovery matrix; all invalid-token/stale-generation/unsafe-cleanup tests rejected; both event streams reconnect without committed-response exceptions; restore verified with credentials; no unresolved P0 findings. Measure first useful task time and blocker recovery time, but do not invent a baseline or market an unsupported latency/SLA target.
+Proposed release gates: all four journeys reach their requested terminal gate, with application changes deployed and verified in the configured target; routine authorized deployments need no repeated human approval; destructive or out-of-scope effects remain separately gated; zero unintended writes for read-only/docs-only scopes; zero duplicate side effects under the recovery matrix; all invalid-token/stale-generation/unsafe-cleanup tests rejected; both event streams reconnect without committed-response exceptions; restore verified with credentials; no unresolved P0 findings. Measure time to verified deployment and blocker recovery time, but do not invent a baseline or market an unsupported latency/SLA target.
 
 The deliverable of this PR is this repair plan. The deliverable of the subsequent implementation work is a verifiable user outcome, not more agents, containers marked healthy, green unit tests alone, or a report that merely says the work is done.
 
