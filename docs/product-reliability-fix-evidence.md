@@ -360,3 +360,6 @@ current sources is re-proven on every push.
 
 Limits: images here are built from the working tree, not a published release tag;
 HTTPS/Traefik termination and real node enrollment remain operator steps.
+
+CI confirmation: run 35016336485 on `62358c9` is green with all six jobs:
+server, node, web, server-image, restore-evidence, clean-install-journey.
