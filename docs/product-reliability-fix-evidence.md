@@ -256,6 +256,12 @@ wildcard, exact environment over wildcard, with fail-closed on missing rules.
 - One-shot preauthorization remains scoped to agent+task+action+environment with
 exact effect digest and 5-minute TTL. Tests cover single-use, scope mismatches,
 and wildcard-environment behavior.
+- Evasion hole closed: rule ordering previously put scope rank above matcher
+specificity, so a project/agent-scoped wildcard ALLOW silently erased the global
+PRODUCTION_DEPLOY and DELETE_DATA REQUIRE_HUMAN guarantees. Ordering is now
+matcher-first (exact action, exact environment, then scope, then id); new tests
+prove agent-wildcard and project-wildcard ALLOW cannot bypass either gate while
+deliberate task-scoped grants still work.
 - The runbook delivery gate added under P0-1 (root marked DELIVERED only after
 successful deploy/release runbook with all-step evidence, target environment,
 exact revision) binds routine authorized deployment into the new deliverable
