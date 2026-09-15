@@ -432,7 +432,7 @@ The full objective for PR #33 is evidenced as follows on `fix/product-reliabilit
 | Real browser | `tests/browser-journey.sh` (headless Chromium, 10 checks) | PASS, CI `browser-journey` |
 | Credential restore | `tests/credential-restore.sh` (pg_dump/pg_restore) | PASS, CI `restore-evidence` |
 | Node loss | `tests/node-recovery-journey.sh` (enroll→kill→OFFLINE→incident→DISCONNECTED) | PASS, CI `node-loss-journey` |
-| Final CI | run 35030645633 on `1afb511` | all 8 jobs success (one transient registry-reset failure in restore-evidence was rerun and passed) |
+| Final CI | run 35031775630 on `e08fff1` | all 8 jobs success (one transient registry-reset failure in restore-evidence was rerun and passed) |
 
 Every in-repo gate named in PR #33 is proven by a committed, repeatable script or
 test that CI re-runs. The only remaining items are operator/release actions
