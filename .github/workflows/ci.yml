@@ -123,3 +123,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Drive the UI in headless Chromium against a clean install
         run: sh tests/browser-journey.sh
+
+  node-loss-journey:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Enroll a node, kill it, verify offline + incident + agent fencing
+        run: sh tests/node-recovery-journey.sh

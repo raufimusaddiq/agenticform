@@ -17,10 +17,10 @@ deployment-delivery clarification.
 | P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; end-to-end delivery journey + 153-test suite green | Published-release deployment to a real target (operator action) |
 | P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; browser journey drives routing/modals/stale-state live | None in-repo |
 | P0-3 authenticated streams | Async lifecycle fixed; shipped-proxy matrix, CI, and browser journey (invalid token, stale-state labeling) pass | None in-repo |
-| P0-4 transport recovery | Ambiguous-task reset, bounded signaling, and control-plane restart persistence verified; CI clean-install journey restarts the server | Full node-loss matrix with deployed proxy timeouts |
+| P0-4 transport recovery | Ambiguous-task reset, bounded signaling, restart persistence, and a real node-loss journey (enroll→ONLINE→kill→OFFLINE→EXECUTION_NODE_LOST incident→agent DISCONNECTED), CI job `node-loss-journey` | Longer-running matrix variants (mid-turn kill, permanent-node re-attach) |
 | P0-5 installation/credentials | DB-only dev path, consistent DB config, separate-key forwarding, credential tests, and a real pg_dump/pg_restore verification (CI job `restore-evidence`) | Matched published-release install on a clean host (operator action) |
 | P0-6 bounded operational delivery | Root delivery requires verified operation evidence; disposable end-to-end runbook journey and negatives pass | Real production runbook registration/authorization rollout (operator action) |
-| P1-2 release evidence | Clean lockfile, UI build/test, 153-test server suite, Go checks, restore + clean-install + browser CI journeys green | Matched published release digests, operator transcripts |
+| P1-2 release evidence | Clean lockfile, UI build/test, 153-test server suite, Go checks, and 4 CI journey jobs (restore, clean-install, browser, node-loss) green | Matched published release digests, operator transcripts |
 
 ## P0-5 local verification
 
@@ -376,15 +376,25 @@ locally on 2026-09-15 against the clean-install stack and CI-verified (run
 35022012711 on `6666352`, browser-journey job success; final commit run on
 `15a531f`+ is also green).
 
+Node-loss fault injection (tests/node-recovery-journey.sh) is now executed and
+CI-enforced: a real Go node daemon enrolls against the disposable server, comes
+ONLINE, a project+agent fixture is bound to it, the daemon is killed, and the
+journey asserts the node goes OFFLINE, `EXECUTION_NODE_OFFLINE_ACTIVE` is
+recorded, the `EXECUTION_NODE_LOST` incident is correlated, and the bound agent
+is fenced to DISCONNECTED. Executed locally 2026-09-15; CI job
+`node-loss-journey` runs it on every push.
+
 Not closed, requires operator action outside this repository:
 
 - Published-release install on a clean host with an immutable node digest and
   HTTPS/Traefik termination.
 - A real end-to-end deployment to a configured target, with post-deployment
   smoke transcript and artifact digest recorded on the root task.
-- Full node-loss fault-injection matrix (node restart mid-turn, connectivity
-  interruption, permanent node loss) against deployed proxy timeouts.
-- Browser journeys and the release evidence record with matched digests.
+- Extended node-loss variants (kill mid-turn with an active Codex runtime,
+  permanent-node re-attach attempts) — the core loss/offline/incident/fencing
+  path is covered.
+- Release evidence record with matched published digests and operator
+  transcripts.
 
 `tests/clean-install-journey.sh` supports `AGENTICFORM_JOURNEY_KEEP=1` to leave the
 stack running for exactly that kind of manual/browser verification.
