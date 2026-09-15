@@ -262,6 +262,15 @@ PRODUCTION_DEPLOY and DELETE_DATA REQUIRE_HUMAN guarantees. Ordering is now
 matcher-first (exact action, exact environment, then scope, then id); new tests
 prove agent-wildcard and project-wildcard ALLOW cannot bypass either gate while
 deliberate task-scoped grants still work.
+- Cleanup safety is now directly tested in `WorkspaceCleanupSafetyTest`: a path
+outside the managed worktree root, an unknown branch, a dirty worktree, and an
+unmerged branch are each refused; a clean merged worktree is removed. This
+closes the audit's "unsafe-cleanup tests rejected" gate.
+- Machine endpoints keep signature verification: `NodeSignatureVerifierTest`
+covers invalid signature, replayed nonce, revoked node, expired timestamp, and
+non-Ed25519 enrollment keys. Invalid and absent admin tokens are covered by
+`AdminBearerAuthenticationFilterTest`, and stale generations by
+`AgentRuntimeGenerationTest`.
 - The runbook delivery gate added under P0-1 (root marked DELIVERED only after
 successful deploy/release runbook with all-step evidence, target environment,
 exact revision) binds routine authorized deployment into the new deliverable
