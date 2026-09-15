@@ -188,7 +188,7 @@ https://github.com/owner/repository.git
 - [Distributed Agent Fabric](docs/distributed-agent-fabric.md)
 - [UI/UX specification](docs/ui-ux.md)
 - [Self-Hosted Alpha](docs/self-hosted-alpha.md)
-- [PR #33 repair evidence (in progress)](docs/product-reliability-fix-evidence.md)
+- [PR #33 repair evidence and proof of completion](docs/product-reliability-fix-evidence.md)
 
 ## Current architecture
 
