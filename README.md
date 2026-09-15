@@ -33,11 +33,15 @@ docs/     architecture, security, recovery, and operational specifications
 
 ## Local development
 
-Start PostgreSQL:
+Start PostgreSQL (Docker Compose required; no release images or admin token needed):
 
 ```bash
-docker compose up -d postgres
+docker compose -f docker-compose.dev.yml up -d --wait postgres
 ```
+
+The development database uses a separate volume from release deployments. For custom
+`POSTGRES_DB`, `POSTGRES_USER`, or `POSTGRES_PASSWORD`, also set the backend's
+`DATABASE_URL`, `DATABASE_USER`, and `DATABASE_PASSWORD` to matching values.
 
 Generate an admin token of at least 32 characters, for example:
 
@@ -58,7 +62,7 @@ Run the UI in a second terminal:
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
@@ -184,6 +188,7 @@ https://github.com/owner/repository.git
 - [Distributed Agent Fabric](docs/distributed-agent-fabric.md)
 - [UI/UX specification](docs/ui-ux.md)
 - [Self-Hosted Alpha](docs/self-hosted-alpha.md)
+- [PR #33 repair evidence and proof of completion](docs/product-reliability-fix-evidence.md)
 
 ## Current architecture
 

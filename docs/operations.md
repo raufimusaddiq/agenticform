@@ -252,3 +252,20 @@ For coding projects:
 - cleanup can remove merged/terminal coding-agent worktrees and old local release images after the configured retention boundary.
 
 This preserves agent autonomy while keeping the control-plane host small and predictable.
+
+## Delivery runbook requirements
+
+A runbook whose action marks an application change delivered must, in order:
+
+1. Verify the exact accepted revision (ASSERT_GIT_SHA or an explicit `expectedSha`
+parameter) and the target environment.
+2. Deploy the validated immutable artifact.
+3. Record post-deployment health or readiness evidence (HTTP_CHECK/SERVICE_CHECK
+steps supply the evidence text) in the same run.
+
+When such a run succeeds with all steps SUCCEEDED, check/assert evidence present,
+a target environment key, and an exact revision in its parameters, Agenticform
+marks the requesting workflow root DELIVERED, persisting the environment, revision,
+artifact digest (when provided), operation-run ID, verification time, and health
+evidence on the task. Inspection or rollback runbooks never mark delivery. Policy
+still gates the run itself: production deploy remains REQUIRE_HUMAN by default.

@@ -13,6 +13,8 @@ import com.agenticform.project.ProjectEntity;
 import com.agenticform.project.ProjectService;
 import com.agenticform.project.ProjectSourceType;
 import com.agenticform.task.TaskRepository;
+import com.agenticform.task.TaskEntity;
+import com.agenticform.task.TaskStatus;
 import com.agenticform.workspace.WorkspaceMode;
 import com.agenticform.runtime.RuntimeType;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +60,52 @@ class AgentRuntimeRecoveryServiceTest {
     void setUp() {
         service = new AgentRuntimeRecoveryService(agents, projects, tasks, approvals, scheduler,
                 nodeService, runtimeRegistry);
+    }
+
+    @Test
+    void recoveryResetsAmbiguousActiveTaskInsteadOfReplaying() {
+        UUID agentId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        TaskEntity activeTask = org.mockito.Mockito.mock(TaskEntity.class);
+        org.mockito.Mockito.when(activeTask.getId()).thenReturn(taskId);
+        org.mockito.Mockito.when(activeTask.getStatus()).thenReturn(TaskStatus.RUNNING);
+
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.getId()).thenReturn(agentId);
+        when(agent.getExecutionNodeId()).thenReturn(nodeId);
+        when(agent.getStatus()).thenReturn(AgentStatus.DISCONNECTED);
+        when(agent.getProjectId()).thenReturn(projectId);
+        when(agent.getRuntimeGeneration()).thenReturn(1L);
+        when(agent.getName()).thenReturn("Coder");
+        when(agent.getBranch()).thenReturn("agent/coder");
+        when(agent.getActiveTaskId()).thenReturn(taskId);
+        when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getCapabilityProfile()).thenReturn(AgentCapabilityProfile.IMPLEMENTER);
+        when(agent.getResponsibility()).thenReturn("Implement features");
+        when(agent.reassignRuntime(eq(nodeId), any())).thenReturn(2L);
+        when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
+        when(projects.get(projectId)).thenReturn(project);
+        when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);
+        when(project.getId()).thenReturn(projectId);
+        when(project.getSlug()).thenReturn("demo");
+        when(project.getRepositoryUrl()).thenReturn("https://github.com/acme/demo.git");
+        when(project.getDefaultBranch()).thenReturn("main");
+        when(nodeService.get(nodeId)).thenReturn(oldNode);
+        when(oldNode.getId()).thenReturn(nodeId);
+        when(oldNode.getStatus()).thenReturn(ExecutionNodeStatus.ONLINE);
+        when(tasks.findById(taskId)).thenReturn(Optional.of(activeTask));
+        when(runtimeRegistry.get(RuntimeType.CODEX)).thenReturn(runtime);
+        when(runtime.startParameters("", "Implement features", AgentCapabilityProfile.IMPLEMENTER)).thenReturn(Map.of());
+
+        service.recover(agentId);
+
+        verify(activeTask).setStatus(TaskStatus.BLOCKED);
+        verify(activeTask).setQueuedSubmissionId(null);
+        verify(activeTask).setTurnId(null);
+        verify(activeTask).setLastError(org.mockito.ArgumentMatchers.contains("lost"));
     }
 
     @Test

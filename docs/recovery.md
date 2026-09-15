@@ -197,6 +197,31 @@ Agenticform therefore does not describe node-loss recovery as live migration.
 
 ## Private GitHub repositories
 
+### Encrypted project credentials and admin-token rotation
+
+Back up the database and effective encryption material separately with restricted
+access before changing authentication. Never upload either as CI artifacts.
+Root Compose forwards `AGENTICFORM_SECRET_KEY` from its environment or `.env`.
+Production Compose loads this key from `.agenticform-secret.env`; an interpolation
+`.env` entry alone does not pass it into that container.
+
+1. Determine the effective key privately. If no separate key was configured, the
+   original admin token is the legacy encryption material.
+2. For a legacy installation, set `AGENTICFORM_SECRET_KEY` to that exact original
+   token through the appropriate Compose path. Do not generate a replacement key:
+   existing ciphertext would become unreadable. Restrict the secret file to its owner.
+3. Recreate the server using the unchanged admin token. Verify an existing test
+   credential decrypts through an authenticated project operation in an isolated
+   restore before changing production authentication.
+4. Rotate only `AGENTICFORM_ADMIN_TOKEN`, retaining the pinned encryption material.
+   Recreate the server and repeat credential verification.
+5. If decryption fails, restore the original effective encryption material. Do not
+   overwrite credentials or reset the database. Keep the original backup intact.
+
+This pins the existing encryption key; it does not rotate encryption material.
+Changing that material requires explicit decrypt/re-encrypt migration, which is
+not currently provided. Backups must retain the key that encrypted their contents.
+
 Execution nodes never receive the control plane's long-lived GitHub token or GitHub App private key.
 
 Configure a GitHub App on the control plane:

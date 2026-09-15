@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
-export type ConnectionState = 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'DISCONNECTED' | 'AUTH_REQUIRED';
+import type { ConnectionState } from './connectionState';
+export type { ConnectionState } from './connectionState';
 
 const statusLabels: Record<string, string> = {
   READY: 'Queued',
@@ -30,7 +31,7 @@ export function Status({ value, children }: { value: string; children?: ReactNod
 
 export function ConnectionStatus({ state }: { state: ConnectionState }) {
   const text = label(state);
-  return <span className={`connection-status connection-${state.toLowerCase()}`}><span className="connection-marker" aria-hidden="true" />Control plane <strong>{text}</strong></span>;
+  return <span className={`connection-status connection-${state.toLowerCase()}`} role="status"><span className="connection-marker" aria-hidden="true" />Control plane <strong>{text}</strong>{state !== 'CONNECTED' && ' · displayed state may be stale'}</span>;
 }
 
 export function HumanControlIndicator({ mode }: { mode: 'IN_THE_LOOP' | 'ON_THE_LOOP' }) {

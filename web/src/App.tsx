@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { consumeAgentStream, consumeControlPlaneEvents } from './controlPlaneEvents';
+import { combinedConnectionState } from './connectionState';
 import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
 import { OperationsView } from './OperationsView';
@@ -89,7 +90,10 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [connection, setConnection] = useState<ConnectionState>('CONNECTING');
+  const [eventConnection, setEventConnection] = useState<ConnectionState>('CONNECTING');
+  const [agentConnection, setAgentConnection] = useState<ConnectionState>('CONNECTING');
+  const [snapshotCurrent, setSnapshotCurrent] = useState(false);
+  const connection = combinedConnectionState(eventConnection, agentConnection, snapshotCurrent);
 
   const navigate = useCallback((nextView: View) => {
     const path = routeByView[nextView];
@@ -117,8 +121,10 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
       setApprovals(nextApprovals);
       setPolicyRules(nextPolicyRules);
       setCommunicationRules(nextCommunicationRules);
+      setSnapshotCurrent(true);
       setError(null);
     } catch (cause) {
+      setSnapshotCurrent(false);
       setError(cause instanceof Error ? cause.message : 'Unable to load Agenticform state');
     } finally {
       if (!quiet) setLoading(false);
@@ -144,18 +150,21 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
     const connect = async () => {
       while (!stopped && !controller.signal.aborted) {
         try {
-          await consumeControlPlaneEvents(() => scheduleRefresh(), controller.signal, setConnection);
+          await consumeControlPlaneEvents(() => scheduleRefresh(), controller.signal, (state) => {
+            setEventConnection(state);
+            if (state === 'CONNECTED') { setSnapshotCurrent(false); scheduleRefresh(); }
+          });
         } catch (cause) {
           if (controller.signal.aborted || stopped) return;
           if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') {
-            setConnection('AUTH_REQUIRED');
+            setEventConnection('AUTH_REQUIRED');
             setError('ADMIN_AUTH_REQUIRED');
             return;
           }
-          setConnection('RECONNECTING');
+          setEventConnection('RECONNECTING');
         }
         if (!stopped && !controller.signal.aborted) {
-          setConnection('RECONNECTING');
+          setEventConnection('RECONNECTING');
           await reconnectDelay();
         }
       }
@@ -168,12 +177,18 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
     const connectAgents = async () => {
       while (!agentStopped && !controller.signal.aborted) {
         try {
-          await consumeAgentStream(setAgents, controller.signal, (state) => { if (state === 'CONNECTED') setConnection(state); });
+          await consumeAgentStream(setAgents, controller.signal, (state) => {
+            setAgentConnection(state);
+            if (state === 'CONNECTED') { setSnapshotCurrent(false); scheduleRefresh(); }
+          });
         } catch (cause) {
           if (controller.signal.aborted || agentStopped) return;
-          if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') { setError(cause.message); return; }
+          if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') {
+            setAgentConnection('AUTH_REQUIRED'); setError(cause.message); return;
+          }
         }
         if (!agentStopped && !controller.signal.aborted) {
+          setAgentConnection('RECONNECTING');
           await new Promise<void>((resolve) => { agentReconnectTimer = window.setTimeout(resolve, 1500); });
         }
       }
@@ -362,8 +377,9 @@ function Tasks({ tasks, projectById, agentById, onDispatch, onCreate }: { tasks:
     return result;
   }, new Map<string, { workflowId: string; parent: Task | null; tasks: Task[] }>()).values()]
     .sort((a, b) => Math.max(...b.tasks.map((task) => Date.parse(task.updatedAt))) - Math.max(...a.tasks.map((task) => Date.parse(task.updatedAt))));
-  const nextAction = (task: Task) => task.status === 'WAITING_APPROVAL' ? 'Review approval' : task.status === 'WAITING_DEPENDENCY' ? 'Wait dependency' : task.status === 'FAILED' ? 'Inspect failure' : task.status === 'BLOCKED' ? 'Review blocker' : '-';
-  return <section className="panel"><div className="section-header"><h2>Tasks</h2><button className="button primary" onClick={onCreate}>New task</button></div><div className="filter-tabs">{[['ALL','All'],['RUNNING','Running'],['WAITING','Waiting'],['WAITING_APPROVAL','Needs approval'],['BLOCKED','Blocked'],['COMPLETED','Completed'],['FAILED','Failed']].map(([value, text]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{text}</button>)}</div>{!visible.length ? <Empty title="No tasks in this view" body="Choose another state or create a task." /> : <div className="split-workbench"><div className="workbench-table task-table"><div className="table-head"><span>Task</span><span>State</span><span>Agent</span><span>Project</span><span>Next action</span></div>{groups.map((group) => { const collapsed = collapsedWorkflows.has(group.workflowId); return <section className="task-group" key={group.workflowId}><header className="task-group-header"><button className="task-group-toggle" type="button" aria-expanded={!collapsed} onClick={() => setCollapsedWorkflows((current) => { const next = new Set(current); if (next.has(group.workflowId)) next.delete(group.workflowId); else next.add(group.workflowId); return next; })}><span aria-hidden="true">{collapsed ? '▸' : '▾'}</span><strong>{group.parent?.title ?? 'Workflow tasks'}</strong></button><code title={group.workflowId}>{shortId(group.workflowId)}</code><span>{group.tasks.length} related</span></header>{!collapsed && group.tasks.slice().sort((a, b) => Number(Boolean(a.parentTaskId)) - Number(Boolean(b.parentTaskId)) || Date.parse(a.createdAt) - Date.parse(b.createdAt)).map((task) => <button className={`table-row${task.parentTaskId ? ' child-task' : ''}${selectedId === task.id ? ' selected' : ''}`} key={task.id} onClick={() => setSelectedId(task.id)}><span>{task.parentTaskId ? `↳ ${task.title}` : task.title}</span><Status value={task.status} /><span>{agentById.get(task.assignedAgentId)?.name ?? 'Unknown agent'}</span><span>{projectById.get(task.projectId)?.name ?? 'Unknown project'}</span><span>{nextAction(task)}</span></button>)}</section>; })}</div><aside className="inspector">{selected ? <><h3>Selected task</h3><Status value={selected.status} /><dl><dt>Assigned agent</dt><dd>{agentById.get(selected.assignedAgentId)?.name ?? 'Unknown agent'}</dd><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name}</dd><dt>Priority</dt><dd>{selected.priority}</dd><dt>Next action</dt><dd>{nextAction(selected)}</dd><dt>Workflow</dt><dd><code>{shortId(selected.workflowId)}</code></dd><dt>Parent task</dt><dd><code>{shortId(selected.parentTaskId)}</code></dd><dt>Queue submission</dt><dd><code>{shortId(selected.queuedSubmissionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.turnId)}</code></dd><dt>Creation source</dt><dd className="muted">Not recorded by the API</dd></dl>{selected.report && <><h3>Report</h3><p>{selected.report}</p></>}{selected.lastError && <><h3>Failure</h3><p className="inline-error">{selected.lastError}</p></> }<button className="button secondary" disabled={!['READY', 'BLOCKED'].includes(selected.status)} onClick={() => onDispatch(selected.id)}>Dispatch</button></> : <p className="muted">Select a task.</p>}</aside></div>}</section>;
+  const nextAction = (task: Task) => task.dependencyReason ?? task.nextAction ??
+    (task.deliveryStage && task.deliveryStage !== 'DELIVERED' ? 'Delivery: ' + task.deliveryStage : 'Inspect task details');
+  return <section className="panel"><div className="section-header"><h2>Tasks</h2><button className="button primary" onClick={onCreate}>New task</button></div><div className="filter-tabs">{[['ALL','All'],['RUNNING','Running'],['WAITING','Waiting'],['WAITING_APPROVAL','Needs approval'],['BLOCKED','Blocked'],['COMPLETED','Completed'],['FAILED','Failed']].map(([value, text]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{text}</button>)}</div>{!visible.length ? <Empty title="No tasks in this view" body="Choose another state or create a task." /> : <div className="split-workbench"><div className="workbench-table task-table"><div className="table-head"><span>Task</span><span>State</span><span>Agent</span><span>Project</span><span>Next action</span></div>{groups.map((group) => { const collapsed = collapsedWorkflows.has(group.workflowId); return <section className="task-group" key={group.workflowId}><header className="task-group-header"><button className="task-group-toggle" type="button" aria-expanded={!collapsed} onClick={() => setCollapsedWorkflows((current) => { const next = new Set(current); if (next.has(group.workflowId)) next.delete(group.workflowId); else next.add(group.workflowId); return next; })}><span aria-hidden="true">{collapsed ? '▸' : '▾'}</span><strong>{group.parent?.title ?? 'Workflow tasks'}</strong></button><code title={group.workflowId}>{shortId(group.workflowId)}</code><span>{group.tasks.length} related</span></header>{!collapsed && group.tasks.slice().sort((a, b) => Number(Boolean(a.parentTaskId)) - Number(Boolean(b.parentTaskId)) || Date.parse(a.createdAt) - Date.parse(b.createdAt)).map((task) => <button className={`table-row${task.parentTaskId ? ' child-task' : ''}${selectedId === task.id ? ' selected' : ''}`} key={task.id} onClick={() => setSelectedId(task.id)}><span>{task.parentTaskId ? `↳ ${task.title}` : task.title}</span><Status value={task.status} /><span>{agentById.get(task.assignedAgentId)?.name ?? 'Unknown agent'}</span><span>{projectById.get(task.projectId)?.name ?? 'Unknown project'}</span><span>{nextAction(task)}</span></button>)}</section>; })}</div><aside className="inspector">{selected ? <><h3>Selected task</h3><Status value={selected.status} /><dl><dt>Assigned agent</dt><dd>{agentById.get(selected.assignedAgentId)?.name ?? 'Unknown agent'}</dd><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name}</dd><dt>Priority</dt><dd>{selected.priority}</dd><dt>Next action</dt><dd>{nextAction(selected)}</dd><dt>Workflow</dt><dd><code>{shortId(selected.workflowId)}</code></dd><dt>Parent task</dt><dd><code>{shortId(selected.parentTaskId)}</code></dd><dt>Queue submission</dt><dd><code>{shortId(selected.queuedSubmissionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.turnId)}</code></dd><dt>Creation source</dt><dd className="muted">Not recorded by the API</dd><>{selected.deliverable && <><dt>Deliverable</dt><dd>{selected.deliverable}</dd></>}{selected.deliveryStage && <><dt>Delivery</dt><dd>{selected.deliveryStage}</dd></>}{selected.deliveryEnvironment && <><dt>Delivered environment</dt><dd>{selected.deliveryEnvironment}</dd></>}{selected.deliveryRevision && <><dt>Delivered revision</dt><dd>{selected.deliveryRevision}</dd></>}{selected.deliveryArtifactDigest && <><dt>Artifact digest</dt><dd>{selected.deliveryArtifactDigest}</dd></>}{selected.deliveryVerifiedAt && <><dt>Delivery verified</dt><dd>{new Date(selected.deliveryVerifiedAt).toISOString()}</dd></>}</></dl>{selected.report && <><h3>Report</h3><p>{selected.report}</p></>}{selected.lastError && <><h3>Failure</h3><p className="inline-error">{selected.lastError}</p></> }<button className="button secondary" disabled={!['READY', 'BLOCKED'].includes(selected.status)} onClick={() => onDispatch(selected.id)}>Dispatch</button></> : <p className="muted">Select a task.</p>}</aside></div>}</section>;
 }
 
 function Empty({ title, body }: { title: string; body: string }) { return <div className="empty"><strong>{title}</strong><p>{body}</p></div>; }

@@ -100,7 +100,7 @@ public class NodeCommandCompletionHandler {
                         "runtimeSessionId", runtimeSessionId,
                         "runtimeType", runtimeType.name(),
                         "clientMessageId", clientMessageId,
-                        "prompt", TaskDispatchService.promptWithCompletionContract(task.getPrompt())));
+                        "prompt", TaskDispatchService.promptWithCompletionContract(task, agent)));
         task.setQueuedSubmissionId("node-command:" + dispatch.getId());
         task.setTurnId(null);
         task.setStatus(TaskStatus.DISPATCHED);
