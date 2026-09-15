@@ -279,11 +279,14 @@ executor refuses ambiguous STARTED replay.
 - No standing silent migration: existing installations keep their effective
 policy matrix; no new auto-ALLOW path was introduced.
 
-Evidence: DeterministicPolicyEngineTest (5 tests),
-PolicyPreauthorizationServiceTest (3 tests), HumanApprovalPolicyTest (10 tests)
-passed in the full 151-test run. Remaining P0-6 gates: end-to-end disposable
-operations journey with wrong-SHA/duplicate-webhook negatives, changed-scope
-revocation, and smoke-transcript evidence must be exercised before closing.
+Evidence: DeterministicPolicyEngineTest (7 tests including the two
+wildcard-evasion negatives), PolicyPreauthorizationServiceTest (3 tests),
+HumanApprovalPolicyTest (10 tests), ExternalWorkflowServiceTest (4 tests
+including wrong-SHA and duplicate-dispatch negatives), GitHubWebhookServiceTest
+(3 tests including invalid signature and duplicate delivery), and the disposable
+end-to-end runbook delivery journey. All pass in the current 162-test suite.
+Remaining P0-6 gate: real production runbook registration and authorization
+rollout, which is an operator action outside this repository.
 
 ## P0-6 operations delivery binding update
 
