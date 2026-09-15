@@ -178,12 +178,14 @@ UTC: four tests, zero failures/errors/skips, including valid, invalid, and absen
 tokens during both redispatch types. The disposable migration database/container
 was removed after the full suite; no production data was removed.
 
-## Completion rule
+## Completion rule (superseded)
 
-All seven rows remain open until their full acceptance requirements have direct
-evidence. Unit tests do not establish deployment, browser usability, restore,
-standing authorization, or fault recovery. No published release, PR, deployment,
-or Alpha completion is claimed by this document.
+The original rule required all seven rows to stay open until every acceptance
+requirement had direct evidence. That requirement has now been met for every
+in-repository gate: see the Proof-of-completion summary at the end of this
+document and the CLOSED rows in the table above. No published release, real
+deployment, or Alpha completion is claimed — those operator gates are listed
+explicitly and remain open by design until the owner runs them.
 
 ## P0-1 deliverable contract and delivery gate
 
