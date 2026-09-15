@@ -17,10 +17,10 @@ deployment-delivery clarification.
 | P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; end-to-end delivery journey + 153-test suite green | Published-release deployment to a real target (operator action) |
 | P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; tests pass | Browser-level blocked-task recovery journey |
 | P0-3 authenticated streams | Async lifecycle fixed; shipped-proxy matrix and CI both pass | Browser network-toggle recovery journey |
-| P0-4 transport recovery | Existing recovery retained; ambiguous-task reset and bounded recovery signaling added and tested | Full disposable restart/loss matrix with deployed proxy timeouts |
+| P0-4 transport recovery | Ambiguous-task reset, bounded signaling, and control-plane restart persistence verified; CI clean-install journey restarts the server | Full node-loss matrix with deployed proxy timeouts |
 | P0-5 installation/credentials | DB-only dev path, consistent DB config, separate-key forwarding, credential tests, and a real pg_dump/pg_restore verification (CI job `restore-evidence`) | Matched published-release install on a clean host (operator action) |
 | P0-6 bounded operational delivery | Root delivery requires verified operation evidence; disposable end-to-end runbook journey and negatives pass | Real production runbook registration/authorization rollout (operator action) |
-| P1-2 release evidence | Clean lockfile, UI build/test pass; 152-test server suite and Go checks green | Browser journeys, matched release digests, operator transcripts |
+| P1-2 release evidence | Clean lockfile, UI build/test, 153-test server suite, Go checks, restore-evidence + clean-install CI journeys green | Browser journeys, matched published release digests, operator transcripts |
 
 ## P0-5 local verification
 
