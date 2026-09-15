@@ -333,6 +333,9 @@ without touching production data, and confirms the credential survives because
 the encryption key is independent of the admin token. CI job `restore-evidence`
 runs the same script.
 
+CI confirmation: run 35014231500 on `6778f61` includes job `restore-evidence`
+passing in CI (server, node, web, server-image also green).
+
 Limits: operator-side verification of a real production backup, HTTPS target, and
 worktree/node state remains outside this repository; the disposable test proves
 the mechanism, not a specific production backup.
