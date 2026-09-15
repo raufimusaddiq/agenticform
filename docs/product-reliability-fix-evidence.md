@@ -339,3 +339,24 @@ passing in CI (server, node, web, server-image also green).
 Limits: operator-side verification of a real production backup, HTTPS target, and
 worktree/node state remains outside this repository; the disposable test proves
 the mechanism, not a specific production backup.
+
+## Clean-install journey (executed)
+
+tests/clean-install-journey.sh builds the real server and web images, then
+brings up a disposable postgres + server + web stack and exercises it exactly as
+a user reaches it — through the shipped nginx proxy:
+
+1. Wait for `/actuator/health` to report UP on the published port.
+2. Unauthenticated `GET /api/projects` returns 401.
+3. Authenticated `GET /api/projects|agents|tasks` return JSON through the proxy.
+4. Register a project via `POST /api/projects` and confirm it persists.
+5. Restart the server container and confirm the project still loads — durable
+state and Flyway schema survive a control-plane restart.
+
+Result: `CLEAN INSTALL JOURNEY VERIFIED` on 2026-09-15 against locally built
+images (removed afterwards; all containers/volumes/networks cleaned up). CI job
+`clean-install-journey` runs the same script, so a matched clean install from the
+current sources is re-proven on every push.
+
+Limits: images here are built from the working tree, not a published release tag;
+HTTPS/Traefik termination and real node enrollment remain operator steps.
