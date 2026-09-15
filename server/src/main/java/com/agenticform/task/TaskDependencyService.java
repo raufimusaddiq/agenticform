@@ -64,14 +64,15 @@ public class TaskDependencyService {
         boolean becameDependencyBlocked = false;
         if (isPreDispatchDependencyState(task)) {
             boolean wasDependencyBlocked = task.getStatus() == TaskStatus.BLOCKED && isDependencyBlock(task);
+            boolean wasWaiting = task.getStatus() == TaskStatus.WAITING_DEPENDENCY;
             switch (evaluation.state()) {
                 case READY -> {
                     task.setStatus(TaskStatus.READY);
-                    if (wasDependencyBlocked) task.setLastError(null);
+                    if (wasDependencyBlocked || wasWaiting) task.setLastError(null);
                 }
                 case WAITING -> {
                     task.setStatus(TaskStatus.WAITING_DEPENDENCY);
-                    task.setLastError(null);
+                    task.setLastError(evaluation.reason());
                 }
                 case BLOCKED -> {
                     task.setStatus(TaskStatus.BLOCKED);

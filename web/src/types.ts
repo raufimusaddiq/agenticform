@@ -95,6 +95,14 @@ export type Task = {
   dependencyReason?: string | null;
   blocker?: string | null;
   nextAction?: string | null;
+  deliverable?: string | null;
+  deliveryStage?: string | null;
+  deploymentRequired?: boolean;
+  environmentKey?: string | null;
+  deliveryEnvironment?: string | null;
+  deliveryRevision?: string | null;
+  deliveryArtifactDigest?: string | null;
+  deliveryVerifiedAt?: string | null;
 };
 
 export type AgentMessageType =

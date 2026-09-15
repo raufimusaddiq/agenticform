@@ -22,6 +22,7 @@ services:
   server:
     image: ${AGENTICFORM_SERVER_IMAGE:?set AGENTICFORM_SERVER_IMAGE to a published release image}
     restart: unless-stopped
+    mem_limit: ${AGENTICFORM_SERVER_MEMORY:-1g}
     env_file:
       - .agenticform-secret.env
     environment:
@@ -35,6 +36,7 @@ services:
       AGENTICFORM_WORKTREE_ROOT: ${AGENTICFORM_WORKTREE_ROOT:-/srv/agenticform/worktrees}
       AGENTICFORM_NODE_IMAGE: ${AGENTICFORM_NODE_IMAGE:?set immutable AGENTICFORM_NODE_IMAGE}
       AGENTICFORM_VERSION: ${AGENTICFORM_VERSION:?set AGENTICFORM_VERSION to the matching release tag}
+      JAVA_TOOL_OPTIONS: ${AGENTICFORM_JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70.0}
     volumes:
       - ${AGENTICFORM_PROJECT_ROOT:-/srv/apps}:/srv/apps
       - worktrees:/srv/agenticform/worktrees

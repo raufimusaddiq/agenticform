@@ -62,6 +62,47 @@ public class TaskEntity {
     @Column(columnDefinition = "text")
     private String report;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private TaskDeliverable deliverable = TaskDeliverable.GENERAL;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delivery_stage", nullable = false, length = 32)
+    private TaskDeliveryStage deliveryStage = TaskDeliveryStage.NOT_STARTED;
+
+    @Column(name = "review_required", nullable = false)
+    private boolean reviewRequired;
+
+    @Column(name = "architecture_required", nullable = false)
+    private boolean architectureRequired;
+
+    @Column(name = "deployment_required", nullable = false)
+    private boolean deploymentRequired;
+
+    @Column(name = "environment_key", length = 64)
+    private String environmentKey;
+
+    @Column(name = "evidence_json", columnDefinition = "text")
+    private String evidenceJson;
+
+    @Column(name = "delivery_environment", length = 64)
+    private String deliveryEnvironment;
+
+    @Column(name = "delivery_revision", length = 256)
+    private String deliveryRevision;
+
+    @Column(name = "delivery_artifact_digest", length = 256)
+    private String deliveryArtifactDigest;
+
+    @Column(name = "delivery_operation_run_id")
+    private UUID deliveryOperationRunId;
+
+    @Column(name = "delivery_verified_at")
+    private Instant deliveryVerifiedAt;
+
+    @Column(name = "delivery_health_evidence", columnDefinition = "text")
+    private String deliveryHealthEvidence;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -116,6 +157,67 @@ public class TaskEntity {
     public String getTurnId() { return turnId; }
     public String getLastError() { return lastError; }
     public String getReport() { return report; }
+    public TaskDeliverable getDeliverable() { return deliverable; }
+    public TaskDeliveryStage getDeliveryStage() { return deliveryStage; }
+    public boolean isReviewRequired() { return reviewRequired; }
+    public boolean isArchitectureRequired() { return architectureRequired; }
+    public boolean isDeploymentRequired() { return deploymentRequired; }
+    public String getEnvironmentKey() { return environmentKey; }
+    public String getEvidenceJson() { return evidenceJson; }
+    public String getDeliveryEnvironment() { return deliveryEnvironment; }
+    public String getDeliveryRevision() { return deliveryRevision; }
+    public String getDeliveryArtifactDigest() { return deliveryArtifactDigest; }
+    public UUID getDeliveryOperationRunId() { return deliveryOperationRunId; }
+    public Instant getDeliveryVerifiedAt() { return deliveryVerifiedAt; }
+    public String getDeliveryHealthEvidence() { return deliveryHealthEvidence; }
+
+    public TaskEvidence getEvidence() { return TaskEvidence.parse(evidenceJson); }
+
+    public boolean hasVerifiedDelivery() {
+        return deliveryStage == TaskDeliveryStage.DELIVERED
+                && deliveryVerifiedAt != null
+                && deliveryEnvironment != null && !deliveryEnvironment.isBlank()
+                && deliveryRevision != null && !deliveryRevision.isBlank();
+    }
+
+    /**
+     * True when this task's requested deliverable requires a verified target
+     * environment. Explicitly narrower requests keep their own terminal gate.
+     */
+    public boolean requiresVerifiedDelivery() {
+        return deploymentRequired && parentTaskId == null && deliveryStage != TaskDeliveryStage.DELIVERED;
+    }
+
+    public void configureDelivery(TaskDeliverable deliverable, boolean reviewRequired,
+                                  boolean architectureRequired, boolean deploymentRequired,
+                                  String environmentKey) {
+        if (deliverable != null) this.deliverable = deliverable;
+        this.reviewRequired = reviewRequired;
+        this.architectureRequired = architectureRequired;
+        this.deploymentRequired = deploymentRequired;
+        this.environmentKey = environmentKey;
+    }
+
+    public void recordEvidence(TaskEvidence evidence) {
+        this.evidenceJson = evidence.serialize();
+        if (evidence.outcome() != null && evidence.outcome().equals(TaskEvidence.COMPLETED)
+                && deliveryStage == TaskDeliveryStage.NOT_STARTED) {
+            this.deliveryStage = TaskDeliveryStage.IMPLEMENTED;
+        }
+    }
+
+    public void setDeliveryStage(TaskDeliveryStage stage) { this.deliveryStage = stage; }
+
+    public void recordVerifiedDelivery(String environment, String revision, String artifactDigest,
+                                       UUID operationRunId, String healthEvidence) {
+        this.deliveryEnvironment = environment;
+        this.deliveryRevision = revision;
+        this.deliveryArtifactDigest = artifactDigest;
+        this.deliveryOperationRunId = operationRunId;
+        this.deliveryHealthEvidence = healthEvidence;
+        this.deliveryVerifiedAt = Instant.now();
+        this.deliveryStage = TaskDeliveryStage.DELIVERED;
+    }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 

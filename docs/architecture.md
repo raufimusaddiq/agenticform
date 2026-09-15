@@ -142,6 +142,51 @@ Task
 
 A task is a unit of work. The Codex thread is the execution context; the task is the control-plane object used to track work.
 
+### Task delegation and report identity
+
+The supported sequence is: create/reuse a durable child task, satisfy its
+dependencies, dispatch when the assigned agent is eligible, then optionally send
+task-linked context. Task creation does not require the recipient to be idle or
+a work-directed message to succeed. Operational work instead uses
+`handoff_to_operations`; ordinary task creation for an Operational Agent is rejected.
+
+Dispatch supplies the exact `taskId` and `runtimeGeneration`. Pass both unchanged
+to `report_task` or `block_task`. Local runtimes use generation zero; remote
+runtimes require a positive generation and the existing authenticated node fence.
+The service verifies assignment, project, active task, generation, and runnable
+state before accepting either report. A late report returns a structured stale
+result; it must never be resubmitted under a newer active task identity.
+
+RESULT, REVIEW_RESULT, and BLOCKER messages are communication only. They no
+longer implicitly report or block the sender's current task. Use `report_task`
+for a durable result, `block_task` for a durable blocker, then send any needed
+message. Existing message and report history remains readable and unchanged.
+
+Report errors include `REPORT_IDENTITY_REQUIRED`, `STALE_TASK`, `STALE_RUNTIME`,
+`TASK_NOT_REPORTABLE`, `TASK_NOT_FOUND`, and `INVALID_TASK_REPORT`, with the
+original task reference where available and a reconciliation action. Do not
+invent a replacement task on any of these errors. `list_agents` exposes current
+ownership/generation for reconciliation, not permission to retarget an old report.
+
+Existing loaded runtimes may retain their previous dynamic-tool schema until
+their normal runtime configuration refresh/restart. Such callers fail closed
+when identity is absent; do not bypass checks or rewrite historical reports.
+Drain active work before an operator-controlled runtime refresh. This change
+does not deploy or restart existing agents automatically.
+
+### Transport-failure recovery boundaries
+
+Control-plane unreachable, node offline, runtime unavailable, and ambiguous
+effects are distinct states. Node loss with active agents raises one correlated
+`EXECUTION_NODE_LOST` episode; automatic rehydration after the grace period emits
+a single `AGENT_RUNTIME_RECOVERED` info signal per generation. Repeated transport
+failures converge on existing fingerprints instead of unbounded restart loops.
+Auto-recovery stays fail-closed: pending human approvals, non-GIT sources, and
+placement constraints block automation; manual recovery remains available.
+An active task on a lost runtime is reset to BLOCKED with a recovery reference;
+its durable identity is preserved and never silently replayed. Local-only
+uncommitted files on a permanently lost node remain explicitly unrecoverable.
+
 ### 5.4 AgentMessage
 
 ```text

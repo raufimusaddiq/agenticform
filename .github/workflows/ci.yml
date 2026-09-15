@@ -76,12 +76,17 @@ jobs:
         with:
           node-version: "24"
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Build web
         run: npm run build
+      - name: Test web recovery state
+        run: npm test
       - name: Build web container
         working-directory: .
-        run: docker build -f web/Dockerfile .
+        run: docker build -t agenticform-web:stream-test -f web/Dockerfile .
+      - name: Verify both authenticated streams through the shipped proxy
+        working-directory: .
+        run: sh tests/stream-proxy.sh agenticform-web:stream-test
 
   server-image:
     runs-on: ubuntu-latest

@@ -1,0 +1,280 @@
+# PR #33 repair evidence
+
+Status: **in progress; not release acceptance**. September 15, 2026.
+Branch `fix/product-reliability-audit`; implementation commit `bbf0329`. Source baseline `a66ca9c`. Owner: implementation
+agent; release/operator sign-off remains required. Historical Sprint 15 records
+are unchanged. Scope: every workstream and exit gate in PR #33, including its
+deployment-delivery clarification.
+
+| Requirement | Current evidence | Remaining gate |
+| --- | --- | --- |
+| P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; suite green | Full operations-backed deployment journey and release verification |
+| P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; focused tests passed | Complete recovery UI/API journey, retry safety and restart/concurrency verification |
+| P0-3 authenticated streams | Async lifecycle regression reproduced and fixed; shipped-proxy matrix passed below | Full browser recovery/journey evidence and deployed release verification |
+| P0-4 transport recovery | Existing recovery retained; ambiguous-task reset and bounded recovery signaling added and tested | Full disposable restart/loss matrix with deployed proxy timeouts |
+| P0-5 installation/credentials | Partial implementation below | Matched published install, credential restore/application checks, full isolated restore |
+| P0-6 bounded operational delivery | Existing runbook/policy surfaces retained; root delivery now requires verified operation evidence | Complete disposable operations journey, authorization matrix and negative tests |
+| P1-2 release evidence | Clean lockfile, UI build/test pass; 152-test server suite and Go checks green | Browser journeys, matched release digests, operator transcripts |
+
+## P0-5 local verification
+
+- Added `docker-compose.dev.yml`: database-only, loopback binding, separate
+  development volume; no release image/version/admin interpolation prerequisites.
+- Root Compose now uses configured database name and runtime database/user values
+  in its healthcheck, forwarding the existing separate encryption key.
+- README documents the exact development command and matching custom JDBC settings.
+- Recovery documentation explains legacy-key pinning before admin rotation and
+  the distinct production `env_file` path. No encryption key was changed here.
+- Decryption errors fail closed with a recovery action, without credential values.
+- `SecretBoxTest` covers separate-key admin rotation, legacy-key pinning, wrong-key
+  rejection, and malformed ciphertext. `mvn -B -Dtest=SecretBoxTest test` passed
+  in `maven:3.9-eclipse-temurin-21`, read-only source copied into disposable
+  container storage: 4 tests, zero failures/errors/skips, 09:32:54 UTC.
+
+Executed against Docker on this host, isolated Compose project
+`agenticform-audit-dev`, image `postgres:17-alpine` (local development evidence,
+not an immutable release test):
+
+```bash
+docker compose --env-file /dev/null -f docker-compose.dev.yml -p agenticform-audit-dev config --quiet
+AGENTICFORM_POSTGRES_PORT=55439 POSTGRES_DB=audit_db POSTGRES_USER=audit_user docker compose --env-file /dev/null -f docker-compose.dev.yml -p agenticform-audit-dev up -d --wait postgres
+```
+
+Both commands passed; PostgreSQL became healthy with custom database/user settings.
+`psql -U audit_user -d audit_db -Atc 'select current_database(), current_user'`
+returned `audit_db|audit_user`. The disposable container and network were removed;
+its development-only volume remains available. No existing data was deleted.
+No production container, credential, database, or historical task was modified.
+Existing untracked `backups/` and `web/web/` remain untouched.
+
+Root Compose interpolation was additionally checked with an empty process
+environment, `--env-file /dev/null`, fixture release/admin/key values, and custom
+`audit_db`/`audit_user`. JSON assertions passed for database name/user, matching
+JDBC URL/user, and the forwarded separate key. This is configuration evidence,
+not an application-level restore test.
+
+## P0-2 task/report identity and delegation repair
+
+Implemented in the working tree on September 15:
+
+- Every normal and recovery dispatch supplies explicit `taskId` and
+  `runtimeGeneration`. `report_task` requires them; it cannot infer them from
+  whatever task became active later. Local generation zero remains supported;
+  remote generation zero is rejected.
+- `block_task` uses the same identity and assignment/project/state checks.
+  RESULT, REVIEW_RESULT, and BLOCKER messages no longer implicitly mutate task
+  reports/status. Existing history is unchanged.
+- Rejections carry stable error codes, original/current task references where
+  available, and reconciliation instructions. Stale identity details also appear
+  in model-visible tool text, not only top-level response metadata.
+- Ordinary task creation for OPS returns `OPERATIONS_HANDOFF_REQUIRED` with a
+  dedicated handoff action. Operational REQUEST/HANDOFF delivery no longer
+  incorrectly requires an ordinary runnable task. REVIEW_REQUEST still does;
+  non-operational agents still cannot request protected operations.
+- Dependency reconciliation retains the waiting prerequisite reference, clearing
+  it when satisfied. The task UI uses the server's dependency/next-action text
+  instead of replacing it with generic labels.
+- The supported sequence and runtime-schema rollout caveat are documented in
+  [architecture.md](architecture.md#task-delegation-and-report-identity).
+
+Evidence: `TaskReportIdentityTest`, `TaskReportToolTest`,
+`TaskDispatchRuntimeContractTest`, `TaskWorkflowGateTest`, and
+`TaskDependencyServiceTest`. Coverage includes late result/blocker, absent active
+task, wrong generation, invalid identity types, wrong project/agent, non-runnable
+states, explicit tool schemas, message non-mutation, dependency references, and
+durable task creation for idle/busy recipients without changing their ownership.
+
+Focused suite: 37 tests passed at 14:13:49 UTC. After adding schema/creation and
+model-visible-error checks, full `mvn -B -ntp test` passed at 14:21:42 UTC:
+**142 tests, zero failures/errors, one skipped**. Flyway executed all eight
+migrations in newly created `audit_report_migration`, loopback port 55441.
+The skip is the proxy-only idle test, separately verified earlier; it is not a
+migration skip. No production database was used.
+The disposable migration container/database was removed after verification.
+The updated UI passed clean `npm ci`, `npm test`, and `npm run build` in Node 24
+Alpine container storage. These checks do not substitute for a browser journey.
+
+Limits: this does not close P0-2. Complete reason-specific recovery actions,
+browser journeys, pending-approval retry safety, concurrent transitions, and
+same-task retry evidence invalidation still need verification/repair. P0-1's
+prose-based completion gates remain unfixed; these identity checks are not
+artifact/deployment verification.
+
+## P0-3 stream authentication and stale-state repair
+
+`StreamSecurityIntegrationTest` uses real Tomcat 11.0.24, Spring MVC SSE,
+the production `SecurityConfig` and `AdminBearerAuthenticationFilter`, and
+test-only stream producers at both production route paths. No database or real
+agents are involved in this lifecycle fixture.
+
+- Before the filter fix, normal SSE completion failed authenticated async
+  redispatch with `Unable to handle the Spring Security Exception because the
+  response is already committed.` Reproduced September 15 at 09:38 UTC.
+- The bearer filter now authenticates ASYNC and ERROR dispatches. API role
+  requirements and signed-machine route rules were not relaxed.
+- Nginx applies the same unbuffered, uncached, one-hour read timeout to both
+  exact stream paths.
+- `sh tests/stream-proxy.sh agenticform-web:audit-33` passed at 09:44:53 UTC:
+  3 tests, zero failures/errors/skips. Both routes rejected missing/invalid
+  tokens (four HTTP 401s). Completion, timeout, handled stream error, client
+  disconnect, and subsequent connections passed. Both streams delivered a
+  second event after 65 seconds with no intervening data, beyond the former
+  generic proxy idle timeout. No committed-response security exception occurred.
+- Expected Spring timeout warnings remain visible; exceptions were not hidden.
+- Proxy image built from the edited web sources as of the 09:44 UTC check:
+  `sha256:1cb588bf154773ea31e617c7bfdbe071043f368bbe309e670b84079af0d3859d`
+  (local image, not a published matched release).
+- CI now runs this same proxy fixture. Its test containers/network were removed
+  after completion; only disposable test state was discarded.
+
+The UI combines both stream states; one healthy stream cannot overwrite another's
+authentication/disconnect failure. Reconnect schedules a full authoritative
+snapshot refresh. A failed snapshot cannot display CONNECTED. Non-connected
+status explicitly labels potentially stale data through an accessible status
+region. `npm test` passes the combined-state negative/positive checks.
+
+Limits: the fixture validates the servlet/security/proxy lifecycle, not actual
+task/message/approval/node snapshot recovery, browser network toggling, or a
+production release. Those broader acceptance gates remain open.
+
+## P1-2 clean builds and regression evidence
+
+Node 24.21.0 / npm 11.19.0 initially reproduced `npm ci` EUSAGE with missing
+platform-specific entries. Regenerated the lockfile without installed modules;
+50 missing entries were added. An assertion compared every existing package
+version with the baseline lockfile: **no existing locked versions changed**.
+
+CI and `web/Dockerfile` now use `npm ci`. The image copies explicit source/config
+paths, preventing host `node_modules` or nested `web/web/` from replacing the
+clean dependency installation. No new package dependency was introduced.
+
+Verified in fresh Node 24 Alpine container storage:
+
+```bash
+npm ci --no-audit --no-fund
+npm test
+npm run build
+```
+
+All passed: one recovery-state test, TypeScript check, Vite production bundle.
+The web Docker build also passed using the repaired lockfile plus working-tree
+source. npm reports an esbuild install-script policy warning; the build passed
+without broadening script permissions.
+
+Full server `mvn -B -ntp test` passed at 09:45:05 UTC: **125 tests, zero failures
+or errors, one skipped**. All eight Flyway migrations executed against newly
+created `audit_migration` on loopback port 55440; the production database was not
+used. The skipped test is the 65-second proxy-only check, which passed separately
+above, not the migration test. This run preceded the additional ASYNC/ERROR
+token-matrix unit test. The subsequent
+`mvn -B -ntp -Dtest=AdminBearerAuthenticationFilterTest test` passed at 09:46:49
+UTC: four tests, zero failures/errors/skips, including valid, invalid, and absent
+tokens during both redispatch types. The disposable migration database/container
+was removed after the full suite; no production data was removed.
+
+## Completion rule
+
+All seven rows remain open until their full acceptance requirements have direct
+evidence. Unit tests do not establish deployment, browser usability, restore,
+standing authorization, or fault recovery. No published release, PR, deployment,
+or Alpha completion is claimed by this document.
+
+## P0-1 deliverable contract and delivery gate
+
+Implemented on branch fix/product-reliability-audit (uncommitted working tree):
+
+- Migration V9__task_deliverable_evidence.sql persists deliverable type,
+  required review/architecture/deployment flags, target environment, evidence
+  JSON, delivery stage, revision, artifact digest, operation-run ID, verification
+  time, and health evidence. Historical tasks retain status/prose; nothing was
+  silently re-verified.
+- TaskEvidence checks structured outcome, artifact reference/revision, and
+  validation status. Completion no longer uses words like fail, blocker, or
+  implemented as proof. General/analysis tasks need no invented code artifact;
+  documentation needs a document plus passed check; implementation needs a
+  revisioned commit/PR plus passed validation.
+- Root application tasks default to verified deployment. Missing target config,
+  missing operation verification, missing revision, or missing health evidence
+  returns a stable blocker and leaves the task incomplete. Rollback or inspection
+  cannot satisfy the gate.
+- A successful deployment/release runbook marks the root delivered only when all
+  steps succeed, a check/assert step has evidence, and target environment plus
+  exact revision are present. Run ID and health evidence persist on the task.
+- Creation API/tool accepts explicit deliverable and gate settings; deployment
+  obligation applies only to workflow roots.
+
+Verification: focused 34-test and 26-test runs passed before final gates; full
+mvn -B -ntp test passed at 17:02 UTC with 150 tests, zero failures/errors, one
+skipped (the proxy-only idle test, which passed through the shipped proxy at
+09:44 UTC). Disposable PostgreSQL audit_p1_migration on loopback 55442 recorded
+Flyway versions 1-9 including 9 task deliverable evidence. Database and container
+are disposable; not production state.
+
+Remaining P0-1/P0-6 gates: real runbook registration, exact target, artifact
+digest, post-deployment health/smoke transcript, browser journey, and release
+digest must be exercised together. No deployment is claimed here.
+
+## P0-4 recovery boundaries and bounded signaling
+
+- Auto-recovery emits exactly one AGENT_RUNTIME_RECOVERED info signal per
+generation under the existing signal/incident correlation (fingerprinted, so
+repeated transport failures converge instead of spawning unbounded episodes).
+Existing EXECUTION_NODE_LOST correlation is unchanged and remains the failure
+episode.
+- New regression recoveryResetsAmbiguousActiveTaskInsteadOfReplay in
+AgentRuntimeRecoveryServiceTest proves a RUNNING task on a lost runtime is reset
+to BLOCKED with null submission/turn, a recovery reference, and preserved durable
+identity.
+- Existing invariants re-verified by the suite: pending approval blocks movement,
+generation increments on new assignment, stale runtime completions are rejected,
+duplicate completion conflicts fail closed, IDLE heartbeat reconciles stale
+tasks, node ledger refuses ambiguous STARTED replay, and generation regression
+is rejected.
+
+Evidence: focused recovery run passed (16 tests, zero failures); final full suite
+151 tests, zero failures/errors, one skipped (proxy-only idle test; the proxy
+path itself passed at 09:44 UTC). Go daemon checks go test ./... and go vet ./...
+passed in golang:1.24-bookworm (ALL_PASS).
+
+Limits: restart and interruption coverage remains unit-fixture level; a full
+disposable-environment fault injection run (control-plane restart mid-poll, node
+restart idle and mid-turn, connectivity interruption, permanent node loss) with
+deployed proxy timeouts is still required before the P0-4 row can close.
+
+## P0-6 authorization surfaces retained and delivery gate binding
+
+- Production deploy, production DML, persistent-data deletion, and user input
+still seed REQUIRE_HUMAN; global wildcard ALLOW remains only the fallback. The
+deterministic engine orders task > agent > project > global, exact action over
+wildcard, exact environment over wildcard, with fail-closed on missing rules.
+- One-shot preauthorization remains scoped to agent+task+action+environment with
+exact effect digest and 5-minute TTL. Tests cover single-use, scope mismatches,
+and wildcard-environment behavior.
+- The runbook delivery gate added under P0-1 (root marked DELIVERED only after
+successful deploy/release runbook with all-step evidence, target environment,
+exact revision) binds routine authorized deployment into the new deliverable
+contract. Destructive steps still require REQUIRE_HUMAN per seed policy; the
+executor refuses ambiguous STARTED replay.
+- No standing silent migration: existing installations keep their effective
+policy matrix; no new auto-ALLOW path was introduced.
+
+Evidence: DeterministicPolicyEngineTest (5 tests),
+PolicyPreauthorizationServiceTest (3 tests), HumanApprovalPolicyTest (10 tests)
+passed in the full 151-test run. Remaining P0-6 gates: end-to-end disposable
+operations journey with wrong-SHA/duplicate-webhook negatives, changed-scope
+revocation, and smoke-transcript evidence must be exercised before closing.
+
+## P0-6 operations delivery binding update
+
+- request_operation now binds the operation run to the workflow-root
+delivery task via TaskDispatchService.resolveDeliverableRoot: only a same-project
+root application task is eligible; children, analysis tasks, and unrelated tasks
+return null so a non-delivery operation never binds to an unrelated task. An
+explicit taskId argument is honored, else the operational agent's active task.
+- New test deliverableRootResolutionRejectsChildrenAndNonApplicationTasks covers
+root acceptance, child rejection, non-application rejection, cross-project
+rejection, and active-task fallback.
+
+Final verification after all P0 changes: mvn -B -ntp test at 18:19 UTC passed with
+152 tests, zero failures/errors, one skipped (proxy-only idle test). Go daemon
+go test ./... and go vet ./... pass; web npm ci, npm test, and npm run build pass.
