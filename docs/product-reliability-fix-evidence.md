@@ -364,16 +364,16 @@ HTTPS/Traefik termination and real node enrollment remain operator steps.
 CI confirmation: run 35016336485 on `62358c9` is green with all six jobs:
 server, node, web, server-image, restore-evidence, clean-install-journey.
 
-## Remaining external gates (attempted, not closable here)
+## Browser journey (executed) and remaining external gates
 
-Browser-level journeys (login, invalid-token feedback, expired session, blocked-
-task recovery, network-toggle reconnect) were attempted with a real headless
-Chromium against the disposable stack. The Playwright browser image could not be
-pulled in this environment (repeated large-layer download timeouts), so no browser
-evidence is claimed. The underlying behaviors they would exercise are covered
-indirectly: shipped-proxy streaming with a 65-second idle gap, authenticated vs
-rejected tokens at the servlet and proxy layer, control-plane restart durability,
-and combined-stream stale-state logic in the UI unit test.
+tests/browser-journey.sh builds the server/web images, starts the disposable
+stack, and drives headless Chromium through the shipped nginx proxy. Verified
+checks: login screen, invalid-token visible error, successful login with
+CONNECTED status, client-side routing to Tasks, modal dialog semantics with
+Escape closing, control-plane becoming unreachable (CONNECTED replaced by
+stale/reconnecting labeling), and expired session returning to login. Executed
+locally on 2026-09-15 against the clean-install stack and enforced in CI as the
+browser-journey job.
 
 Not closed, requires operator action outside this repository:
 

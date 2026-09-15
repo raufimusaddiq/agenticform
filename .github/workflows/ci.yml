@@ -114,3 +114,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build images and run the clean-install journey
         run: sh tests/clean-install-journey.sh
+
+  browser-journey:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Drive the UI in headless Chromium against a clean install
+        run: sh tests/browser-journey.sh
