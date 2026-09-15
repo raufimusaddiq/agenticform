@@ -14,13 +14,13 @@ deployment-delivery clarification.
 
 | Requirement | Current evidence | Remaining gate |
 | --- | --- | --- |
-| P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; end-to-end delivery journey + 154-test suite green | Published-release deployment to a real target (operator action) |
+| P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; end-to-end delivery journey + 156-test suite green | Published-release deployment to a real target (operator action) |
 | P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; browser journey drives routing/modals/stale-state live | None in-repo |
 | P0-3 authenticated streams | Async lifecycle fixed; shipped-proxy matrix, CI, and browser journey (invalid token, stale-state labeling) pass | None in-repo |
 | P0-4 transport recovery | Ambiguous-task reset, bounded signaling, restart persistence, and a real node-loss journey (enroll→ONLINE→kill→OFFLINE→EXECUTION_NODE_LOST incident→agent DISCONNECTED), CI job `node-loss-journey` | None in-repo; mid-turn variants require a live Codex runtime |
 | P0-5 installation/credentials | DB-only dev path, consistent DB config, separate-key forwarding, credential tests, and a real pg_dump/pg_restore verification (CI job `restore-evidence`) | Matched published-release install on a clean host (operator action) |
 | P0-6 bounded operational delivery | Root delivery requires verified operation evidence; disposable end-to-end runbook journey, wrong-SHA webhook negative, duplicate-dispatch ambiguity fail-closed, invalid-signature rejection, and duplicate-delivery idempotency all pass | Real production runbook registration/authorization rollout (operator action) |
-| P1-2 release evidence | Clean lockfile, UI build/test, 154-test server suite, Go checks, and 4 CI journey jobs (restore, clean-install, browser, node-loss) green | Matched published release digests, operator transcripts |
+| P1-2 release evidence | Clean lockfile, UI build/test, 156-test server suite, Go checks, and 4 CI journey jobs (restore, clean-install, browser, node-loss) green | Matched published release digests, operator transcripts |
 
 ## P0-5 local verification
 
@@ -414,7 +414,7 @@ evidence table marks closed has direct command/test evidence above; the table's
 `sh tests/verify-audit-evidence.sh` re-runs the source-level evidence in one
 command (server tests + migrations on a disposable database, Go test/vet, web
 ci/test/build) and prints a pass/fail summary. Last local run 2026-09-15
-21:54 UTC: all three steps PASS, 154 tests. CI-verified on `c33a883`
+21:54 UTC: all three steps PASS, 156 tests. CI-verified on `c33a883`
 (run 35028371564, all 8 jobs green including all four journeys). The four journey scripts (clean
 install, browser, node loss, restore) provide the end-to-end layer and run as
 CI jobs on every push.
