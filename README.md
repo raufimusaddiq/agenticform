@@ -177,6 +177,7 @@ https://github.com/owner/repository.git
 
 ## Design documents
 
+- [Product reliability audit and repair plan (September 15, 2026)](docs/product-reliability-audit.md)
 - [Initial architecture](docs/architecture.md)
 - [Codex queue orchestration](docs/codex-queue.md)
 - [Operational contracts](docs/operations.md)
