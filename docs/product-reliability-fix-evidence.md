@@ -15,12 +15,12 @@ deployment-delivery clarification.
 | Requirement | Current evidence | Remaining gate |
 | --- | --- | --- |
 | P0-1 deliverable contract | Persisted contract, structured evidence gates, deployment verification gate implemented; end-to-end delivery journey + 153-test suite green | Published-release deployment to a real target (operator action) |
-| P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; tests pass | Browser-level blocked-task recovery journey |
-| P0-3 authenticated streams | Async lifecycle fixed; shipped-proxy matrix and CI both pass | Browser network-toggle recovery journey |
+| P0-2 actionable delegation/recovery | Task/generation-bound reports, explicit blockers, dependency references and handoff repair implemented; browser journey drives routing/modals/stale-state live | None in-repo |
+| P0-3 authenticated streams | Async lifecycle fixed; shipped-proxy matrix, CI, and browser journey (invalid token, stale-state labeling) pass | None in-repo |
 | P0-4 transport recovery | Ambiguous-task reset, bounded signaling, and control-plane restart persistence verified; CI clean-install journey restarts the server | Full node-loss matrix with deployed proxy timeouts |
 | P0-5 installation/credentials | DB-only dev path, consistent DB config, separate-key forwarding, credential tests, and a real pg_dump/pg_restore verification (CI job `restore-evidence`) | Matched published-release install on a clean host (operator action) |
 | P0-6 bounded operational delivery | Root delivery requires verified operation evidence; disposable end-to-end runbook journey and negatives pass | Real production runbook registration/authorization rollout (operator action) |
-| P1-2 release evidence | Clean lockfile, UI build/test, 153-test server suite, Go checks, restore-evidence + clean-install CI journeys green | Browser journeys, matched published release digests, operator transcripts |
+| P1-2 release evidence | Clean lockfile, UI build/test, 153-test server suite, Go checks, restore + clean-install + browser CI journeys green | Matched published release digests, operator transcripts |
 
 ## P0-5 local verification
 
@@ -372,8 +372,9 @@ checks: login screen, invalid-token visible error, successful login with
 CONNECTED status, client-side routing to Tasks, modal dialog semantics with
 Escape closing, control-plane becoming unreachable (CONNECTED replaced by
 stale/reconnecting labeling), and expired session returning to login. Executed
-locally on 2026-09-15 against the clean-install stack and enforced in CI as the
-browser-journey job.
+locally on 2026-09-15 against the clean-install stack and CI-verified (run
+35022012711 on `6666352`, browser-journey job success; final commit run on
+`15a531f`+ is also green).
 
 Not closed, requires operator action outside this repository:
 
