@@ -13,6 +13,10 @@ secret_key=journey-separate-encryption-key-32chars
 project_root=$(mktemp -d)
 
 cleanup() {
+  if [ "${AGENTICFORM_JOURNEY_KEEP:-0}" = "1" ]; then
+    echo "keeping stack: web=$scope-web server=$scope-server postgres=$scope-postgres port=$port"
+    return
+  fi
   docker rm -f "$scope-web" "$scope-server" "$scope-postgres" >/dev/null 2>&1 || true
   docker network rm "$scope" >/dev/null 2>&1 || true
   docker volume rm "$scope-db" "$scope-worktrees" >/dev/null 2>&1 || true

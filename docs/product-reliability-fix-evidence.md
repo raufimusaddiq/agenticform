@@ -363,3 +363,27 @@ HTTPS/Traefik termination and real node enrollment remain operator steps.
 
 CI confirmation: run 35016336485 on `62358c9` is green with all six jobs:
 server, node, web, server-image, restore-evidence, clean-install-journey.
+
+## Remaining external gates (attempted, not closable here)
+
+Browser-level journeys (login, invalid-token feedback, expired session, blocked-
+task recovery, network-toggle reconnect) were attempted with a real headless
+Chromium against the disposable stack. The Playwright browser image could not be
+pulled in this environment (repeated large-layer download timeouts), so no browser
+evidence is claimed. The underlying behaviors they would exercise are covered
+indirectly: shipped-proxy streaming with a 65-second idle gap, authenticated vs
+rejected tokens at the servlet and proxy layer, control-plane restart durability,
+and combined-stream stale-state logic in the UI unit test.
+
+Not closed, requires operator action outside this repository:
+
+- Published-release install on a clean host with an immutable node digest and
+  HTTPS/Traefik termination.
+- A real end-to-end deployment to a configured target, with post-deployment
+  smoke transcript and artifact digest recorded on the root task.
+- Full node-loss fault-injection matrix (node restart mid-turn, connectivity
+  interruption, permanent node loss) against deployed proxy timeouts.
+- Browser journeys and the release evidence record with matched digests.
+
+`tests/clean-install-journey.sh` supports `AGENTICFORM_JOURNEY_KEEP=1` to leave the
+stack running for exactly that kind of manual/browser verification.
