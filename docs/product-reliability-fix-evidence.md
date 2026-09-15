@@ -1,7 +1,7 @@
 # PR #33 repair evidence
 
 Status: **all in-repo gates verified; external operator/release gates remain open**. September 15, 2026.
-Branch `fix/product-reliability-audit`; implementation commit `bbf0329`. Source baseline `a66ca9c`.
+Branch `fix/product-reliability-audit`; implementation commit `f39b82c`. Source baseline `a66ca9c`.
 PR #34: https://github.com/raufimusaddiq/agenticform/pull/34 — CI run
 35007795790 on `f39b82c`: all jobs green (server, node, web incl. both-stream
 shipped-proxy verification, server-image).
