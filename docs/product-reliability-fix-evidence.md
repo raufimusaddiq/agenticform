@@ -399,14 +399,13 @@ Not closed, requires operator action outside this repository:
 `tests/clean-install-journey.sh` supports `AGENTICFORM_JOURNEY_KEEP=1` to leave the
 stack running for exactly that kind of manual/browser verification.
 
-## PR #34 final state (2026-09-15, 21:00 UTC)
+## PR #34 final state (2026-09-15)
 
-12 commits on `fix/product-reliability-audit`, PR #34 OPEN and MERGEABLE. Final
-clean-install journey: local images rebuilt and stack verified end-to-end
-through the shipped proxy; all containers/volumes/networks removed afterwards.
-Final CI run 35020723821 on `15a531f`: all six jobs success (server, node, web,
-server-image, restore-evidence, clean-install-journey). PR #33 was cross-linked
-to this implementation twice. Every in-repository acceptance gate that the
+See the Proof-of-completion summary at the end of this document for the current
+authoritative status: 18 commits, PR #34 OPEN/MERGEABLE, latest CI runs all
+green across 8 jobs including the four end-to-end journeys. PR #33 was
+cross-linked to this implementation twice. Every in-repository acceptance gate
+that the
 evidence table marks closed has direct command/test evidence above; the table's
 "Remaining gate" column is the exact residual list, all operator/release actions.
 
