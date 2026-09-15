@@ -409,3 +409,12 @@ server-image, restore-evidence, clean-install-journey). PR #33 was cross-linked
 to this implementation twice. Every in-repository acceptance gate that the
 evidence table marks closed has direct command/test evidence above; the table's
 "Remaining gate" column is the exact residual list, all operator/release actions.
+
+## Evidence re-verification
+
+`sh tests/verify-audit-evidence.sh` re-runs the source-level evidence in one
+command (server tests + migrations on a disposable database, Go test/vet, web
+ci/test/build) and prints a pass/fail summary. Last local run 2026-09-15
+21:54 UTC: all three steps PASS, 154 tests. The four journey scripts (clean
+install, browser, node loss, restore) provide the end-to-end layer and run as
+CI jobs on every push.
