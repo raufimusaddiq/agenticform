@@ -500,7 +500,7 @@ actions.
 | Release gate | Evidence | Status |
 | --- | --- | --- |
 | All four journeys reach their requested terminal gate | Delivery journey (implement→review→deploy→DELIVERED), analysis/docs-only completions, UI journeys | CLOSED in-repo; real-target run is the operator gate under P0-1 |
-| Application changes deployed and verified in the configured target | Root DELIVERED only after runbook revision assert + health probe; revision/environment/run-ID persisted; wrong-revision run refused | CLOSED in-repo; real target pending operator |
+| Application changes deployed and verified in the configured target | Root DELIVERED only via `TaskEntity.recordVerifiedDelivery` after a runbook revision assert + health probe; revision/environment/run-ID persisted; wrong-revision run refused | CLOSED in-repo; real target pending operator |
 | Routine authorized deployments need no repeated human approval | Staging path runs QUEUED without approval when policy allows; approval path covered by policy tests; production still REQUIRE_HUMAN by seed | CLOSED in-repo |
 | Destructive or out-of-scope effects remain separately gated | DELETE_DATA/PRODUCTION_DML seed gates, policy matcher ordering, wrong-SHA negative, wildcard-evasion fix | CLOSED in-repo |
 | Zero unintended writes for read-only/docs-only scopes | `ReadOnlyScopeIsolationTest`: read-only sandbox per non-WRITE profile, WRITE refused, implementation deliverable rejected for non-writers | CLOSED in-repo |
