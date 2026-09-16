@@ -123,6 +123,17 @@ AGENTICFORM_NODE_IMAGE=ghcr.io/raufimusaddiq/agenticform-node@sha256:<published 
 
 Remote control planes fail closed if HTTPS, admin authentication, or immutable node-image requirements are not satisfied.
 
+Optional production Compose tuning (defaults in parentheses):
+
+```bash
+AGENTICFORM_SERVER_MEMORY=<container memory limit, e.g. 2g>   # default 1g
+AGENTICFORM_JAVA_TOOL_OPTIONS=<JVM flags>                     # default -XX:MaxRAMPercentage=70.0
+```
+
+Set `AGENTICFORM_SERVER_MEMORY` to the memory the host can dedicate to the
+control plane; the JVM heap percentage is applied relative to it. These are only
+needed when the defaults do not match host capacity.
+
 See [Distributed Agent Fabric](docs/distributed-agent-fabric.md) for enrollment, trust, replay protection, runtime isolation, revocation, and compromise-containment details.
 
 ## Distributed runtime recovery
