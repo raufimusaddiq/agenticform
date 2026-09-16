@@ -119,10 +119,22 @@ VALUES ('$agent_id', '$project_id', 'Fixture Agent', 'fixture', 'CODEX', 'ISOLAT
   'ON_THE_LOOP', 'GENERAL', FALSE, 'IMPLEMENTER', '$node_id', 1, NOW(), NOW());" >/dev/null   || fail 'failed to seed project/agent fixture'
 echo 'seeded project + agent bound to node'
 
-sleep 5
+# Seed a BLOCKED task for the agent so the UI/API journey has a durable
+# blocked-state fixture with a stated recovery reason.
+task_id=$(python3 -c 'import uuid;print(uuid.uuid4())')
+docker exec "$scope-postgres" psql -U agenticform -d agenticform -v ON_ERROR_STOP=1 -q -c "
+INSERT INTO tasks (id, project_id, assigned_agent_id, title, prompt, status, priority, kind,
+  workflow_id, review_required, architecture_required, deployment_required, deliverable, delivery_stage,
+  last_error, created_at, updated_at)
+VALUES ('$task_id', '$project_id', '$agent_id', 'Blocked fixture task', 'fixture prompt', 'BLOCKED', 0,
+  'GENERAL', '$task_id', FALSE, FALSE, FALSE, 'GENERAL', 'NOT_STARTED',
+  'Fixture blocker: waiting for operator decision', NOW(), NOW());" >/dev/null \
+  || fail 'failed to seed blocked task fixture'
 
 # Sanity: the agent must be visible and marked as belonging to the node.
 curl -fsS -H "$auth" "$api/agents?projectId=$project_id" | grep -q 'Fixture Agent' || fail 'seeded agent not visible'
+
+echo 'blocked task fixture present'
 
 echo '== kill node daemon =='
 docker rm -f "$scope-node-daemon" >/dev/null
@@ -157,5 +169,11 @@ echo 'EXECUTION_NODE_LOST incident correlated'
 curl -fsS -H "$auth" "$api/agents?projectId=$project_id" | grep -q 'DISCONNECTED' \
   || fail 'agent on the lost node was not marked DISCONNECTED'
 echo 'agent on lost node marked DISCONNECTED'
+
+curl -fsS -H "$auth" "$api/tasks?projectId=$project_id" | grep -q 'Blocked fixture task' \
+  || fail 'blocked fixture task not visible'
+curl -fsS -H "$auth" "$api/tasks?projectId=$project_id" | grep -q 'waiting for operator decision' \
+  || fail 'blocked task lost its stated recovery reason'
+echo 'blocked task retained its recovery reason'
 
 echo 'NODE LOSS JOURNEY VERIFIED'

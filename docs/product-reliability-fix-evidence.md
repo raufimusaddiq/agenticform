@@ -417,8 +417,12 @@ CI-enforced: a real Go node daemon enrolls against the disposable server, comes
 ONLINE, a project+agent fixture is bound to it, the daemon is killed, and the
 journey asserts the node goes OFFLINE, `EXECUTION_NODE_OFFLINE_ACTIVE` is
 recorded, the `EXECUTION_NODE_LOST` incident is correlated, and the bound agent
-is fenced to DISCONNECTED. Executed locally 2026-09-15 and CI-verified (run 35027295624 on `f07b5dc`,
-`node-loss-journey` job success; all 8 CI jobs green).
+is fenced to DISCONNECTED. A seeded BLOCKED task fixture with a stated recovery
+reason is verified to survive the node loss with its reason intact, so the UI/API
+always shows a recovery action rather than a bare failure. Executed locally
+2026-09-15/16 and CI-verified (run 35027295624 on `f07b5dc`, `node-loss-journey` job
+success; all 8 CI jobs green). Re-run after the fixture addition on 2026-09-16:
+PASS.
 
 Not closed, requires operator action outside this repository:
 
