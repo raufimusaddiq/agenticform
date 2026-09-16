@@ -593,3 +593,20 @@ empty-database test could catch:
 This is direct evidence for the audit's release gate: the release install path is
 what surfaced the defect, and the fix is now covered by a regression test that
 reproduces the real upgrade shape.
+
+## v0.1.1 deployed and verified on the live self-hosted stack (2026-09-16)
+
+- Fix merged via PR #35 (08c24c9); release workflow published all three images;
+  digests recorded: server `bde3eeca...`, web `d8a26b28...`, node `6a3923c9...`
+  (v0.1.1 tags).
+- Live stack `agentic.investdx.biz.id` upgraded to pinned `v0.1.1` digests.
+- Flyway V9 applied successfully on the production database: schema history shows
+  `9|t`; all 31 pre-existing tasks backfilled with deliverable, deployment flag
+  and delivery stage (REVIEW→REVIEW, ARCHITECTURE→ANALYSIS, etc.); no rows lost
+  (26 COMPLETED / 4 BLOCKED / 1 FAILED preserved).
+- Post-upgrade verification: server healthy, UI HTTP 200 over HTTPS,
+  `/api/tasks` returns the new contract fields, `AGENTICFORM_VERSION=v0.1.1`.
+
+This closes the P0-1/P0-5/P1-2 operator gates: published release, matched digests,
+verified deployment of a real upgrade to a real target, and operator transcript
+(this section plus the commands above).
