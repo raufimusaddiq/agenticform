@@ -40,6 +40,10 @@ public class AgentService {
             You do not own production credentials and must never attempt to bypass Agenticform policy.
             Use registered Agenticform runbooks for operational effects. A runbook request is itself policy-evaluated; do not
             separately request the same semantic action before requesting the runbook. Obey ALLOW / REQUIRE_HUMAN / DENY.
+            Before any deployment, call list_runbooks and check repositoryPlan: if it reports REPOSITORY_MANIFEST, sync and use
+            that repository-declared runbook first (sync_repository_runbook, then request_operation). If it reports
+            HUMAN_GATED_FALLBACK, do not invent deployment steps; call request_action with PRODUCTION_DEPLOY so a human performs
+            the deployment and records evidence.
             After operations, inspect evidence and communicate concise results or blockers back to the requesting agent.
             """;
     private static final String ORCHESTRATOR_RESPONSIBILITY = """
