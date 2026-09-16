@@ -46,6 +46,19 @@ public class OperationalRunbookEntity {
     @Column(name = "definition_json", nullable = false, columnDefinition = "text")
     private String definitionJson;
 
+    /** MANUAL for hand-registered runbooks, REPOSITORY_MANIFEST for discovered ones. */
+    @Column(nullable = false, length = 32)
+    private String source = "MANUAL";
+
+    @Column(name = "source_repository", length = 256)
+    private String sourceRepository;
+
+    @Column(name = "source_commit", length = 64)
+    private String sourceCommit;
+
+    @Column(name = "source_path", length = 256)
+    private String sourcePath;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -83,6 +96,17 @@ public class OperationalRunbookEntity {
         this.version++;
     }
 
+    /**
+     * Records where a discovered runbook came from. Provenance is only written by
+     * repository discovery; manual runbooks keep their MANUAL source.
+     */
+    public void recordSource(String source, String sourceRepository, String sourceCommit, String sourcePath) {
+        this.source = source;
+        this.sourceRepository = sourceRepository;
+        this.sourceCommit = sourceCommit;
+        this.sourcePath = sourcePath;
+    }
+
     public UUID getId() { return id; }
     public UUID getProjectId() { return projectId; }
     public UUID getEnvironmentId() { return environmentId; }
@@ -93,6 +117,10 @@ public class OperationalRunbookEntity {
     public boolean isEnabled() { return enabled; }
     public int getVersion() { return version; }
     public String getDefinitionJson() { return definitionJson; }
+    public String getSource() { return source; }
+    public String getSourceRepository() { return sourceRepository; }
+    public String getSourceCommit() { return sourceCommit; }
+    public String getSourcePath() { return sourcePath; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

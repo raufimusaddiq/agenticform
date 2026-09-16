@@ -22,10 +22,32 @@ import java.util.UUID;
 public class OperationController {
     private final OperationalRegistryService registry;
     private final OperationRunService runs;
+    private final RepositoryRunbookDiscovery discovery;
 
-    public OperationController(OperationalRegistryService registry, OperationRunService runs) {
+    public OperationController(OperationalRegistryService registry, OperationRunService runs,
+                               RepositoryRunbookDiscovery discovery) {
         this.registry = registry;
         this.runs = runs;
+        this.discovery = discovery;
+    }
+
+    /** Resolves the repository-owned runbook without registering anything. */
+    @GetMapping("/runbooks/plan")
+    public RepositoryRunbookDiscovery.Plan runbookPlan(@RequestParam UUID projectId,
+                                                       @RequestParam(required = false) String environmentKey) {
+        return discovery.plan(projectId, environmentKey);
+    }
+
+    /**
+     * Registers the repository-owned runbook when the repository declares one, and
+     * reports the standard human-gated fallback when it does not. Registration never
+     * executes anything: runs still start through {@code POST /runbooks/{id}/runs}
+     * and evaluate deterministic policy.
+     */
+    @PostMapping("/runbooks/sync")
+    public RepositoryRunbookDiscovery.Plan syncRunbook(@RequestParam UUID projectId,
+                                                       @RequestParam(required = false) String environmentKey) {
+        return discovery.sync(projectId, environmentKey);
     }
 
     @GetMapping("/environments")
@@ -112,6 +134,7 @@ public class OperationController {
                 runbook.getId(), runbook.getProjectId(), runbook.getEnvironmentId(), environment.getKey(),
                 runbook.getKey(), runbook.getName(), runbook.getAction(), runbook.getDescription(),
                 runbook.isEnabled(), runbook.getVersion(), registry.decodeSteps(runbook.getDefinitionJson()),
+                runbook.getSource(), runbook.getSourceRepository(), runbook.getSourceCommit(), runbook.getSourcePath(),
                 runbook.getCreatedAt(), runbook.getUpdatedAt());
     }
 
@@ -190,6 +213,10 @@ public class OperationController {
             boolean enabled,
             int version,
             List<OperationalRegistryService.StepSpec> steps,
+            String source,
+            String sourceRepository,
+            String sourceCommit,
+            String sourcePath,
             java.time.Instant createdAt,
             java.time.Instant updatedAt
     ) {}

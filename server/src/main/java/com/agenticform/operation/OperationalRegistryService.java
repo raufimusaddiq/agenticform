@@ -114,6 +114,20 @@ public class OperationalRegistryService {
         return projectId == null ? runbookRepository.findAll() : runbookRepository.findAllByProjectIdOrderByKey(projectId);
     }
 
+    /** Repository discovery upserts through the same repository handle. */
+    public OperationalRunbookRepository runbookRepository() {
+        return runbookRepository;
+    }
+
+    /** Validates step shape with the same rules the registry API enforces. */
+    public void validateSteps(UUID projectId, UUID environmentId, List<StepSpec> steps) {
+        requireProject(projectId);
+        requireSameProject(projectId, environment(environmentId).getProjectId(), "environment");
+        if (steps == null || steps.isEmpty()) throw new IllegalArgumentException("Runbook requires at least one step");
+        int position = 0;
+        for (StepSpec step : steps) validateStep(projectId, environmentId, step, position++);
+    }
+
     public OperationalRunbookEntity createRunbook(UUID projectId, UUID environmentId, String key, String name,
                                                   String action, String description, List<StepSpec> steps) {
         requireProject(projectId);
