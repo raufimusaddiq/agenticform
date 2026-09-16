@@ -14,7 +14,7 @@ and exit gate in PR #33, including its deployment-delivery clarification.
 
 | Requirement | Current evidence | Remaining gate |
 | --- | --- | --- |
-| P0-1 deliverable contract | CLOSED (in-repo): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 170-test suite | Operator: publish a release and deploy to a real target with smoke transcript |
+| P0-1 deliverable contract | CLOSED (in-repo): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 171-test suite | Operator: publish a release and deploy to a real target with smoke transcript |
 | P0-2 actionable delegation/recovery | CLOSED (in-repo): task/generation-bound reports, explicit blockers, dependency references, handoff repair, browser journey, and UI dispatch disabled with a stated reason whenever status or an unresolved dependency makes retry unsafe | — |
 | P0-3 authenticated streams | CLOSED (in-repo): async auth fix, both SSE streams through shipped proxy, 65s idle, invalid-token negatives, stale-state UI | — |
 | P0-4 transport recovery | CLOSED (in-repo): ambiguous-task reset, bounded signaling, restart persistence, real node-loss journey (enroll→ONLINE→kill→OFFLINE→incident→agent DISCONNECTED, blocked task retains recovery reason) | — |
@@ -25,7 +25,7 @@ and exit gate in PR #33, including its deployment-delivery clarification.
 read-only sandbox and is refused the WRITE capability, and creation of an
 implementation-deliverable task for a non-writer profile is rejected. This closes
 the zero-unintended-writes release gate for read-only/docs-only scopes.
-| P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 170-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
+| P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 171-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
 
 ## P0-5 local verification
 
@@ -206,6 +206,13 @@ Implemented on branch fix/product-reliability-audit (uncommitted working tree):
   implemented as proof. General/analysis tasks need no invented code artifact;
   documentation needs a document plus passed check; implementation needs a
   revisioned commit/PR plus passed validation.
+- MERGED is now recorded too: a signed `pull_request` closed+merged webhook
+  advances the bound root application task to the MERGED milestone (`handleMerge`),
+  covered by `mergedPullRequestAdvancesRootToMergedStage`. Only the deployment
+  runbook records the deployed revision, so merge evidence never masquerades as
+  verified delivery. All seven UI-distinguishable milestones the audit names now
+  have a real signal: implementation finished, review passed, merged, artifact
+  published, deploying, deployment verified, delivered.
 - ARTIFACT_PUBLISHED is now recorded: a successful build/release/publish workflow
   webhook bound to an application-root run marks the task published, so the UI can
   separate "CI passed" from "artifact published". MERGED remains a stage the UI can
@@ -302,7 +309,7 @@ wildcard-evasion negatives), PolicyPreauthorizationServiceTest (3 tests),
 HumanApprovalPolicyTest (10 tests), ExternalWorkflowServiceTest (4 tests
 including wrong-SHA and duplicate-dispatch negatives), GitHubWebhookServiceTest
 (3 tests including invalid signature and duplicate delivery), and the disposable
-end-to-end runbook delivery journey. All pass in the current 170-test suite.
+end-to-end runbook delivery journey. All pass in the current 171-test suite.
 Remaining P0-6 gate: real production runbook registration and authorization
 rollout, which is an operator action outside this repository.
 
@@ -471,7 +478,7 @@ The full objective for PR #33 is evidenced as follows on `fix/product-reliabilit
 | Evidence layer | Artifact | Status |
 | --- | --- | --- |
 | Fix implementation | commit `f39b82c` (V9 contract, report identity, async auth, proxy, recovery, install, ops binding) + follow-ups through `59c1e10` (delivery milestones, wildcard-evasion fix, cleanup-safety tests) | landed |
-| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 170 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
+| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 171 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
 | Clean install | `tests/clean-install-journey.sh` | PASS, CI `clean-install-journey` |
 | Real browser | `tests/browser-journey.sh` (headless Chromium, 10 checks) | PASS, CI `browser-journey` |
 | Credential restore | `tests/credential-restore.sh` (pg_dump/pg_restore) | PASS, CI `restore-evidence` |

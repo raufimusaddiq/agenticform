@@ -22,15 +22,20 @@ step() {
 
 server_tests() {
   scope=agenticform-evidence-$$
-  docker run -d --name "$scope-db" -p 127.0.0.1:55495:5432 \
+  port=${AGENTICFORM_EVIDENCE_PORT:-55495}
+  docker rm -f "$scope-db" >/dev/null 2>&1 || true
+  docker run -d --name "$scope-db" -p "127.0.0.1:$port:5432" \
     -e POSTGRES_DB=evidence_db -e POSTGRES_USER=evidence -e POSTGRES_PASSWORD=evidence-disposable \
     postgres:17-alpine >/dev/null
-  for _ in $(seq 1 30); do
-    docker exec "$scope-db" pg_isready -U evidence -d evidence_db >/dev/null 2>&1 && break
+  # Readiness must be proven against the host port the test actually connects to;
+  # an in-container check can pass before port publishing is live.
+  for _ in $(seq 1 40); do
+    if docker run --rm --network host postgres:17-alpine \
+        pg_isready -h 127.0.0.1 -p "$port" -U evidence -d evidence_db >/dev/null 2>&1; then break; fi
     sleep 2
   done
   docker run --rm --network host -v "$(pwd)/server:/source:ro" -v agenticform-audit-maven-cache:/root/.m2 \
-    -e MIGRATION_TEST_DATABASE_URL=jdbc:postgresql://127.0.0.1:55495/evidence_db \
+    -e MIGRATION_TEST_DATABASE_URL="jdbc:postgresql://127.0.0.1:$port/evidence_db" \
     -e MIGRATION_TEST_DATABASE_USER=evidence -e MIGRATION_TEST_DATABASE_PASSWORD=evidence-disposable \
     maven:3.9-eclipse-temurin-21 sh -c 'cp -a /source /tmp/server && cd /tmp/server && mvn -B -ntp test'
   rc=$?
