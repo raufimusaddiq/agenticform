@@ -201,6 +201,11 @@ Implemented on branch fix/product-reliability-audit (uncommitted working tree):
   implemented as proof. General/analysis tasks need no invented code artifact;
   documentation needs a document plus passed check; implementation needs a
   revisioned commit/PR plus passed validation.
+- ARTIFACT_PUBLISHED is now recorded: a successful build/release/publish workflow
+  webhook bound to an application-root run marks the task published, so the UI can
+  separate "CI passed" from "artifact published". MERGED remains a stage the UI can
+  display; it is set only where an integration supplies a verified merge, and no
+  milestone is ever claimed without a signal.
 - Delivery milestones never regress: `TaskDeliveryStage.advanceTo` enforces forward
   movement, so a late signal cannot downgrade a task from DELIVERED back to
   DEPLOYING. Review-child completion records REVIEW_PASSED on the root, and an

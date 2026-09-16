@@ -22,8 +22,9 @@ class ExternalWorkflowServiceTest {
     private final OperationStepRunRepository steps = mock(OperationStepRunRepository.class);
     private final GitHubActionsGateway github = mock(GitHubActionsGateway.class);
     private final OperationEventService events = mock(OperationEventService.class);
+    private final com.agenticform.task.TaskRepository taskRepository = mock(com.agenticform.task.TaskRepository.class);
     private final ExternalWorkflowService service = new ExternalWorkflowService(
-            waits, runs, steps, github, events, new ObjectMapper());
+            waits, runs, steps, github, events, new ObjectMapper(), taskRepository);
 
     @Test
     void wrongShaWebhookDoesNotCorrelateToWaitingRun() {

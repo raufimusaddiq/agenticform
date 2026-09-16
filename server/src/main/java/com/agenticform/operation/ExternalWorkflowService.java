@@ -27,19 +27,22 @@ public class ExternalWorkflowService {
     private final GitHubActionsGateway gitHubActions;
     private final OperationEventService events;
     private final ObjectMapper mapper;
+    private final com.agenticform.task.TaskRepository taskRepository;
 
     public ExternalWorkflowService(OperationExternalWaitRepository waitRepository,
                                    OperationRunRepository runRepository,
                                    OperationStepRunRepository stepRepository,
                                    GitHubActionsGateway gitHubActions,
                                    OperationEventService events,
-                                   ObjectMapper mapper) {
+                                   ObjectMapper mapper,
+                                   com.agenticform.task.TaskRepository taskRepository) {
         this.waitRepository = waitRepository;
         this.runRepository = runRepository;
         this.stepRepository = stepRepository;
         this.gitHubActions = gitHubActions;
         this.events = events;
         this.mapper = mapper;
+        this.taskRepository = taskRepository;
     }
 
     public synchronized void begin(OperationRunEntity run, OperationStepRunEntity step, BeginRequest request) throws Exception {
@@ -93,6 +96,37 @@ public class ExternalWorkflowService {
         for (OperationExternalWaitEntity wait : candidates) {
             applyObserved(wait, webhook.runId(), webhook.status(), webhook.conclusion(), webhook.htmlUrl(),
                     webhook.headSha(), webhook.headBranch(), webhook.createdAt());
+        }
+        recordPublicationMilestone(webhook);
+    }
+
+    /**
+     * A successful workflow run whose action name marks it as a build/release
+     * records the ARTIFACT_PUBLISHED milestone on the bound root task, so the UI
+     * can distinguish "CI passed" from "artifact published" before deployment.
+     */
+    private void recordPublicationMilestone(WorkflowWebhook webhook) {
+        if (!"completed".equalsIgnoreCase(webhook.status())
+                || !"success".equalsIgnoreCase(webhook.conclusion())) return;
+        String path = webhook.workflowPath() == null ? "" : webhook.workflowPath();
+        String name = path.substring(path.lastIndexOf('/') + 1).toLowerCase(java.util.Locale.ROOT);
+        if (!name.contains("build") && !name.contains("release") && !name.contains("publish")) return;
+
+        List<OperationExternalWaitEntity> related = waitRepository
+                .findAllByStatusOrderByCreatedAtAsc(OperationExternalWaitEntity.Status.WAITING).stream()
+                .filter(wait -> wait.getRepository().equalsIgnoreCase(webhook.repository()))
+                .toList();
+        for (OperationExternalWaitEntity wait : related) {
+            if (wait.getOperationRunId() == null) continue;
+            runRepository.findById(wait.getOperationRunId())
+                    .map(OperationRunEntity::getRequestedTaskId)
+                    .flatMap(taskRepository::findById)
+                    .ifPresent(task -> {
+                        if (task.getParentTaskId() != null) return;
+                        if (task.getDeliverable() != com.agenticform.task.TaskDeliverable.IMPLEMENTATION) return;
+                        task.setDeliveryStage(com.agenticform.task.TaskDeliveryStage.ARTIFACT_PUBLISHED);
+                        taskRepository.save(task);
+                    });
         }
     }
 
