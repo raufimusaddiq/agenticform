@@ -8,6 +8,7 @@ import com.agenticform.runtime.AgentRuntimeRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -83,6 +84,25 @@ class TaskReportIdentityTest {
         }
         verify(agent, never()).setStatus(any());
         verify(agent, never()).setActiveTaskId(any());
+    }
+
+    @Test
+    void cancelledOrFailedChildrenCannotSatisfyImplementationGate() {
+        when(agent.getRole()).thenReturn(AgentRole.ORCHESTRATOR);
+        when(agent.getId()).thenReturn(agentId);
+        when(task.getDeliverable()).thenReturn(TaskDeliverable.IMPLEMENTATION);
+        when(task.isReviewRequired()).thenReturn(true);
+        TaskEntity cancelledImplementation = mock(TaskEntity.class);
+        when(cancelledImplementation.getId()).thenReturn(UUID.randomUUID());
+        when(cancelledImplementation.getStatus()).thenReturn(TaskStatus.CANCELLED);
+        when(cancelledImplementation.getDeliverable()).thenReturn(TaskDeliverable.IMPLEMENTATION);
+        when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(taskId)).thenReturn(List.of(cancelledImplementation));
+        // A CANCELLED implementation child can never satisfy the required phase, so
+        // the orchestrator is blocked from completing. Either rejection type is
+        // acceptable; what matters is that no completion is recorded.
+        assertThrows(IllegalStateException.class,
+                () -> service.report(agentId, taskId, 3, "done"));
+        verify(tasks, never()).save(any());
     }
 
     @Test

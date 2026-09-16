@@ -310,6 +310,9 @@ public class TaskDispatchService {
         // Record the review milestone on the root as soon as a review child has
         // completed, so the UI can distinguish implementation-finished from
         // review-passed before deployment begins.
+        // Descendants are resolved by parent chain, which is workflow-scoped by
+        // construction: a child created under a different root never appears here,
+        // so a report from another workflow can never satisfy this gate.
         if (descendants.stream().anyMatch(child -> deliverableOf(child) == TaskDeliverable.REVIEW
                 && child.getStatus() == TaskStatus.COMPLETED)) {
             task.recordReviewPassed();
