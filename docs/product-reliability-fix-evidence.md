@@ -14,13 +14,13 @@ and exit gate in PR #33, including its deployment-delivery clarification.
 
 | Requirement | Current evidence | Remaining gate |
 | --- | --- | --- |
-| P0-1 deliverable contract | CLOSED (in-repo): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 162-test suite | Operator: publish a release and deploy to a real target with smoke transcript |
+| P0-1 deliverable contract | CLOSED (in-repo): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 165-test suite | Operator: publish a release and deploy to a real target with smoke transcript |
 | P0-2 actionable delegation/recovery | CLOSED (in-repo): task/generation-bound reports, explicit blockers, dependency references, handoff repair, browser journey | — |
 | P0-3 authenticated streams | CLOSED (in-repo): async auth fix, both SSE streams through shipped proxy, 65s idle, invalid-token negatives, stale-state UI | — |
 | P0-4 transport recovery | CLOSED (in-repo): ambiguous-task reset, bounded signaling, restart persistence, real node-loss journey (enroll→ONLINE→kill→OFFLINE→incident→agent DISCONNECTED) | — |
 | P0-5 installation/credentials | CLOSED (in-repo): DB-only dev path, consistent DB config, separate-key forwarding, real pg_dump/pg_restore restore with credential decryption | Operator: install a published release on a clean host with immutable digest + HTTPS |
 | P0-6 bounded operational delivery | CLOSED (in-repo): root delivery gate, delivery journey, wrong-SHA webhook negative, duplicate-dispatch ambiguity, invalid signature, duplicate delivery, wildcard-evasion negatives | Operator: register real production runbooks and roll out scoped authorization |
-| P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 162-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
+| P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 165-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
 
 ## P0-5 local verification
 
@@ -297,7 +297,7 @@ wildcard-evasion negatives), PolicyPreauthorizationServiceTest (3 tests),
 HumanApprovalPolicyTest (10 tests), ExternalWorkflowServiceTest (4 tests
 including wrong-SHA and duplicate-dispatch negatives), GitHubWebhookServiceTest
 (3 tests including invalid signature and duplicate delivery), and the disposable
-end-to-end runbook delivery journey. All pass in the current 162-test suite.
+end-to-end runbook delivery journey. All pass in the current 165-test suite.
 Remaining P0-6 gate: real production runbook registration and authorization
 rollout, which is an operator action outside this repository.
 
@@ -340,7 +340,7 @@ only gates production, and deployment-policy gating is separately covered by
 DeterministicPolicyEngineTest plus the V1 REQUIRE_HUMAN seeds.
 
 Result: journey passed in the full suite run finished 19:14 UTC on 2026-09-15:
-153 tests, zero failures/errors, one skipped (proxy-only idle test). This closes
+165 tests, zero failures/errors, two skipped (proxy-only idle test and the restore-only test when no restore database is configured). This closes
 the in-repo portion of the P0-6 deployment journey; a production-target run with
 a published release remains an operator/release action outside this repository.
 
