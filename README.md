@@ -200,6 +200,7 @@ https://github.com/owner/repository.git
 - [UI/UX specification](docs/ui-ux.md)
 - [Self-Hosted Alpha](docs/self-hosted-alpha.md)
 - [PR #33 repair evidence and proof of completion](docs/product-reliability-fix-evidence.md)
+- [Product reliability audit (PR #33)](docs/product-reliability-audit.md)
 
 ## Current architecture
 
