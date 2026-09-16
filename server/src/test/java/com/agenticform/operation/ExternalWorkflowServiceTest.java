@@ -1,6 +1,7 @@
 package com.agenticform.operation;
 
 import com.agenticform.policy.PolicyEffect;
+import com.agenticform.task.TaskEntity;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
@@ -70,6 +71,31 @@ class ExternalWorkflowServiceTest {
 
         assertThat(first.getStatus()).isEqualTo(OperationExternalWaitEntity.Status.FAILED);
         assertThat(second.getStatus()).isEqualTo(OperationExternalWaitEntity.Status.FAILED);
+    }
+
+    @Test
+    void mergedPullRequestAdvancesRootToMergedStage() {
+        UUID runId = UUID.randomUUID();
+        UUID rootTaskId = UUID.randomUUID();
+        OperationExternalWaitEntity wait = new OperationExternalWaitEntity(
+                runId, UUID.randomUUID(), "WAIT", "owner/repo", "ci.yml", "main", "expected-sha", null,
+                java.time.Instant.now().plus(java.time.Duration.ofMinutes(10)));
+        when(waits.findAllByStatusOrderByCreatedAtAsc(OperationExternalWaitEntity.Status.WAITING))
+                .thenReturn(List.of(wait));
+        when(runs.findById(runId)).thenReturn(java.util.Optional.of(
+                new OperationRunEntity(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                        UUID.randomUUID(), rootTaskId, "agent:test", "CI", "staging",
+                        OperationRunEntity.Status.RUNNING, PolicyEffect.ALLOW, UUID.randomUUID(), "{}", "{}")));
+        TaskEntity root = mock(TaskEntity.class);
+        when(root.getParentTaskId()).thenReturn(null);
+        when(root.getDeliverable()).thenReturn(com.agenticform.task.TaskDeliverable.IMPLEMENTATION);
+        when(taskRepository.findById(rootTaskId)).thenReturn(java.util.Optional.of(root));
+
+        service.handleMerge(new ExternalWorkflowService.MergeWebhook(
+                "owner/repo", "main", "merge-sha-abc"));
+
+        verify(root).setDeliveryStage(com.agenticform.task.TaskDeliveryStage.MERGED);
+        verify(taskRepository).save(root);
     }
 
     @Test

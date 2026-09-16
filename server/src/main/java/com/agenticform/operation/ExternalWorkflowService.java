@@ -21,6 +21,8 @@ public class ExternalWorkflowService {
                                   String headBranch, String headSha, String status,
                                   String conclusion, String htmlUrl, Instant createdAt) {}
 
+    public record MergeWebhook(String repository, String baseBranch, String mergeSha) {}
+
     private final OperationExternalWaitRepository waitRepository;
     private final OperationRunRepository runRepository;
     private final OperationStepRunRepository stepRepository;
@@ -125,6 +127,30 @@ public class ExternalWorkflowService {
                         if (task.getParentTaskId() != null) return;
                         if (task.getDeliverable() != com.agenticform.task.TaskDeliverable.IMPLEMENTATION) return;
                         task.setDeliveryStage(com.agenticform.task.TaskDeliveryStage.ARTIFACT_PUBLISHED);
+                        taskRepository.save(task);
+                    });
+        }
+    }
+
+    /**
+     * A merged pull request advances the bound root task to MERGED. The root must
+     * have reached ARTIFACT_PUBLISHED or be past deployment (DEPLOYMENT_VERIFIED
+     * can also be set by a deploy runbook); advanceTo keeps this monotonic.
+     */
+    public void handleMerge(MergeWebhook merge) {
+        if (merge.repository() == null || merge.mergeSha() == null || merge.mergeSha().isBlank()) return;
+        for (OperationExternalWaitEntity wait : waitRepository
+                .findAllByStatusOrderByCreatedAtAsc(OperationExternalWaitEntity.Status.WAITING)) {
+            if (!wait.getRepository().equalsIgnoreCase(merge.repository())) continue;
+            runRepository.findById(wait.getOperationRunId())
+                    .map(OperationRunEntity::getRequestedTaskId)
+                    .flatMap(taskRepository::findById)
+                    .ifPresent(task -> {
+                        if (task.getParentTaskId() != null) return;
+                        if (task.getDeliverable() != com.agenticform.task.TaskDeliverable.IMPLEMENTATION) return;
+                        // Only the milestone is recorded here. The deployed revision is
+                        // recorded by the deployment runbook once the target is verified.
+                        task.setDeliveryStage(com.agenticform.task.TaskDeliveryStage.MERGED);
                         taskRepository.save(task);
                     });
         }
