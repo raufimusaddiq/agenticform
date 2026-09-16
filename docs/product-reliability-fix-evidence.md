@@ -430,6 +430,11 @@ Not closed, requires operator action outside this repository:
 `tests/clean-install-journey.sh` supports `AGENTICFORM_JOURNEY_KEEP=1` to leave the
 stack running for exactly that kind of manual/browser verification.
 
+Production Compose tuning variables (`AGENTICFORM_SERVER_MEMORY`,
+`AGENTICFORM_JAVA_TOOL_OPTIONS`) are documented in README and `.env.example`
+(`feac0e4`), matching the repository rule that every Compose environment variable
+is documented.
+
 ## PR #34 final state (2026-09-15)
 
 See the Proof-of-completion summary at the end of this document for the current
