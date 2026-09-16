@@ -26,6 +26,83 @@ class FlywayMigrationSmokeTest {
     }
 
     @Test
+    void migrationsUpgradeADatabaseThatAlreadyContainsNonImplementationTasks() throws Exception {
+        String url = System.getenv("MIGRATION_TEST_DATABASE_URL");
+        String user = System.getenv("MIGRATION_TEST_DATABASE_USER");
+        String password = System.getenv("MIGRATION_TEST_DATABASE_PASSWORD");
+        Assumptions.assumeTrue(url != null && !url.isBlank(),
+                "migration smoke test requires MIGRATION_TEST_DATABASE_URL");
+
+        Flyway upToV8 = Flyway.configure()
+                .dataSource(url, user, password)
+                .locations("classpath:db/migration")
+                .cleanDisabled(false)
+                .target("8")
+                .load();
+        upToV8.clean();
+        upToV8.migrate();
+
+        // Reproduces the live-upgrade shape that an empty-database smoke test cannot:
+        // pre-existing rows of kinds other than IMPLEMENTATION must not leave the new
+        // deliverable columns NULL when they are made NOT NULL.
+        try (Connection connection = DriverManager.getConnection(url, user, password)) {
+            connection.setAutoCommit(true);
+            var projectId = java.util.UUID.randomUUID();
+            var agentId = java.util.UUID.randomUUID();
+            try (PreparedStatement insert = connection.prepareStatement(
+                    "INSERT INTO projects (id, name, slug, source_type, default_branch, enabled, created_at, updated_at)"
+                            + " VALUES (?, 'Legacy', 'legacy-upgrade-fixture', 'LOCAL_PATH', 'main', TRUE, NOW(), NOW())")) {
+                insert.setObject(1, projectId);
+                insert.executeUpdate();
+            }
+            try (PreparedStatement insert = connection.prepareStatement(
+                    "INSERT INTO agents (id, project_id, name, responsibility, runtime_type, workspace_mode, status,"
+                            + " queue_mode, human_control_mode, agent_role, system_managed, capability_profile,"
+                            + " runtime_generation, created_at, updated_at)"
+                            + " VALUES (?, ?, 'Legacy Agent', 'fixture', 'CODEX', 'ISOLATED_WORKTREE', 'IDLE',"
+                            + " 'AUTO', 'ON_THE_LOOP', 'GENERAL', FALSE, 'IMPLEMENTER', 0, NOW(), NOW())")) {
+                insert.setObject(1, agentId);
+                insert.setObject(2, projectId);
+                insert.executeUpdate();
+            }
+            for (String kind : java.util.List.of("REVIEW", "ARCHITECTURE", "ORCHESTRATION", "IMPLEMENTATION", "GENERAL")) {
+                try (PreparedStatement insert = connection.prepareStatement(
+                        "INSERT INTO tasks (id, project_id, assigned_agent_id, priority, created_at, updated_at,"
+                                + " workflow_id, title, prompt, status, kind)"
+                                + " VALUES (?, ?, ?, 0, NOW(), NOW(), ?, ?, 'fixture', 'COMPLETED', ?)")) {
+                    insert.setObject(1, java.util.UUID.randomUUID());
+                    insert.setObject(2, projectId);
+                    insert.setObject(3, agentId);
+                    insert.setObject(4, java.util.UUID.randomUUID());
+                    insert.setObject(5, "Legacy " + kind + " task");
+                    insert.setObject(6, kind);
+                    insert.executeUpdate();
+                }
+            }
+        }
+
+        Flyway upgrade = Flyway.configure()
+                .dataSource(url, user, password)
+                .locations("classpath:db/migration")
+                .cleanDisabled(false)
+                .load();
+        var result = upgrade.migrate();
+        assertTrue(result.success, "upgrade over existing task rows must succeed");
+
+        try (Connection connection = DriverManager.getConnection(url, user, password);
+             PreparedStatement query = connection.prepareStatement(
+                     "SELECT count(*) AS total, count(deliverable) AS deliverable, count(deployment_required) AS deployment"
+                             + " FROM tasks")) {
+            try (var rows = query.executeQuery()) {
+                assertTrue(rows.next());
+                assertEquals(5, rows.getInt("total"));
+                assertEquals(5, rows.getInt("deliverable"), "every legacy task needs a deliverable");
+                assertEquals(5, rows.getInt("deployment"), "every legacy task needs a deployment flag");
+            }
+        }
+    }
+
+    @Test
     void allMigrationsApplyCleanlyAndAreIdempotent() throws Exception {
         String url = System.getenv("MIGRATION_TEST_DATABASE_URL");
         String user = System.getenv("MIGRATION_TEST_DATABASE_USER");

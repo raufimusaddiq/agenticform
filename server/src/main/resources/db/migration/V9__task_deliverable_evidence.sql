@@ -24,19 +24,26 @@ UPDATE tasks SET deliverable = CASE kind
     ELSE 'GENERAL'
 END;
 
+-- Backfill every existing row. Historical tasks were not created under the
+-- deliverable contract, so they keep readable prose and are exempt from
+-- retroactive deployment requirements. Backfill must cover all rows (not only
+-- implementation kinds) or the SET NOT NULL statements below fail on a database
+-- that already contains review/architecture/orchestration tasks.
 UPDATE tasks SET review_required = (deliverable = 'IMPLEMENTATION');
 UPDATE tasks SET architecture_required = FALSE;
-
--- Historical tasks were not created under the deliverable contract. They keep their
--- readable prose and are exempt from retroactive deployment requirements.
-UPDATE tasks SET deployment_required = FALSE WHERE deliverable = 'IMPLEMENTATION';
+UPDATE tasks SET deployment_required = FALSE;
 
 -- A completed historical task stays completed; nothing is silently re-verified.
 UPDATE tasks SET delivery_stage = CASE
     WHEN status = 'COMPLETED' THEN 'IMPLEMENTED'
-    WHEN status IN ('DISPATCHED', 'RUNNING', 'DISPATCHING') THEN 'NOT_STARTED'
     ELSE 'NOT_STARTED'
 END;
+
+UPDATE tasks SET review_required = FALSE WHERE review_required IS NULL;
+UPDATE tasks SET architecture_required = FALSE WHERE architecture_required IS NULL;
+UPDATE tasks SET deployment_required = FALSE WHERE deployment_required IS NULL;
+UPDATE tasks SET delivery_stage = 'NOT_STARTED' WHERE delivery_stage IS NULL;
+UPDATE tasks SET deliverable = 'GENERAL' WHERE deliverable IS NULL;
 
 ALTER TABLE tasks ALTER COLUMN deliverable SET DEFAULT 'GENERAL';
 ALTER TABLE tasks ALTER COLUMN deliverable SET NOT NULL;

@@ -561,3 +561,35 @@ implementation work.
 
 Until step 8 is recorded, the release rows stay open; nothing in this document
 claims those environments are verified.
+
+## Live-upgrade defect found and fixed during the v0.1.0 deployment (2026-09-16)
+
+Deploying `v0.1.0` to the running self-hosted installation exposed a defect that no
+empty-database test could catch:
+
+- Symptom: `V9__task_deliverable_evidence.sql` failed with
+  `column "deployment_required" of relation "tasks" contains null values` (SQL state
+  23502) at the `SET NOT NULL` statement; the server then crash-looped.
+- Cause: the backfill updated `deployment_required` only for `IMPLEMENTATION`
+  rows, so pre-existing REVIEW / ARCHITECTURE / ORCHESTRATION / GENERAL rows stayed
+  NULL. Every disposable test database was empty at migration time, so the
+  conditional update was never exercised against real data.
+- Fix: backfill `review_required`, `architecture_required`, `deployment_required`,
+  `delivery_stage` and `deliverable` for **all** rows, plus an explicit NULL sweep
+  before the `SET NOT NULL` statements.
+- Regression test:
+  `FlywayMigrationSmokeTest#migrationsUpgradeADatabaseThatAlreadyContainsNonImplementationTasks`
+  migrates to V8, inserts one legacy task of each kind, then migrates to the head.
+  Proven meaningful by running it against the unfixed migration: it failed with the
+  exact production error (2 tests, 1 error) and passes with the fix (1 test, 0
+  errors). Full suite after the fix: 172 tests, zero failures/errors.
+- Rollback: the running installation was returned to its previous images
+  (`agenticform-server:runtime-rehydrate-20260914`, `agenticform-web:main-4c0e912`)
+  and verified healthy (UI HTTP 200, `/actuator/health` UP) before re-attempting the
+  upgrade. A pre-upgrade `pg_dump` (SHA-256
+  `042133ed6fd00da692e11415d584a3230f7c68a893ff17811e033abfe8c64569`) is retained at
+  `/root/agenticform-backup/pre-upgrade-backup.dump`.
+
+This is direct evidence for the audit's release gate: the release install path is
+what surfaced the defect, and the fix is now covered by a regression test that
+reproduces the real upgrade shape.
