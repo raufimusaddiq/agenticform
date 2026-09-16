@@ -480,7 +480,10 @@ requiring infrastructure outside this repository (published release install with
 immutable digest + HTTPS/Traefik, a real deployment target with smoke transcript,
 matched release digests, operator transcripts). Those are listed explicitly and
 are not claimed as done. Untracked `backups/` and `web/web/` were left untouched;
-all temporary test containers/networks/volumes were removed.
+all temporary test containers/networks were removed; the disposable test
+PostgreSQL volume (`agenticform-audit-dev_development-postgres`) and the Maven
+dependency cache (`agenticform-audit-maven-cache`) are retained for re-runs and
+contain no production data.
 
 ## Task creation UI wired to the deliverable contract
 
