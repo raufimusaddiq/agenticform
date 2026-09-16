@@ -520,3 +520,37 @@ actions.
 | Both event streams reconnect without committed-response exceptions | Real-Tomcat async regression reproduced then fixed; `stream-proxy.sh` through shipped nginx (65s idle) in CI | CLOSED in-repo |
 | Restore verified with credentials | `tests/credential-restore.sh`: pg_dump/pg_restore into separate DB, credential decrypts, durable state intact | CLOSED in-repo |
 | No unresolved P0 findings | All P0-1..P0-6 in-repo gates closed above; remaining items are the operator actions listed in the table | CLOSED in-repo (operator actions open) |
+
+## Operator runbook for the remaining gates
+
+These steps close the operator/release rows above. They require repository
+write access and the deployment host; they are deliberately not executed by the
+implementation work.
+
+1. Merge PR #34 into `main` (CI is green on the head commit).
+2. Publish a release: `git tag v0.1.0 && git push origin v0.1.0`. The
+   `.github/workflows/release.yml` job pushes
+   `ghcr.io/raufimusaddiq/agenticform-{server,web,node}:v0.1.0` (and `latest`).
+3. Record the published digests: `docker buildx imagetools inspect
+   ghcr.io/raufimusaddiq/agenticform-node:v0.1.0` and pin
+   `AGENTICFORM_NODE_IMAGE` to the `@sha256:` form (immutable).
+4. On a clean host with a real domain and TLS, set the `.env` from
+   `.env.example` (`AGENTICFORM_PUBLIC_URL`/`AGENTICFORM_UI_ORIGIN` over HTTPS,
+   `AGENTICFORM_ADMIN_TOKEN`, `AGENTICFORM_SECRET_KEY`,
+   `AGENTICFORM_SERVER_IMAGE`/`AGENTICFORM_WEB_IMAGE` at the `v0.1.0` tag), then
+   `docker compose -f docker-compose.prod.yml up -d` and confirm
+   `/actuator/health` is UP over HTTPS.
+5. Enroll an execution node from the UI and confirm it reports ONLINE with
+   Codex available/authenticated.
+6. Register the deployment environment, service health URL, and a deploy
+   runbook in the Operations view (revision assert + health check steps).
+7. Create an application-change task with deliverable IMPLEMENTATION, deployment
+   required, and the target environment; run it to completion and confirm the
+   root task reaches DELIVERED with the environment, revision, run ID, and health
+   evidence recorded in the task inspector.
+8. Capture the operator transcript (commands + observed output) and the release
+   digests into this document, replacing the corresponding "Operator" cells
+   above with the observed values.
+
+Until step 8 is recorded, the release rows stay open; nothing in this document
+claims those environments are verified.
