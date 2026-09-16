@@ -175,6 +175,7 @@ h1,h2,h3{text-wrap:balance}
 .child-task{padding-left:calc(var(--gutter) + 14px)}
 .communication-workspace{border-top:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;background:var(--surface)}
 .conversation-item{padding-block:14px}
+.message-timeline .message-row{padding-inline:var(--gutter)}
 .compose-panel{border-radius:var(--radius-lg);background:var(--surface)}
 .approval-history-row{padding-block:13px}
 .approval-command{border-radius:var(--radius)}
@@ -209,6 +210,7 @@ h1,h2,h3{text-wrap:balance}
   .health-list>div,.queue-line span{padding-inline:var(--gutter)}
   .health-list>div+div,.queue-line span+span{padding-left:var(--gutter)}
   .activity-row{padding:10px var(--gutter)}
+  .message-timeline .message-row{padding-inline:var(--gutter)}
   .inline-summary{margin-inline:0}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
