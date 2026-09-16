@@ -490,3 +490,22 @@ require-verified-deployment checkbox for implementation work, and a required
 target environment field when deployment is required. The backend already
 accepted these fields; this makes the contract creatable without the API alone.
 Web `npm ci`, `npm test`, and `npm run build` pass.
+
+## Release-gate mapping (PR #33 "Proposed release gates" -> evidence)
+
+Each named release gate from PR #33 maps to the committed evidence above. All
+in-repo gates are closed; the two deployment-dependent items remain operator
+actions.
+
+| Release gate | Evidence | Status |
+| --- | --- | --- |
+| All four journeys reach their requested terminal gate | Delivery journey (implement→review→deploy→DELIVERED), analysis/docs-only completions, UI journeys | CLOSED in-repo; real-target run is the operator gate under P0-1 |
+| Application changes deployed and verified in the configured target | Root DELIVERED only after runbook revision assert + health probe; revision/environment/run-ID persisted; wrong-revision run refused | CLOSED in-repo; real target pending operator |
+| Routine authorized deployments need no repeated human approval | Staging path runs QUEUED without approval when policy allows; approval path covered by policy tests; production still REQUIRE_HUMAN by seed | CLOSED in-repo |
+| Destructive or out-of-scope effects remain separately gated | DELETE_DATA/PRODUCTION_DML seed gates, policy matcher ordering, wrong-SHA negative, wildcard-evasion fix | CLOSED in-repo |
+| Zero unintended writes for read-only/docs-only scopes | `ReadOnlyScopeIsolationTest`: read-only sandbox per non-WRITE profile, WRITE refused, implementation deliverable rejected for non-writers | CLOSED in-repo |
+| Zero duplicate side effects under the recovery matrix | Node ledger ambiguous-STARTED fence, duplicate-completion cache, duplicate-webhook idempotency, stale-generation fencing | CLOSED in-repo |
+| Invalid-token / stale-generation / unsafe-cleanup tests rejected | Filter token matrix, runtime-generation fencing tests, `WorkspaceCleanupSafetyTest` refusals | CLOSED in-repo |
+| Both event streams reconnect without committed-response exceptions | Real-Tomcat async regression reproduced then fixed; `stream-proxy.sh` through shipped nginx (65s idle) in CI | CLOSED in-repo |
+| Restore verified with credentials | `tests/credential-restore.sh`: pg_dump/pg_restore into separate DB, credential decrypts, durable state intact | CLOSED in-repo |
+| No unresolved P0 findings | All P0-1..P0-6 in-repo gates closed above; remaining items are the operator actions listed in the table | CLOSED in-repo (operator actions open) |
