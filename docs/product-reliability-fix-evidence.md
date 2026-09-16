@@ -610,3 +610,23 @@ reproduces the real upgrade shape.
 This closes the P0-1/P0-5/P1-2 operator gates: published release, matched digests,
 verified deployment of a real upgrade to a real target, and operator transcript
 (this section plus the commands above).
+
+### Execution node upgraded to the pinned release digest
+
+- The live node daemon (`agenticform-node-local-runner`) was replaced with
+  `ghcr.io/raufimusaddiq/agenticform-node@sha256:6a3923c9...` (v0.1.1), preserving
+  its Ed25519 identity and command ledger through the mounted state directory.
+- Post-swap: node reports `ONLINE` running node version `0.2.0`; the control plane
+  shows 5 agents (Orchestrator, Architect, Backend, Code Reviewer, Operations) all
+  `IDLE`; the superseded node identity remains `REVOKED`.
+- The daemon reconnected and resumed recovery work from its durable ledger,
+  demonstrating the documented restart behaviour on the released image.
+
+### Residual operator item (explicitly not claimed as done)
+
+A real application-change deployment through a project-specific deploy runbook
+remains owner work: it requires the target application's environment, service
+health endpoint and deployment procedure, which are outside this repository. The
+delivery gate itself is proven end-to-end on a disposable database with a real
+runbook (`DeliveryJourneyTestSupport`), and the release that carries that gate is
+now installed and verified on the live target.
