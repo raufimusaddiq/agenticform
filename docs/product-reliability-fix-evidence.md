@@ -14,7 +14,7 @@ and exit gate in PR #33, including its deployment-delivery clarification.
 
 | Requirement | Current evidence | Remaining gate |
 | --- | --- | --- |
-| P0-1 deliverable contract | CLOSED (in-repo): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 165-test suite | Operator: publish a release and deploy to a real target with smoke transcript |
+| P0-1 deliverable contract | CLOSED (in-repo): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 170-test suite | Operator: publish a release and deploy to a real target with smoke transcript |
 | P0-2 actionable delegation/recovery | CLOSED (in-repo): task/generation-bound reports, explicit blockers, dependency references, handoff repair, browser journey, and UI dispatch disabled with a stated reason whenever status or an unresolved dependency makes retry unsafe | — |
 | P0-3 authenticated streams | CLOSED (in-repo): async auth fix, both SSE streams through shipped proxy, 65s idle, invalid-token negatives, stale-state UI | — |
 | P0-4 transport recovery | CLOSED (in-repo): ambiguous-task reset, bounded signaling, restart persistence, real node-loss journey (enroll→ONLINE→kill→OFFLINE→incident→agent DISCONNECTED) | — |
@@ -25,7 +25,7 @@ and exit gate in PR #33, including its deployment-delivery clarification.
 read-only sandbox and is refused the WRITE capability, and creation of an
 implementation-deliverable task for a non-writer profile is rejected. This closes
 the zero-unintended-writes release gate for read-only/docs-only scopes.
-| P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 165-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
+| P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 170-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
 
 ## P0-5 local verification
 
