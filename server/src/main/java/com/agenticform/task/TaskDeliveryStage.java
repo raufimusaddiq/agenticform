@@ -13,4 +13,10 @@ public enum TaskDeliveryStage {
     DEPLOYING,
     DEPLOYMENT_VERIFIED,
     DELIVERED
+    ;
+
+    /** Milestones only move forward; a later signal never regresses the stage. */
+    public TaskDeliveryStage advanceTo(TaskDeliveryStage candidate) {
+        return candidate == null || candidate.ordinal() <= ordinal() ? this : candidate;
+    }
 }

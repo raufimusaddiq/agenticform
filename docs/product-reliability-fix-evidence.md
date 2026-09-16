@@ -201,6 +201,12 @@ Implemented on branch fix/product-reliability-audit (uncommitted working tree):
   implemented as proof. General/analysis tasks need no invented code artifact;
   documentation needs a document plus passed check; implementation needs a
   revisioned commit/PR plus passed validation.
+- Delivery milestones never regress: `TaskDeliveryStage.advanceTo` enforces forward
+  movement, so a late signal cannot downgrade a task from DELIVERED back to
+  DEPLOYING. Review-child completion records REVIEW_PASSED on the root, and an
+  approved deployment/release runbook records DEPLOYING, so the UI distinguishes
+  implementation-finished, review-passed, deploying, deployment-verified, and
+  delivered as the audit requires. Covered by `TaskDeliveryStageTest`.
 - Root application tasks default to verified deployment. Missing target config,
   missing operation verification, missing revision, or missing health evidence
   returns a stable blocker and leaves the task incomplete. Rollback or inspection
@@ -447,7 +453,7 @@ The full objective for PR #33 is evidenced as follows on `fix/product-reliabilit
 | Evidence layer | Artifact | Status |
 | --- | --- | --- |
 | Fix implementation | commit `f39b82c` (V9 contract, report identity, async auth, proxy, recovery, install, ops binding) | landed |
-| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 162 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
+| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 165 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
 | Clean install | `tests/clean-install-journey.sh` | PASS, CI `clean-install-journey` |
 | Real browser | `tests/browser-journey.sh` (headless Chromium, 10 checks) | PASS, CI `browser-journey` |
 | Credential restore | `tests/credential-restore.sh` (pg_dump/pg_restore) | PASS, CI `restore-evidence` |

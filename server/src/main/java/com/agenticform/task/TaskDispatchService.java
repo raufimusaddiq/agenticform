@@ -307,6 +307,13 @@ public class TaskDispatchService {
     }
 
     private void requireDescendantEvidence(TaskEntity task, List<TaskEntity> descendants) {
+        // Record the review milestone on the root as soon as a review child has
+        // completed, so the UI can distinguish implementation-finished from
+        // review-passed before deployment begins.
+        if (descendants.stream().anyMatch(child -> deliverableOf(child) == TaskDeliverable.REVIEW
+                && child.getStatus() == TaskStatus.COMPLETED)) {
+            task.recordReviewPassed();
+        }
         TaskDeliverable deliverable = deliverableOf(task);
         if (deliverable != TaskDeliverable.IMPLEMENTATION) {
             if (task.isArchitectureRequired() && descendants.stream().noneMatch(child ->

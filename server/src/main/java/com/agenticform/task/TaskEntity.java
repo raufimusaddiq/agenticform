@@ -206,7 +206,12 @@ public class TaskEntity {
         }
     }
 
-    public void setDeliveryStage(TaskDeliveryStage stage) { this.deliveryStage = stage; }
+    public void setDeliveryStage(TaskDeliveryStage stage) {
+        this.deliveryStage = this.deliveryStage.advanceTo(stage);
+    }
+
+    /** Record a verified review milestone without regressing the stage. */
+    public void recordReviewPassed() { setDeliveryStage(TaskDeliveryStage.REVIEW_PASSED); }
 
     public void recordVerifiedDelivery(String environment, String revision, String artifactDigest,
                                        UUID operationRunId, String healthEvidence) {
