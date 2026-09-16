@@ -202,8 +202,10 @@ export const api = {
       body: JSON.stringify({ reason })
     }),
 
-  createTask: (input: { agentId: string; title: string; prompt: string; priority: number }) =>
-    request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
+  createTask: (input: {
+    agentId: string; title: string; prompt: string; priority: number;
+    kind?: string; deliverable?: string; deploymentRequired?: boolean; environmentKey?: string;
+  }) => request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
 
   dispatchTask: (taskId: string) =>
     request<Task>(`/api/tasks/${taskId}/dispatch`, { method: 'POST' }),

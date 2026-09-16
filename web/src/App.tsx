@@ -452,12 +452,31 @@ function AgentForm({ projects, templates, initialProjectId, onClose, onSubmit }:
   </form></Modal>;
 }
 
-function TaskForm({ agents, onClose, onSubmit }: { agents: Agent[]; onClose: () => void; onSubmit: (input: { agentId: string; title: string; prompt: string; priority: number }) => void }) {
+type TaskFormInput = {
+  agentId: string; title: string; prompt: string; priority: number;
+  deliverable?: string; deploymentRequired?: boolean; environmentKey?: string;
+};
+
+function TaskForm({ agents, onClose, onSubmit }: { agents: Agent[]; onClose: () => void; onSubmit: (input: TaskFormInput) => void }) {
   const [agentId, setAgentId] = useState(agents[0]?.id ?? ''); const [title, setTitle] = useState(''); const [prompt, setPrompt] = useState(''); const [priority, setPriority] = useState(0);
-  return <Modal title="Create task" onClose={onClose}><form onSubmit={(event: FormEvent) => { event.preventDefault(); onSubmit({ agentId, title, prompt, priority }); }}>
+  const [deliverable, setDeliverable] = useState('IMPLEMENTATION');
+  const [environmentKey, setEnvironmentKey] = useState('');
+  const [deploymentRequired, setDeploymentRequired] = useState(true);
+  const needsEnvironment = deliverable === 'IMPLEMENTATION' && deploymentRequired;
+  return <Modal title="Create task" onClose={onClose}><form onSubmit={(event: FormEvent) => {
+    event.preventDefault();
+    onSubmit({
+      agentId, title, prompt, priority, deliverable,
+      deploymentRequired: deliverable === 'IMPLEMENTATION' ? deploymentRequired : false,
+      ...(needsEnvironment ? { environmentKey: environmentKey.trim() } : {})
+    });
+  }}>
     <label>Agent<select required value={agentId} onChange={(e) => setAgentId(e.target.value)}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} / {label(agent.status)} / {agent.humanControlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</option>)}</select></label>
     <label>Title<input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Implement refresh-token fallback" /></label>
     <label>Instruction<textarea required rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Inspect the current token lifecycle, implement the fallback, add tests, and report any compatibility risks." /></label>
+    <label>Requested deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}>{['GENERAL','ANALYSIS','DOCUMENTATION','IMPLEMENTATION','REVIEW','TEST'].map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></label>
+    {deliverable === 'IMPLEMENTATION' && <label className="checkbox-row"><input type="checkbox" checked={deploymentRequired} onChange={(e) => setDeploymentRequired(e.target.checked)} />Require verified deployment before this task is delivered</label>}
+    {needsEnvironment && <label>Target environment / service<input required value={environmentKey} onChange={(e) => setEnvironmentKey(e.target.value)} placeholder="staging" /></label>}
     <label>Priority<input type="number" min="-100" max="100" value={priority} onChange={(e) => setPriority(Number(e.target.value))} /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Create task</button></footer>
   </form></Modal>;

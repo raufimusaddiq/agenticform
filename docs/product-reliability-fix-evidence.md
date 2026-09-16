@@ -471,3 +471,12 @@ immutable digest + HTTPS/Traefik, a real deployment target with smoke transcript
 matched release digests, operator transcripts). Those are listed explicitly and
 are not claimed as done. Untracked `backups/` and `web/web/` were left untouched;
 all temporary test containers/networks/volumes were removed.
+
+## Task creation UI wired to the deliverable contract
+
+The task-creation dialog now exposes the deliverable contract directly: requested
+deliverable (GENERAL/ANALYSIS/DOCUMENTATION/IMPLEMENTATION/REVIEW/TEST), a
+require-verified-deployment checkbox for implementation work, and a required
+target environment field when deployment is required. The backend already
+accepted these fields; this makes the contract creatable without the API alone.
+Web `npm ci`, `npm test`, and `npm run build` pass.
