@@ -504,6 +504,10 @@ actions.
 | Routine authorized deployments need no repeated human approval | Staging path runs QUEUED without approval when policy allows; approval path covered by policy tests; production still REQUIRE_HUMAN by seed | CLOSED in-repo |
 | Destructive or out-of-scope effects remain separately gated | DELETE_DATA/PRODUCTION_DML seed gates, policy matcher ordering, wrong-SHA negative, wildcard-evasion fix | CLOSED in-repo |
 | Zero unintended writes for read-only/docs-only scopes | `ReadOnlyScopeIsolationTest`: read-only sandbox per non-WRITE profile, WRITE refused, implementation deliverable rejected for non-writers | CLOSED in-repo |
+- Zero duplicate side effects: duplicate terminal commands return the cached
+  result (`NodeCommandCompletionHandlerTest`), duplicate webhooks are idempotent
+  (`GitHubWebhookServiceTest`), and the recovery matrix is covered by
+  `ExecutionNodeRecoveryTest` and `AgentRuntimeRecoveryServiceTest`.
 | Zero duplicate side effects under the recovery matrix | Node ledger ambiguous-STARTED fence, duplicate-completion cache, duplicate-webhook idempotency, stale-generation fencing | CLOSED in-repo |
 | Invalid-token / stale-generation / unsafe-cleanup tests rejected | Filter token matrix, runtime-generation fencing tests, `WorkspaceCleanupSafetyTest` refusals | CLOSED in-repo |
 | Both event streams reconnect without committed-response exceptions | Real-Tomcat async regression reproduced then fixed; `stream-proxy.sh` through shipped nginx (65s idle) in CI | CLOSED in-repo |
