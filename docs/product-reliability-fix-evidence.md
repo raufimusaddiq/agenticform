@@ -20,6 +20,11 @@ and exit gate in PR #33, including its deployment-delivery clarification.
 | P0-4 transport recovery | CLOSED (in-repo): ambiguous-task reset, bounded signaling, restart persistence, real node-loss journey (enroll→ONLINE→kill→OFFLINE→incident→agent DISCONNECTED) | — |
 | P0-5 installation/credentials | CLOSED (in-repo): DB-only dev path, consistent DB config, separate-key forwarding, real pg_dump/pg_restore restore with credential decryption | Operator: install a published release on a clean host with immutable digest + HTTPS |
 | P0-6 bounded operational delivery | CLOSED (in-repo): root delivery gate, delivery journey, wrong-SHA webhook negative, duplicate-dispatch ambiguity, invalid signature, duplicate delivery, wildcard-evasion negatives | Operator: register real production runbooks and roll out scoped authorization |
+- Zero unintended writes for read-only scopes is directly tested in
+`ReadOnlyScopeIsolationTest`: every non-WRITE profile starts Codex with a
+read-only sandbox and is refused the WRITE capability, and creation of an
+implementation-deliverable task for a non-writer profile is rejected. This closes
+the zero-unintended-writes release gate for read-only/docs-only scopes.
 | P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 165-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
 
 ## P0-5 local verification
