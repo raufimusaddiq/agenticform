@@ -48,9 +48,14 @@ class TaskDependencyServiceTest {
                 new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
 
         assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.WAITING);
+        service.reconcile(downstream.getId());
+        assertThat(downstream.getDependencyReason()).contains(upstream.getId().toString());
 
         upstream.setStatus(TaskStatus.COMPLETED);
         assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.READY);
+        service.reconcile(downstream.getId());
+        assertThat(downstream.getDependencyReason()).isNull();
+        assertThat(downstream.getLastError()).isNull();
     }
 
     @Test

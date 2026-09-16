@@ -38,7 +38,11 @@ public class TaskController {
                 : request.dependencies().stream()
                 .map(dep -> new TaskDependencyService.DependencyRequest(dep.dependsOnTaskId(), dep.type()))
                 .toList();
-        return service.create(request.agentId(), request.title(), request.prompt(), request.priority(), dependencyRequests, null, request.kind());
+        TaskDispatchService.DeliveryRequest delivery = new TaskDispatchService.DeliveryRequest(
+                request.deliverable(), request.reviewRequired(), request.architectureRequired(),
+                request.deploymentRequired(), request.environmentKey());
+        return service.create(request.agentId(), request.title(), request.prompt(), request.priority(),
+                dependencyRequests, null, request.kind(), delivery);
     }
 
     @PostMapping("/{taskId}/dispatch")
@@ -68,7 +72,12 @@ public class TaskController {
             @NotBlank String prompt,
             int priority,
             List<DependencyRequest> dependencies,
-            TaskKind kind
+            TaskKind kind,
+            TaskDeliverable deliverable,
+            Boolean reviewRequired,
+            Boolean architectureRequired,
+            Boolean deploymentRequired,
+            String environmentKey
     ) {}
 
     public record DependencyRequest(@NotNull UUID dependsOnTaskId, TaskDependencyType type) {}

@@ -44,6 +44,6 @@ public class SecretBox {
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"),
                     new GCMParameterSpec(128, Base64.getDecoder().decode(parts[0])));
             return new String(cipher.doFinal(Base64.getDecoder().decode(parts[1])), StandardCharsets.UTF_8);
-        } catch (Exception error) { throw new IllegalStateException("Unable to decrypt Git credential", error); }
+        } catch (Exception error) { throw new IllegalStateException("Unable to decrypt Git credential; restore the original AGENTICFORM_SECRET_KEY (or original admin token for legacy credentials). Do not overwrite stored credentials.", error); }
     }
 }

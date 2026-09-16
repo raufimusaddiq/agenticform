@@ -24,6 +24,7 @@ import com.agenticform.task.TaskDispatchService;
 import com.agenticform.task.TaskDependencyService;
 import com.agenticform.task.TaskDependencyType;
 import com.agenticform.task.TaskEntity;
+import com.agenticform.task.TaskDeliverable;
 import com.agenticform.task.TaskKind;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
@@ -167,9 +168,9 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.ORCHESTRATE);
                 yield CompletableFuture.completedFuture(createTask(source, arguments));
             }
-            case "report_task" -> {
+            case "report_task", "block_task" -> {
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
-                yield CompletableFuture.completedFuture(reportTask(source, arguments));
+                yield CompletableFuture.completedFuture(reportTask(source, arguments, tool.equals("block_task")));
             }
             case "request_human_clarification" -> {
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.MESSAGE);
@@ -204,6 +205,8 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             row.put("status", agent.getStatus().name());
             row.put("queueMode", agent.getQueueMode().name());
             row.put("humanControlMode", agent.getHumanControlMode().name());
+            row.put("runtimeGeneration", agent.getRuntimeGeneration());
+            if (agent.getActiveTaskId() != null) row.put("activeTaskId", agent.getActiveTaskId().toString());
             if (agent.getExecutionNodeId() != null) row.put("executionNodeId", agent.getExecutionNodeId().toString());
             row.put("self", agent.getId().equals(source.getId()));
         }
@@ -277,8 +280,12 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private JsonNode requestOperation(AgentEntity source, JsonNode arguments) {
         requireOperationalAgent(source);
         OperationalRunbookEntity runbook = operationalRegistry.runbook(source.getProjectId(), requiredText(arguments, "runbookKey"));
+        UUID requestedTaskId = arguments.hasNonNull("taskId")
+                ? UUID.fromString(arguments.get("taskId").asText())
+                : source.getActiveTaskId();
+        UUID deliverableRoot = taskService.resolveDeliverableRoot(source.getProjectId(), requestedTaskId);
         OperationRunEntity run = operationRunService.start(runbook.getId(), new OperationRunService.StartRequest(
-                source.getId(), source.getActiveTaskId(), "operational-agent:" + source.getId(),
+                source.getId(), deliverableRoot, "operational-agent:" + source.getId(),
                 stringMap(arguments.path("parameters"))));
         return success(operationPayload(run).toString());
     }
@@ -431,14 +438,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             throw new IllegalStateException("Pending inbound agent message exists; inspect agenticform.list_messages and process it before sending a follow-up");
         }
         AgentMessageEntity message = messageService.send(source.getId(), targetAgentId, type, subject, content, replyTo);
-        recordResultReport(source, type, subject, content);
-        if (type == AgentMessageType.BLOCKER) taskService.block(source.getId(), subject + "\n\n" + content);
         return success(messagePayload(message, messageService.deliveries(message.getId())).toString());
-    }
-
-    private void recordResultReport(AgentEntity source, AgentMessageType type, String subject, String content) {
-        if (source.getActiveTaskId() == null || (type != AgentMessageType.RESULT && type != AgentMessageType.REVIEW_RESULT)) return;
-        taskService.report(source.getId(), source.getActiveTaskId(), subject + "\n\n" + content);
     }
 
     private JsonNode createTask(AgentEntity source, JsonNode arguments) {
@@ -446,28 +446,116 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         AgentEntity target = agentRepository.findById(targetAgentId)
                 .orElseThrow(() -> new NoSuchElementException("Target agent not found: " + targetAgentId));
         if (!source.getProjectId().equals(target.getProjectId())) throw new IllegalArgumentException("Delegated task must stay within one project");
-        if (target.getRole() == AgentRole.OPERATIONAL) throw new IllegalArgumentException("Use handoff_to_operations for operational work");
+        if (target.getRole() == AgentRole.OPERATIONAL) {
+            ObjectNode response = (ObjectNode) failure("OPERATIONS_HANDOFF_REQUIRED", "Operational work uses the dedicated handoff, not a normal task");
+            response.put("operationalAgentId", targetAgentId.toString());
+            response.put("nextAction", "Call handoff_to_operations with the requested operation and acceptance criteria");
+            return response;
+        }
         UUID dependsOn = arguments.hasNonNull("dependsOnTaskId") ? UUID.fromString(arguments.get("dependsOnTaskId").asText()) : null;
         TaskEntity task = taskService.create(targetAgentId, requiredText(arguments, "title"), requiredText(arguments, "prompt"),
                 arguments.path("priority").asInt(0), dependsOn == null ? List.of() : List.of(new TaskDependencyService.DependencyRequest(dependsOn, TaskDependencyType.REQUIRES_SUCCESS)), source.getActiveTaskId(),
-                arguments.hasNonNull("kind") ? TaskKind.valueOf(arguments.get("kind").asText().toUpperCase()) : null);
+                arguments.hasNonNull("kind") ? TaskKind.valueOf(arguments.get("kind").asText().toUpperCase()) : null,
+                new TaskDispatchService.DeliveryRequest(
+                        arguments.hasNonNull("deliverable") ? TaskDeliverable.valueOf(arguments.get("deliverable").asText().toUpperCase()) : null,
+                        boolArgument(arguments, "reviewRequired"), boolArgument(arguments, "architectureRequired"),
+                        boolArgument(arguments, "deploymentRequired"), textArgument(arguments, "environmentKey")));
         ObjectNode payload = mapper.createObjectNode();
         payload.put("taskId", task.getId().toString());
         payload.put("assignedAgentId", targetAgentId.toString());
         payload.put("status", task.getStatus().name());
         payload.put("kind", task.getKind().name());
         payload.put("workflowId", task.getWorkflowId().toString());
+        payload.put("deliverable", task.getDeliverable().name());
+        payload.put("deliveryStage", task.getDeliveryStage().name());
         return success(payload.toString());
     }
 
-    private JsonNode reportTask(AgentEntity source, JsonNode arguments) {
-        UUID taskId = source.getActiveTaskId();
-        if (taskId == null) throw new IllegalStateException("No active task to report");
-        TaskEntity task = taskService.report(source.getId(), taskId, requiredText(arguments, "report"));
+    private Boolean boolArgument(JsonNode arguments, String field) {
+        return arguments.hasNonNull(field) ? arguments.get(field).asBoolean() : null;
+    }
+
+    private String textArgument(JsonNode arguments, String field) {
+        return arguments.hasNonNull(field) ? arguments.get(field).asText() : null;
+    }
+
+    private JsonNode reportTask(AgentEntity source, JsonNode arguments, boolean blocked) {
+        UUID taskId;
+        JsonNode generation = arguments.path("runtimeGeneration");
+        try {
+            taskId = UUID.fromString(requiredText(arguments, "taskId"));
+            if (!generation.isIntegralNumber() || !generation.canConvertToLong() || generation.asLong() < 0) {
+                throw new IllegalArgumentException("runtimeGeneration must be a nonnegative integer");
+            }
+        } catch (IllegalArgumentException error) {
+            ObjectNode response = (ObjectNode) failure("REPORT_IDENTITY_REQUIRED", "Pass the taskId and runtimeGeneration from the original dispatch; never infer them from a newer task");
+            response.put("nextAction", "Inspect the original dispatch identity; list_agents shows current ownership for reconciliation only");
+            return response;
+        }
+        TaskEntity task;
+        try {
+            task = blocked
+                    ? taskService.block(source.getId(), taskId, generation.asLong(), requiredText(arguments, "reason"))
+                    : taskService.report(source.getId(), taskId, generation.asLong(), requiredText(arguments, "report"),
+                            parseEvidence(arguments.path("evidence")));
+        } catch (TaskDispatchService.ReportRejectedException error) {
+            ObjectNode response = (ObjectNode) failure(error.code, error.getMessage()
+                    + "; taskId=" + error.taskId + "; activeTaskId=" + error.activeTaskId);
+            response.put("taskId", error.taskId.toString());
+            if (error.activeTaskId != null) response.put("activeTaskId", error.activeTaskId.toString());
+            response.put("nextAction", error.getMessage());
+            return response;
+        } catch (NoSuchElementException | IllegalArgumentException error) {
+            ObjectNode response = (ObjectNode) failure(error instanceof NoSuchElementException ? "TASK_NOT_FOUND" : "INVALID_TASK_REPORT", error.getMessage());
+            response.put("taskId", taskId.toString());
+            response.put("nextAction", "Inspect the original task identity and report; do not create a replacement task");
+            return response;
+        }
         ObjectNode payload = mapper.createObjectNode();
         payload.put("taskId", task.getId().toString());
         payload.put("reported", true);
+        payload.put("blocked", blocked);
+        payload.put("deliverable", task.getDeliverable().name());
+        payload.put("deliveryStage", task.getDeliveryStage().name());
         return success(payload.toString());
+    }
+
+    private com.agenticform.task.TaskEvidence parseEvidence(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        if (!node.isObject()) throw new IllegalArgumentException("evidence must be an object");
+        String outcome = com.agenticform.task.TaskEvidence.normalizeOutcome(node.path("outcome").asText(null));
+        if (outcome == null) throw new IllegalArgumentException("evidence.outcome is required");
+        List<com.agenticform.task.TaskEvidence.Artifact> artifacts = new ArrayList<>();
+        for (JsonNode entry : node.path("artifacts")) {
+            if (!entry.isObject()) throw new IllegalArgumentException("evidence.artifacts entries must be objects");
+            String type = requiredText(entry, "type");
+            String reference = requiredText(entry, "reference");
+            artifacts.add(new com.agenticform.task.TaskEvidence.Artifact(
+                    com.agenticform.task.TaskEvidence.ArtifactType.valueOf(type.toUpperCase()),
+                    reference, entry.path("revision").asText(null), entry.path("digest").asText(null)));
+        }
+        List<com.agenticform.task.TaskEvidence.Validation> validations = new ArrayList<>();
+        for (JsonNode entry : node.path("validations")) {
+            if (!entry.isObject()) throw new IllegalArgumentException("evidence.validations entries must be objects");
+            String status = com.agenticform.task.TaskEvidence.normalizeValidationStatus(requiredText(entry, "status"));
+            if (!java.util.Set.of("PASSED", "FAILED", "NOT_RUN").contains(status)) {
+                throw new IllegalArgumentException("evidence validation status must be PASSED, FAILED, or NOT_RUN");
+            }
+            validations.add(new com.agenticform.task.TaskEvidence.Validation(
+                    requiredText(entry, "name"), status, entry.path("reference").asText(null)));
+        }
+        return new com.agenticform.task.TaskEvidence(outcome, artifacts, validations,
+                textEntries(node.path("blockers")), textEntries(node.path("followUp")));
+    }
+
+    private List<String> textEntries(JsonNode node) {
+        List<String> values = new ArrayList<>();
+        for (JsonNode entry : node) {
+            if (!entry.isTextual()) throw new IllegalArgumentException("evidence text lists must contain strings");
+            String value = entry.asText();
+            if (value != null && !value.isBlank()) values.add(value.trim());
+        }
+        return List.copyOf(values);
     }
 
     private JsonNode broadcastMessage(AgentEntity source, JsonNode arguments) {
@@ -540,7 +628,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         ArrayNode items = response.putArray("contentItems");
         ObjectNode item = items.addObject();
         item.put("type", "inputText");
-        item.put("text", text);
+        item.put("text", code + ": " + text);
         return response;
     }
 

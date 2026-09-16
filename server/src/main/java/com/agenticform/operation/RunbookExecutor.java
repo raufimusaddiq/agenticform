@@ -51,6 +51,7 @@ public class RunbookExecutor {
     private final OperationEventService events;
     private final ObjectMapper mapper;
     private final HttpClient httpClient;
+    private final com.agenticform.task.TaskRepository taskRepository;
 
     public RunbookExecutor(OperationRunRepository runRepository,
                            OperationStepRunRepository stepRepository,
@@ -58,7 +59,8 @@ public class RunbookExecutor {
                            OperationalRegistryService registry,
                            ExternalWorkflowService externalWorkflows,
                            OperationEventService events,
-                           ObjectMapper mapper) {
+                           ObjectMapper mapper,
+                           com.agenticform.task.TaskRepository taskRepository) {
         this.runRepository = runRepository;
         this.stepRepository = stepRepository;
         this.projectRepository = projectRepository;
@@ -66,6 +68,7 @@ public class RunbookExecutor {
         this.externalWorkflows = externalWorkflows;
         this.events = events;
         this.mapper = mapper;
+        this.taskRepository = taskRepository;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -132,6 +135,7 @@ public class RunbookExecutor {
             }
 
             run.succeed();
+            markRootDeliveredIfDeployment(run);
             runRepository.save(run);
             events.publishTerminal(run);
         } catch (Exception error) {
@@ -139,6 +143,74 @@ public class RunbookExecutor {
             runRepository.save(run);
             events.publishTerminal(run);
         }
+    }
+
+    /**
+     * A successful deployment runbook with recorded post-deployment verification is
+     * the authoritative delivery proof for the root task that requested it. Other
+     * operations (inspection, rollback) never mark the requested change delivered.
+     */
+    private void markRootDeliveredIfDeployment(OperationRunEntity run) {
+        if (run.getRequestedTaskId() == null) return;
+        if (!isDeploymentAction(run.getAction())) return;
+        var task = taskRepository.findById(run.getRequestedTaskId()).orElse(null);
+        if (task == null || !task.requiresVerifiedDelivery()) return;
+        String verification = deploymentVerificationEvidence(run.getId());
+        if (verification == null) return;
+        String revision = expectedRevision(run);
+        // Evidence must be bound to the exact accepted revision and target. A green
+        // run for an unidentified revision cannot prove delivery.
+        if (revision == null || run.getEnvironmentKey() == null || run.getEnvironmentKey().isBlank()) return;
+        task.setDeliveryStage(com.agenticform.task.TaskDeliveryStage.DEPLOYMENT_VERIFIED);
+        task.recordVerifiedDelivery(run.getEnvironmentKey(), revision, artifactDigest(run),
+                run.getId(), verification);
+        taskRepository.save(task);
+    }
+
+    private String expectedRevision(OperationRunEntity run) {
+        Map<String, String> parameters = safeParameters(run.getParametersJson());
+        for (String key : List.of("expectedSha", "expected_sha", "sha", "revision", "commit", "version")) {
+            String value = parameters.get(key);
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
+    }
+
+    private String artifactDigest(OperationRunEntity run) {
+        Map<String, String> parameters = safeParameters(run.getParametersJson());
+        for (String key : List.of("digest", "imageDigest", "artifactDigest", "artifact")) {
+            String value = parameters.get(key);
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
+    }
+
+    private Map<String, String> safeParameters(String json) {
+        try {
+            return decodeParameters(json);
+        } catch (Exception error) {
+            return Map.of();
+        }
+    }
+
+    private boolean isDeploymentAction(String action) {
+        if (action == null) return false;
+        String normalized = action.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("deploy") || normalized.contains("release");
+    }
+
+    private String deploymentVerificationEvidence(java.util.UUID runId) {
+        StringBuilder evidence = new StringBuilder();
+        for (OperationStepRunEntity step : stepRepository.findAllByOperationRunIdOrderByPosition(runId)) {
+            if (step.getStatus() != OperationStepRunEntity.Status.SUCCEEDED) return null;
+            String type = step.getStepType();
+            if (type == null) return null;
+            if (type.contains("CHECK") || type.contains("ASSERT")) {
+                if (step.getEvidence() == null || step.getEvidence().isBlank()) return null;
+                evidence.append(step.getStepKey()).append(": ").append(step.getEvidence()).append('\n');
+            }
+        }
+        return evidence.isEmpty() ? null : evidence.toString();
     }
 
     private StepOutcome executeStep(OperationalRegistryService.StepSpec step,

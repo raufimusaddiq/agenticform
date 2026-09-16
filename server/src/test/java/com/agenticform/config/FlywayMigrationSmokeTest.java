@@ -17,6 +17,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FlywayMigrationSmokeTest {
     @Test
+    void deliveryJourneyThroughRunbookVerifiesDeploymentOnRealDatabase() throws Exception {
+        String url = System.getenv("MIGRATION_TEST_DATABASE_URL");
+        if (url == null || url.isBlank()) return;
+        new com.agenticform.operation.DeliveryJourneyTestSupport(url,
+                System.getenv("MIGRATION_TEST_DATABASE_USER"),
+                System.getenv("MIGRATION_TEST_DATABASE_PASSWORD")).run();
+    }
+
+    @Test
     void allMigrationsApplyCleanlyAndAreIdempotent() throws Exception {
         String url = System.getenv("MIGRATION_TEST_DATABASE_URL");
         String user = System.getenv("MIGRATION_TEST_DATABASE_USER");

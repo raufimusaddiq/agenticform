@@ -125,7 +125,24 @@ public class OperationRunService {
         }
 
         run.approve(normalizeActor(actor, "operator"));
+        markDeliveryDeploying(run);
         return runRepository.save(run);
+    }
+
+    /**
+     * An approved application-change runbook moves its root task into the
+     * DEPLOYING milestone so operators can distinguish "approved and starting"
+     * from "still waiting for a decision". Inspection/rollback runs are ignored.
+     */
+    void markDeliveryDeploying(OperationRunEntity run) {
+        if (run.getRequestedTaskId() == null) return;
+        String action = run.getAction() == null ? "" : run.getAction().toLowerCase(java.util.Locale.ROOT);
+        if (!action.contains("deploy") && !action.contains("release")) return;
+        taskRepository.findById(run.getRequestedTaskId()).ifPresent(task -> {
+            if (!task.requiresVerifiedDelivery()) return;
+            task.setDeliveryStage(com.agenticform.task.TaskDeliveryStage.DEPLOYING);
+            taskRepository.save(task);
+        });
     }
 
     public synchronized OperationRunEntity decline(UUID runId, String actor, String reason) {

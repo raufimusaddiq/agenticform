@@ -47,6 +47,8 @@ public class TaskWorkflowGate {
 
     private boolean requiresRunnableTask(AgentEntity target, AgentMessageType type) {
         if (type == null) return false;
+        if (target.getRole() == AgentRole.OPERATIONAL
+                && (type == AgentMessageType.HANDOFF || type == AgentMessageType.REQUEST)) return false;
         if (WORK_REQUESTS.contains(type)) return true;
         return type == AgentMessageType.HANDOFF && target.getRole() != AgentRole.OPERATIONAL;
     }

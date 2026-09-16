@@ -65,5 +65,8 @@ class TaskWorkflowGateTest {
         when(target.getRole()).thenReturn(AgentRole.OPERATIONAL);
 
         assertDoesNotThrow(() -> gate.requireMessageTargetReady(target, AgentMessageType.HANDOFF));
+        assertDoesNotThrow(() -> gate.requireMessageTargetReady(target, AgentMessageType.REQUEST));
+        assertThrows(IllegalStateException.class,
+                () -> gate.requireMessageTargetReady(target, AgentMessageType.REVIEW_REQUEST));
     }
 }
