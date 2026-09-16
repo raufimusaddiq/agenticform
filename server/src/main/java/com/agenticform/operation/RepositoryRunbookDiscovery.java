@@ -5,6 +5,7 @@ import com.agenticform.project.ProjectEntity;
 import com.agenticform.project.ProjectRepository;
 import com.agenticform.project.ProjectService;
 import com.agenticform.project.ProjectSourceType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -65,6 +66,7 @@ public class RepositoryRunbookDiscovery {
     private final GitHubManifestClient client;
     private final ObjectMapper mapper;
 
+    @Autowired
     public RepositoryRunbookDiscovery(ProjectRepository projectRepository,
                                       ProjectService projectService,
                                       OperationalRegistryService registry,
@@ -74,6 +76,10 @@ public class RepositoryRunbookDiscovery {
                 new GitHubManifestClient(properties.getGithub()), mapper);
     }
 
+    /**
+     * Test seam: injects the GitHub reader directly. Kept package-private and
+     * non-autowired so Spring always uses the production constructor above.
+     */
     RepositoryRunbookDiscovery(ProjectRepository projectRepository,
                                ProjectService projectService,
                                OperationalRegistryService registry,
