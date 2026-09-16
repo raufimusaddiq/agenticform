@@ -297,7 +297,7 @@ wildcard-evasion negatives), PolicyPreauthorizationServiceTest (3 tests),
 HumanApprovalPolicyTest (10 tests), ExternalWorkflowServiceTest (4 tests
 including wrong-SHA and duplicate-dispatch negatives), GitHubWebhookServiceTest
 (3 tests including invalid signature and duplicate delivery), and the disposable
-end-to-end runbook delivery journey. All pass in the current 166-test suite.
+end-to-end runbook delivery journey. All pass in the current 170-test suite.
 Remaining P0-6 gate: real production runbook registration and authorization
 rollout, which is an operator action outside this repository.
 
@@ -449,7 +449,7 @@ evidence table marks closed has direct command/test evidence above; the table's
 
 `sh tests/verify-audit-evidence.sh` re-runs the source-level evidence in one
 command (server tests + migrations on a disposable database, Go test/vet, web
-ci/test/build) and prints a pass/fail summary. Latest local run 2026-09-16: all three steps PASS, 166 tests. CI-verified on `c33a883`
+ci/test/build) and prints a pass/fail summary. Latest local run 2026-09-16: all three steps PASS, 170 tests. CI-verified on `c33a883`
 (run 35028371564, all 8 jobs green including all four journeys). The four journey scripts (clean
 install, browser, node loss, restore) provide the end-to-end layer and run as
 CI jobs on every push.
@@ -462,7 +462,7 @@ The full objective for PR #33 is evidenced as follows on `fix/product-reliabilit
 | Evidence layer | Artifact | Status |
 | --- | --- | --- |
 | Fix implementation | commit `f39b82c` (V9 contract, report identity, async auth, proxy, recovery, install, ops binding) + follow-ups through `59c1e10` (delivery milestones, wildcard-evasion fix, cleanup-safety tests) | landed |
-| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 166 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
+| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 170 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
 | Clean install | `tests/clean-install-journey.sh` | PASS, CI `clean-install-journey` |
 | Real browser | `tests/browser-journey.sh` (headless Chromium, 10 checks) | PASS, CI `browser-journey` |
 | Credential restore | `tests/credential-restore.sh` (pg_dump/pg_restore) | PASS, CI `restore-evidence` |
