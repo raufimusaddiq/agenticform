@@ -6,7 +6,7 @@ PR #34: https://github.com/raufimusaddiq/agenticform/pull/34 — CI run
 35007795790 on `f39b82c`: all jobs green (server, node, web incl. both-stream
 shipped-proxy verification, server-image).
 Subsequent commits `73e2761` (CI evidence) and `6613666` (end-to-end delivery
-journey, suite 153 tests) are also green in CI run 35012463396: server, node,
+journey, suite green) are also green in CI run 35012463396: server, node,
 web (both-stream shipped-proxy verification), server-image all success. Owner: implementation
 agent; release/operator sign-off and the operator-only gates below remain
 required. Historical Sprint 15 records are unchanged. Scope: every workstream
@@ -447,12 +447,12 @@ The full objective for PR #33 is evidenced as follows on `fix/product-reliabilit
 | Evidence layer | Artifact | Status |
 | --- | --- | --- |
 | Fix implementation | commit `f39b82c` (V9 contract, report identity, async auth, proxy, recovery, install, ops binding) | landed |
-| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 154 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
+| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 162 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
 | Clean install | `tests/clean-install-journey.sh` | PASS, CI `clean-install-journey` |
 | Real browser | `tests/browser-journey.sh` (headless Chromium, 10 checks) | PASS, CI `browser-journey` |
 | Credential restore | `tests/credential-restore.sh` (pg_dump/pg_restore) | PASS, CI `restore-evidence` |
 | Node loss | `tests/node-recovery-journey.sh` (enroll→kill→OFFLINE→incident→DISCONNECTED) | PASS, CI `node-loss-journey` |
-| Final CI | run 35030645633 and 35031775630 (`1afb511`, `e08fff1`) | all 8 jobs success (one transient registry-reset failure in restore-evidence was rerun and passed) |
+| Final CI | latest run on `d2d9631` | all 8 jobs success (server, node, web, server-image, restore-evidence, clean-install-journey, browser-journey, node-loss-journey) |
 
 Every in-repo gate named in PR #33 is proven by a committed, repeatable script or
 test that CI re-runs. The only remaining items are operator/release actions
