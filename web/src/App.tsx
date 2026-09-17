@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
-import { consumeAgentStream, consumeControlPlaneEvents } from './controlPlaneEvents';
+import { consumeAgentStream, consumeControlPlaneEvents, type AgentRunOutput } from './controlPlaneEvents';
 import { combinedConnectionState } from './connectionState';
 import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
@@ -82,6 +82,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [approvals, setApprovals] = useState<HumanApproval[]>([]);
   const [policyRules, setPolicyRules] = useState<PolicyRule[]>([]);
+  const [runOutput, setRunOutput] = useState<Record<string, AgentRunOutput[]>>({});
   const [communicationRules, setCommunicationRules] = useState<CommunicationRule[]>([]);
   const [projectCandidates, setProjectCandidates] = useState<ProjectCandidate[]>([]);
   const [view, setView] = useState<View>(() => viewFromPath(window.location.pathname));
@@ -153,7 +154,13 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
           await consumeControlPlaneEvents(() => scheduleRefresh(), controller.signal, (state) => {
             setEventConnection(state);
             if (state === 'CONNECTED') { setSnapshotCurrent(false); scheduleRefresh(); }
-          });
+          }, (output) => setRunOutput((current) => {
+            const next = { ...current, [output.agentId]: [...(current[output.agentId] ?? []), output] };
+            for (const key of Object.keys(next)) {
+              if (key !== output.agentId && next[key].length > 400) next[key] = next[key].slice(-400);
+            }
+            return next;
+          }));
         } catch (cause) {
           if (controller.signal.aborted || stopped) return;
           if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') {
@@ -265,7 +272,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
           <>
             {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} messages={visibleMessages} approvals={visibleApprovals} attention={attention} active={active} queued={queued} connection={connection} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => navigate('approvals')} onOpenAgents={() => navigate('agents')} onOpenTasks={() => navigate('tasks')} onSpawn={() => setDialog('agent')} />}
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onEdit={(projectId) => { setEditingProjectId(projectId); setDialog('project-edit'); }} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} onEnsureSystemAgents={(projectId) => void mutate(() => api.ensureOperationalAgent(projectId))} />}
-            {view === 'agents' && <Agents agents={visibleAgents} tasks={visibleTasks} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} onRestart={(id) => void mutate(() => api.restartRuntime(id))} />}
+{view === 'agents' && <Agents agents={visibleAgents} tasks={visibleTasks} projectById={projectById} runOutput={runOutput} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} onRestart={(id) => void mutate(() => api.restartRuntime(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
             {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} communicationRules={communicationRules} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} onSaveRule={async (input) => { await mutate(() => api.saveCommunicationRule(input)); }} onDeleteRule={async (id) => { await mutate(() => api.deleteCommunicationRule(id)); }} />}
             {view === 'operations' && <OperationsView projects={projects} agents={agents} projectFilter={projectFilter} />}
@@ -340,9 +347,10 @@ function Projects({ projects, agents, tasks, candidates, onRegister, onEdit, onD
   </section>;
 }
 
-function Agents({ agents, tasks, projectById, onControlMode, onQueueMode, onIntervene, onRestart }: {
+function Agents({ agents, tasks, projectById, runOutput, onControlMode, onQueueMode, onIntervene, onRestart }: {
   agents: Agent[]; tasks: Task[];
   projectById: Map<string, Project>;
+  runOutput: Record<string, AgentRunOutput[]>;
   onControlMode: (id: string, mode: HumanControlMode) => void;
   onQueueMode: (id: string, mode: AgentQueueMode) => void;
   onIntervene: (id: string) => void;
@@ -354,6 +362,7 @@ function Agents({ agents, tasks, projectById, onControlMode, onQueueMode, onInte
   const selected = agents.find((agent) => agent.id === selectedId);
   return <section className="panel"><div className="section-header"><div><h2>Agents</h2></div></div>
     <div className="inline-summary"><span>{working} working</span><span>{blocked} attention</span><span>{agents.length} total</span></div>
+    {selected && (runOutput[selected.id]?.length ?? 0) > 0 && <section className="data-list"><h3>Live run · {selected.name}</h3><div className="agent-run-stream">{runOutput[selected.id].slice(-200).map((entry, index) => <p key={index}>{entry.text}</p>)}</div></section>}
     {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="split-workbench"><div className="workbench-table agent-table"><div className="table-head"><span>Agent</span><span>State</span><span>Current work</span><span>Project</span><span>Supervision</span></div>{agents.map((agent) => <button className={`table-row${selectedId === agent.id ? ' selected' : ''}`} key={agent.id} onClick={() => setSelectedId(agent.id)}><span>{agent.name}</span><Status value={agent.status} /><span>{tasks.find((task) => task.id === agent.activeTaskId)?.title ?? '-'}</span><span>{projectById.get(agent.projectId)?.name ?? 'Unknown project'}</span><HumanControlIndicator mode={agent.humanControlMode} /></button>)}</div><aside className="inspector">{selected ? <><h3>Selected agent</h3><Status value={selected.status} /><dl><dt>Current task</dt><dd>{tasks.find((task) => task.id === selected.activeTaskId)?.title ?? '-'}</dd><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name ?? 'Unknown project'}</dd><dt>Supervision</dt><dd><select className="compact-select" value={selected.humanControlMode} onChange={(event) => onControlMode(selected.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop</option><option value="IN_THE_LOOP">Human in the loop</option></select></dd><dt>Responsibility</dt><dd>{selected.responsibility}</dd><dt>Capability</dt><dd>{selected.capabilityProfile}</dd><dt>Runtime</dt><dd>{selected.runtimeType}</dd><dt>Session</dt><dd><code>{shortId(selected.runtimeSessionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.activeTurnId)}</code></dd><dt>Directory</dt><dd><code>{selected.workingDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.branch ?? 'shared workspace'}</code></dd><dt>Execution node</dt><dd><code>{shortId(selected.executionNodeId)}</code></dd><dt>Queue mode</dt><dd><select className="compact-select" value={selected.queueMode} onChange={(event) => onQueueMode(selected.id, event.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></dd></dl><div className="form-actions"><button className="button secondary" onClick={() => onIntervene(selected.id)} disabled={selected.queueMode === 'PAUSED' && !selected.activeTurnId}>Intervene</button><button className="button ghost" type="button" onClick={() => { if (window.confirm(`Restart ${selected.name}'s runtime? This creates a new Codex thread.`)) onRestart(selected.id); }} disabled={Boolean(selected.activeTaskId || selected.activeTurnId)}>Restart runtime</button></div></> : <p className="muted">Select an agent.</p>}</aside></div>}
   </section>;
 }

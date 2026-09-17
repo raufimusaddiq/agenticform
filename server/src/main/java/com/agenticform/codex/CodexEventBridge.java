@@ -74,6 +74,17 @@ public class CodexEventBridge {
         JsonNode params = notification.params();
         if (params == null) return;
 
+        if ("item/agentMessage/delta".equals(notification.method())) {
+            JsonNode delta = params.path("delta");
+            if (!delta.isTextual() || delta.asText().isBlank()) return;
+            String threadId = params.path("threadId").asText(null);
+            agentRepository.findAll().stream()
+                    .filter(agent -> authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, agent))
+                    .filter(agent -> threadId != null && threadId.equals(agent.getRuntimeSessionId()))
+                    .findFirst().ifPresent(agent -> events.publishRunOutput(agent.getId(), delta.asText()));
+            return;
+        }
+
         if ("item/started".equals(notification.method())) {
             JsonNode item = params.path("item");
             if (!"userMessage".equals(item.path("type").asText())) return;
