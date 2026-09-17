@@ -588,6 +588,12 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 				_ = os.RemoveAll(workingDirectory)
 				return nil, err
 			}
+			// Fresh shared clones may lack remote-tracking refs. Fetch the exact
+			// requested branch inside the clone so checkout resolves to its commit.
+			if err := runGit(workingDirectory, "fetch", "origin", branch); err != nil {
+				_ = os.RemoveAll(workingDirectory)
+				return nil, err
+			}
 			if err := runGit(workingDirectory, "checkout", "-b", branch, base); err != nil {
 				_ = os.RemoveAll(workingDirectory)
 				return nil, err
