@@ -77,12 +77,14 @@ public class AgentRuntimeRecoveryService {
                 : scheduler.select(null, NodeTrustLevel.STANDARD,
                         Set.of("runtime:" + runtimeType.name(), "git"), Set.of(oldNodeId));
         long nextGeneration = agent.getRuntimeGeneration() + 1;
-        String recoveryBranch = "recovery/" + safe(agent.getName()) + "-"
-                + agent.getId().toString().substring(0, 8) + "-g" + nextGeneration;
         String previousBranch = agent.getBranch();
         UUID activeTaskId = agent.getActiveTaskId();
         TaskEntity activeTask = activeTaskId == null ? null : tasks.findById(activeTaskId).orElse(null);
         if (activeTask != null && terminal(activeTask.getStatus())) activeTask = null;
+        String recoveryBranch = activeTask != null && previousBranch != null && !previousBranch.isBlank()
+                ? previousBranch
+                : "recovery/" + safe(agent.getName()) + "-"
+                        + agent.getId().toString().substring(0, 8) + "-g" + nextGeneration;
 
         long generation = agent.reassignRuntime(replacement.getId(), recoveryBranch);
         agents.save(agent);
