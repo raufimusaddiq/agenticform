@@ -1,1 +1,10 @@
-.human-agent-row{grid-template-columns:minmax(130px,.75fr) 120px minmax(220px,1.5fr) 150px 160px minmax(180px,1fr) 88px}.control-stack{min-width:0;display:grid;gap:4px}.control-stack small{color:var(--muted);font-size:11px}.compact-select{min-width:0;padding:6px 7px;font-size:11px}@media(max-width:1280px){.human-agent-row{grid-template-columns:minmax(140px,1fr) 120px minmax(220px,1.5fr) 150px 160px}}@media(max-width:1000px){.human-agent-row{grid-template-columns:1fr 1fr}}@media(max-width:680px){.human-agent-row{grid-template-columns:1fr}}
+/* Human control - supervision selector. */
+.checkbox-row{display:flex!important;align-items:center;gap:8px}
+.checkbox-row input{width:auto;min-height:0}
+.human-agent-row{grid-template-columns:minmax(130px,.75fr) 118px minmax(220px,1.5fr) 140px 150px minmax(180px,1fr) 84px}
+.control-stack{min-width:0;display:grid;gap:4px}
+.control-stack small{color:var(--ink-faint);font-size:10px;text-transform:uppercase;letter-spacing:.12em}
+.compact-select{min-width:0;padding:6px 7px;font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+@media(max-width:1280px){.human-agent-row{grid-template-columns:minmax(140px,1fr) 118px minmax(220px,1.5fr) 140px 150px}}
+@media(max-width:1000px){.human-agent-row{grid-template-columns:1fr 1fr}}
+@media(max-width:680px){.human-agent-row{grid-template-columns:1fr}}

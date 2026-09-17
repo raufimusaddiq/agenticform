@@ -234,7 +234,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
     <div className="shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
       <aside className="sidebar" aria-label="Primary navigation">
-        <div className="brand"><span className="brand-mark" aria-hidden="true">A</span><div><strong>Agenticform</strong><small>control plane</small></div></div>
+        <div className="brand"><span className="brand-mark" aria-hidden="true">A</span><div><strong>Agenticform</strong><small>Unit / CP-01</small></div></div>
         <div className="nav-caption">Workspace</div>
         <nav>
           {nav.slice(0, 4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}</button>)}
