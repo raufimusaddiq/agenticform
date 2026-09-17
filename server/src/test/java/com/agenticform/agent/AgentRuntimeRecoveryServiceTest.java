@@ -221,7 +221,9 @@ class AgentRuntimeRecoveryServiceTest {
         ArgumentCaptor<Map<String, ?>> payload = ArgumentCaptor.forClass(Map.class);
         verify(nodeService).enqueue(eq(newNodeId), eq(agentId), eq("START_AGENT"),
                 eq("start-agent:" + agentId + ":g4"), payload.capture());
-        assertTrue(String.valueOf(payload.getValue().get("requestedBranch")).endsWith("-g4"));
+        // Without a recorded base branch, recovery falls back to the project default
+        // branch rather than minting an unusable synthetic recovery branch.
+        assertEquals("main", payload.getValue().get("requestedBranch"));
     }
 
     @Test
