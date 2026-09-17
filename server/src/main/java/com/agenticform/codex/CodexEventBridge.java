@@ -19,11 +19,13 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class CodexEventBridge {
     private static final String TASK_CLIENT_PREFIX = "agenticform-task:";
     private static final String MESSAGE_CLIENT_PREFIX = "agenticform-message:";
+    private final ConcurrentHashMap<String, StringBuilder> deltaBuffers = new ConcurrentHashMap<>();
 
     private final CodexJsonRpcClient client;
     private final TaskRepository taskRepository;
@@ -78,6 +80,7 @@ public class CodexEventBridge {
             JsonNode delta = params.path("delta");
             if (!delta.isTextual() || delta.asText().isBlank()) return;
             String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
+            if (threadId != null) deltaBuffers.computeIfAbsent(threadId, k -> new StringBuilder()).append(delta.asText());
             publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, delta.asText());
             return;
         }
@@ -91,9 +94,12 @@ public class CodexEventBridge {
             return;
         }
 
-        if ("item/completed".equals(notification.method())) {
+        if ("item/completed".equals(notification.method()) || "rawResponseItem/completed".equals(notification.method())) {
             JsonNode item = params.path("item");
-            if (!"agentMessage".equalsIgnoreCase(item.path("type").asText())) return;
+            boolean agentMessageItem = "agentMessage".equalsIgnoreCase(item.path("type").asText());
+            boolean rawAssistantMessage = "message".equalsIgnoreCase(item.path("type").asText())
+                    && "assistant".equalsIgnoreCase(item.path("role").asText());
+            if (!agentMessageItem && !rawAssistantMessage) return;
             StringBuilder text = new StringBuilder();
             item.path("content").forEach(part -> {
                 if ("text".equalsIgnoreCase(part.path("type").asText())) text.append(part.path("text").asText(""));
@@ -103,22 +109,10 @@ public class CodexEventBridge {
             if (text.isEmpty() && item.path("text").isTextual()) text.append(item.path("text").asText(""));
             if (text.isEmpty()) return;
             String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
-            publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, text.toString());
-            return;
-        }
-
-        if ("rawResponseItem/completed".equals(notification.method())) {
-            JsonNode item = params.path("item");
-            if (!"message".equalsIgnoreCase(item.path("type").asText())
-                    || !"assistant".equalsIgnoreCase(item.path("role").asText())) return;
-            StringBuilder text = new StringBuilder();
-            item.path("content").forEach(part -> {
-                if ("output_text".equalsIgnoreCase(part.path("type").asText())) {
-                    text.append(part.path("text").asText(""));
-                }
-            });
-            if (text.isEmpty()) return;
-            String threadId = params.path("threadId").asText(null);
+            if (threadId != null) {
+                StringBuilder buffered = deltaBuffers.get(threadId);
+                if (buffered != null && text.toString().contentEquals(buffered)) return;
+            }
             publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, text.toString());
             return;
         }
@@ -179,6 +173,8 @@ public class CodexEventBridge {
             messageDeliveries.findByTurnId(turnId).ifPresent(delivery ->
                     completeMessage(delivery, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId));
         }
+        String completedThreadId = params.path("threadId").asText(params.path("thread_id").asText(null));
+        if (completedThreadId != null) deltaBuffers.remove(completedThreadId);
     }
 
     /**
