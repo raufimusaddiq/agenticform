@@ -120,6 +120,9 @@ public class TaskDispatchService {
         boolean deploymentRequired = parentTaskId == null && (delivery.deploymentRequired() == null
                 ? deliverable == TaskDeliverable.IMPLEMENTATION || kind == TaskKind.ORCHESTRATION
                 : delivery.deploymentRequired());
+        if (deploymentRequired && (delivery.environmentKey() == null || delivery.environmentKey().isBlank())) {
+            throw new IllegalArgumentException("deploymentRequired=true requires an environmentKey; specify the target or disable deployment only when the request excludes deployment");
+        }
         TaskEntity existing = taskRepository.findAllByProjectIdOrderByCreatedAtDesc(agent.getProjectId()).stream()
                 .filter(candidate -> candidate.getAssignedAgentId().equals(agentId))
                 .filter(candidate -> java.util.Objects.equals(candidate.getParentTaskId(), parentTaskId))
