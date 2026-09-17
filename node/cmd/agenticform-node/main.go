@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,6 +36,23 @@ const (
 	version         = "0.2.0"
 	protocolVersion = 1
 )
+
+// newHTTPClient builds a control-plane HTTP client that dials IPv4 only.
+// Hosts that publish AAAA records without a usable IPv6 route make dual-stack
+// dialing block until the request deadline instead of failing over, which shows
+// up as heartbeat and command-poll timeouts against an otherwise healthy plane.
+func newHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "tcp4", address)
+		},
+		ForceAttemptHTTP2: true,
+		MaxIdleConns:      16,
+		IdleConnTimeout:   90 * time.Second,
+	}
+	return &http.Client{Timeout: timeout, Transport: transport}
+}
 
 func randomID() string {
 	b := make([]byte, 16)
@@ -213,7 +231,7 @@ func enroll(stateDir, server string) error {
 	})
 	req, _ := http.NewRequest(http.MethodPost, server+"/api/nodes/enroll", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	resp, err := newHTTPClient(120 * time.Second).Do(req)
 	if err != nil {
 		return fmt.Errorf("enroll request: %w", err)
 	}
@@ -266,7 +284,7 @@ func daemon(stateDir, server string) error {
 		server:            server,
 		id:                id,
 		private:           private,
-		http:              &http.Client{Timeout: 45 * time.Second},
+		http:              newHTTPClient(45 * time.Second),
 		ledger:            ledger,
 		runtimes:          runtimes,
 		runtimeInstanceID: randomID(),
