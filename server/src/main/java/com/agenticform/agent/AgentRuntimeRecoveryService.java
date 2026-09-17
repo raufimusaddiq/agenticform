@@ -78,10 +78,17 @@ public class AgentRuntimeRecoveryService {
                         Set.of("runtime:" + runtimeType.name(), "git"), Set.of(oldNodeId));
         long nextGeneration = agent.getRuntimeGeneration() + 1;
         String previousBranch = agent.getBranch();
+        boolean operatorBranch = previousBranch != null && !previousBranch.isBlank()
+                && !previousBranch.startsWith("recovery/") && !previousBranch.startsWith("restart/");
         UUID activeTaskId = agent.getActiveTaskId();
         TaskEntity activeTask = activeTaskId == null ? null : tasks.findById(activeTaskId).orElse(null);
         if (activeTask != null && terminal(activeTask.getStatus())) activeTask = null;
-        String recoveryBranch = activeTask != null && previousBranch != null && !previousBranch.isBlank()
+        // Preserve the agent's real working branch across rehydration. A synthetic
+        // recovery branch is only minted when the agent has never been bound to a
+        // concrete branch, or when its recorded branch is itself a past synthetic one.
+        // Otherwise rehydration silently moves the agent off the feature branch it is
+        // supposed to be implementing or reviewing.
+        String recoveryBranch = operatorBranch || activeTask != null && previousBranch != null && !previousBranch.isBlank()
                 ? previousBranch
                 : "recovery/" + safe(agent.getName()) + "-"
                         + agent.getId().toString().substring(0, 8) + "-g" + nextGeneration;

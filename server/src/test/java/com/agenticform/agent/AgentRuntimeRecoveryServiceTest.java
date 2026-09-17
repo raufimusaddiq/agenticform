@@ -172,7 +172,56 @@ class AgentRuntimeRecoveryServiceTest {
         assertEquals(projectId.toString(), payload.getValue().get("projectId"));
         assertEquals(oldNodeId.toString(), payload.getValue().get("previousNodeId"));
         assertEquals(true, payload.getValue().get("recovery"));
-        assertTrue(String.valueOf(payload.getValue().get("requestedBranch")).endsWith("-g2"));
+        // Operator branches survive node loss; recovery branches must not silently
+        // move an agent off the branch it was implementing or reviewing.
+        assertEquals("agent/coder", payload.getValue().get("requestedBranch"));
+    }
+
+    @Test
+    void recoveryRemintsBranchWhenRecordedBranchIsSynthetic() {
+        UUID agentId = UUID.randomUUID();
+        UUID projectId = UUID.randomUUID();
+        UUID oldNodeId = UUID.randomUUID();
+        UUID newNodeId = UUID.randomUUID();
+
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.getId()).thenReturn(agentId);
+        when(agent.getExecutionNodeId()).thenReturn(oldNodeId);
+        when(agent.getStatus()).thenReturn(AgentStatus.DISCONNECTED);
+        when(agent.getProjectId()).thenReturn(projectId);
+        when(agent.getRuntimeGeneration()).thenReturn(3L);
+        when(agent.getName()).thenReturn("Reviewer");
+        when(agent.getBranch()).thenReturn("recovery/reviewer-42424242-g3");
+        when(agent.getActiveTaskId()).thenReturn(null);
+        when(agent.getWorkspaceMode()).thenReturn(WorkspaceMode.ISOLATED_WORKTREE);
+        when(agent.getRuntimeType()).thenReturn(RuntimeType.CODEX);
+        when(agent.getCapabilityProfile()).thenReturn(AgentCapabilityProfile.REVIEWER);
+        when(agent.getResponsibility()).thenReturn("Review changes");
+        when(agent.reassignRuntime(eq(newNodeId), any())).thenReturn(4L);
+        when(approvals.existsByAgentIdAndStatus(agentId, HumanApprovalStatus.PENDING)).thenReturn(false);
+
+        when(projects.get(projectId)).thenReturn(project);
+        when(project.getSourceType()).thenReturn(ProjectSourceType.GIT);
+        when(project.getId()).thenReturn(projectId);
+        when(project.getSlug()).thenReturn("demo");
+        when(project.getRepositoryUrl()).thenReturn("https://github.com/acme/demo.git");
+        when(project.getDefaultBranch()).thenReturn("main");
+
+        when(nodeService.get(oldNodeId)).thenReturn(oldNode);
+        when(oldNode.getStatus()).thenReturn(ExecutionNodeStatus.OFFLINE);
+        when(replacement.getId()).thenReturn(newNodeId);
+        when(scheduler.select(null, NodeTrustLevel.STANDARD, Set.of("runtime:CODEX", "git"), Set.of(oldNodeId)))
+                .thenReturn(replacement);
+        when(runtimeRegistry.get(RuntimeType.CODEX)).thenReturn(runtime);
+        when(runtime.startParameters("", "Review changes", AgentCapabilityProfile.REVIEWER)).thenReturn(Map.of());
+
+        service.recover(agentId);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> payload = ArgumentCaptor.forClass(Map.class);
+        verify(nodeService).enqueue(eq(newNodeId), eq(agentId), eq("START_AGENT"),
+                eq("start-agent:" + agentId + ":g4"), payload.capture());
+        assertTrue(String.valueOf(payload.getValue().get("requestedBranch")).endsWith("-g4"));
     }
 
     @Test
