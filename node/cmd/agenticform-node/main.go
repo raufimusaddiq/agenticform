@@ -548,7 +548,13 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 			return nil, err
 		}
 		if _, err := os.Stat(workingDirectory); errors.Is(err, os.ErrNotExist) {
+			if requestedBranch != "" {
+				_ = runGit(repoRoot, "fetch", "origin", requestedBranch)
+			}
 			base := "origin/" + baseBranch
+			if requestedBranch != "" && runGit(repoRoot, "rev-parse", "--verify", "origin/"+requestedBranch) == nil {
+				base = "origin/" + requestedBranch
+			}
 			if err := runGit(repoRoot, "rev-parse", "--verify", base); err != nil {
 				defaultBranch := stringValue(payload, "defaultBranch")
 				fallback := "origin/" + defaultBranch
