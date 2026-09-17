@@ -556,7 +556,14 @@ public class TaskDispatchService {
     }
 
     public static String promptWithCompletionContract(TaskEntity task, AgentEntity agent) {
-        return task.getPrompt() + COMPLETION_CONTRACT + "\nReport identity: taskId=" + task.getId()
+        // Agents must never guess their workspace: an explicit path and branch prevent the
+        // "requested branch/worktree unavailable" blocker that silently stalls delegated work.
+        String workspace = agent.getWorkingDirectory() == null || agent.getWorkingDirectory().isBlank()
+                ? ""
+                : "\nWorkspace: workingDirectory=" + agent.getWorkingDirectory()
+                        + "; branch=" + (agent.getBranch() == null ? "" : agent.getBranch())
+                        + ". Work only inside this directory; do not search for or create other checkouts.";
+        return task.getPrompt() + COMPLETION_CONTRACT + workspace + "\nReport identity: taskId=" + task.getId()
                 + "; runtimeGeneration=" + agent.getRuntimeGeneration()
                 + ". Pass both unchanged to report_task. A RESULT message does not submit a task report.";
     }
