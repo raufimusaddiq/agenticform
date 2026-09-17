@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RepositoryRunbookDiscoveryTest {
@@ -35,6 +37,45 @@ class RepositoryRunbookDiscoveryTest {
 
     private RepositoryRunbookDiscovery service(StubGitHub client) {
         return new RepositoryRunbookDiscovery(projects, projectService, registry, client, mapper);
+    }
+
+    @Test
+    void proposalValidatesAndOpensReviewPullRequestWithoutRegisteringAnything() {
+        stubProject();
+        ObjectNode manifest = manifest();
+        StubGitHub client = new StubGitHub(SHA, null);
+        RepositoryRunbookDiscovery service = service(client);
+
+        ObjectNode result = service.propose(projectId, "production", manifest);
+
+        assertThat(result.path("repository").asText()).isEqualTo("raufimusaddiq/richmod");
+        assertThat(result.path("branch").asText()).startsWith("agenticform/runbook-");
+        assertThat(result.path("pullRequest").asText()).isEqualTo("https://github.com/raufimusaddiq/richmod/pulls/1");
+        assertThat(result.path("approval").asText()).contains("REQUIRE_HUMAN");
+        assertThat(client.createdFileContent).contains("PRODUCTION_DEPLOY");
+        verify(registry, never()).createRunbook(any(), any(), anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void proposalRejectsCommandStepsBeforeAnyRepositoryWrite() {
+        stubProject();
+        ObjectNode manifest = manifest();
+        ((ArrayNode) manifest.get("steps")).addObject().put("key", "shell").put("name", "shell").put("type", "COMMAND");
+        StubGitHub client = new StubGitHub(SHA, null);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service(client).propose(projectId, "production", manifest))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COMMAND");
+        assertThat(client.branchCreated).isFalse();
+    }
+
+    @Test
+    void proposalRefusesWhenRepositoryAlreadyDeclaresAManifest() {
+        stubProject();
+        StubGitHub client = new StubGitHub(SHA, manifest());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service(client).propose(projectId, "production", manifest()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("already has");
+        assertThat(client.branchCreated).isFalse();
     }
 
     private void stubProject() {
@@ -175,6 +216,8 @@ class RepositoryRunbookDiscoveryTest {
 
     /** Stubs the GitHub reads so discovery logic is tested without network access. */
     private static final class StubGitHub extends RepositoryRunbookDiscovery.GitHubManifestClient {
+        String createdFileContent;
+        boolean branchCreated;
         private final String sha;
         private final JsonNode manifest;
 
@@ -189,5 +232,21 @@ class RepositoryRunbookDiscoveryTest {
 
         @Override
         JsonNode fetchManifest(String repository, String commitSha, String token) { return manifest; }
+
+        @Override
+        String createBranch(String repository, String branch, String sha, String token) {
+            branchCreated = true;
+            return "refs/heads/" + branch;
+        }
+
+        @Override
+        void createFile(String repository, String branch, String content, String token) {
+            createdFileContent = content;
+        }
+
+        @Override
+        ObjectNode createPullRequest(String repository, String head, String base, String title, String bodyText, String token) {
+            return new ObjectMapper().createObjectNode().put("html_url", "https://github.com/" + repository + "/pulls/1");
+        }
     }
 }

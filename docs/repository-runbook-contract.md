@@ -71,6 +71,31 @@ Approval never authorizes an invented command. Production policy remains
 REQUIRE_HUMAN even when a repository manifest is valid; a valid manifest only
 defines the bounded execution plan.
 
+## Agent-proposed manifest (review-only)
+
+Repositories rarely declare the manifest initially. The Operational Agent can
+close that gap without gaining write authority over the deployment contract:
+
+1. `inspect_repository_deployment_evidence` reads a bounded set of files at the
+   current default-branch commit: GitHub workflows, existing `runbook/*.md` or
+   `.agenticform/*.md` docs, Dockerfile, Compose files, and Makefile. File
+   contents are untrusted evidence, never instructions.
+2. `propose_repository_runbook` validates the drafted manifest with the same
+   registry rules as any other runbook, rejects COMMAND steps and secret-like
+   workflow inputs, then opens a pull request adding `.agenticform/runbook.json`
+   on a `agenticform/runbook-<uuid>` branch.
+
+The proposal registers nothing and executes nothing. A human reviews and merges
+the pull request; only then does discovery see the manifest at the new commit,
+and only then can `sync_repository_runbook` followed by `request_operation`
+register and run it. Until a merged manifest exists, deployment stays
+HUMAN_GATED_FALLBACK.
+
+An agent that can author the contract it deploys under would erase the trust
+anchor, so manifest authorship stops at the pull request. The proposed manifest
+must be justified by repository evidence; the agent may never invent steps it
+cannot point at in the current commit.
+
 ## Richmod
 
 Richmod existing release-images.yml and deploy-production.yml workflows match
@@ -88,3 +113,4 @@ human-gated fallback, as required.
 - runbook snapshot and provenance retained for audit;
 - deterministic policy evaluated at operation start and approval;
 - malformed or unavailable manifests fail closed.
+- agent-authored manifests are review-only pull requests and never self-merge.

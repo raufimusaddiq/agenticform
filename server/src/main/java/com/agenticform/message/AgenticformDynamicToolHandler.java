@@ -148,6 +148,15 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
                 yield CompletableFuture.completedFuture(syncRepositoryRunbook(source, arguments));
             }
+            case "propose_repository_runbook" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
+                yield CompletableFuture.completedFuture(proposeRepositoryRunbook(source, arguments));
+            }
+            case "inspect_repository_deployment_evidence" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.READ);
+                requireOperationalAgent(source);
+                yield CompletableFuture.completedFuture(success(repositoryRunbookDiscovery.evidence(source.getProjectId()).toString()));
+            }
             case "request_operation" -> {
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
                 yield CompletableFuture.completedFuture(requestOperation(source, arguments));
@@ -308,7 +317,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             node.put("approval", plan.approvalExpectation());
             node.put("nextAction", plan.source() == RepositoryRunbookDiscovery.Source.REPOSITORY_MANIFEST
                     ? "Sync with sync_repository_runbook, then request_operation with that runbook key."
-                    : "No repository runbook. Deployments are human-gated: call request_action with action PRODUCTION_DEPLOY so a human performs the deployment and records evidence.");
+                    : "No repository runbook. Deployments are human-gated: call request_action with action PRODUCTION_DEPLOY so a human performs the deployment and records evidence. If repository artifacts already name every step, you may propose one with propose_repository_runbook; it is review-only until a human merges it.");
         } catch (RuntimeException error) {
             node.put("source", "UNAVAILABLE");
             node.put("reason", error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
@@ -354,6 +363,22 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                 ? "Call request_operation with this runbookKey."
                 : "No repository runbook. Deployments are human-gated: call request_action with action PRODUCTION_DEPLOY so a human performs the deployment and records evidence.");
         return success(payload.toString());
+    }
+
+    /**
+     * Opens a review-only pull request with a repository runbook manifest the
+     * Operational Agent generated from repository evidence. Nothing becomes
+     * executable: the manifest is validated with the same registry rules and
+     * only discovery after the human merges the pull request can register it.
+     */
+    private JsonNode proposeRepositoryRunbook(AgentEntity source, JsonNode arguments) {
+        requireOperationalAgent(source);
+        JsonNode manifest = arguments.get("manifest");
+        if (manifest == null || !manifest.isObject())
+            throw new IllegalArgumentException("manifest must be a JSON object following the repository runbook contract");
+        String environmentKey = arguments.hasNonNull("environmentKey")
+                ? arguments.get("environmentKey").asText() : null;
+        return success(repositoryRunbookDiscovery.propose(source.getProjectId(), environmentKey, manifest).toString());
     }
 
     private JsonNode getOperationStatus(AgentEntity source, JsonNode arguments) {
