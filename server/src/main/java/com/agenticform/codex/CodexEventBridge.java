@@ -87,17 +87,19 @@ public class CodexEventBridge {
 
         if ("item/completed".equals(notification.method())) {
             JsonNode item = params.path("item");
-            if (!"AgentMessage".equals(item.path("type").asText())) return;
+            if (!"agentMessage".equalsIgnoreCase(item.path("type").asText())) return;
             StringBuilder text = new StringBuilder();
             item.path("content").forEach(part -> {
-                if ("Text".equals(part.path("type").asText())) text.append(part.path("text").asText(""));
+                if ("text".equalsIgnoreCase(part.path("type").asText())) text.append(part.path("text").asText(""));
+                else if (part.path("text").isTextual()) text.append(part.path("text").asText(""));
             });
             if (text.isEmpty()) return;
             String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
-            if (threadId == null) return;
+            String effectiveThread = threadId == null ? runtimeSessionId : threadId;
+            if (effectiveThread == null) return;
             agentRepository.findAll().stream()
                     .filter(agent -> authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, agent))
-                    .filter(agent -> threadId.equals(agent.getRuntimeSessionId()))
+                    .filter(agent -> effectiveThread.equals(agent.getRuntimeSessionId()))
                     .findFirst().ifPresent(agent -> events.publishRunOutput(agent.getId(), text.toString()));
             return;
         }
