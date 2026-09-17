@@ -519,7 +519,8 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
 
     private JsonNode sendMessage(AgentEntity source, JsonNode arguments) {
         UUID targetAgentId = UUID.fromString(requiredText(arguments, "targetAgentId"));
-        UUID replyTo = arguments.hasNonNull("replyToMessageId") ? UUID.fromString(arguments.get("replyToMessageId").asText()) : null;
+        String replyToId = textArgument(arguments, "replyToMessageId");
+        UUID replyTo = replyToId == null || replyToId.isBlank() ? null : UUID.fromString(replyToId);
         AgentMessageType type = messageType(arguments);
         String subject = requiredText(arguments, "subject");
         String content = requiredText(arguments, "content");

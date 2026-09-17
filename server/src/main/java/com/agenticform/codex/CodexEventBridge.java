@@ -140,6 +140,16 @@ public class CodexEventBridge {
                         });
                         events.publish("task.running", activeTask.getProjectId(), activeTask.getId());
                     }
+                    AgentEntity runtimeAgent = agentRepository.findByRuntimeTypeAndRuntimeSessionId(runtimeType, runtimeSessionId).orElse(null);
+                    if (runtimeAgent != null && authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, runtimeAgent)) {
+                        messageDeliveries.findFirstByToAgentIdAndStatusOrderByCreatedAtAsc(
+                                runtimeAgent.getId(), com.agenticform.message.AgentMessageStatus.DISPATCHED).ifPresent(delivery -> {
+                            delivery.markProcessing(turnId);
+                            messageDeliveries.save(delivery);
+                            messageService.refreshAggregate(delivery.getMessageId());
+                            events.publish("message.processing", runtimeAgent.getProjectId(), delivery.getMessageId());
+                        });
+                    }
                 }
                 return;
             }
@@ -176,9 +186,7 @@ public class CodexEventBridge {
                     target.setActiveTurnId(turnId);
                     agentRepository.save(target);
                     messageService.refreshAggregate(delivery.getMessageId());
-                    if (target != null) {
-                        events.publish("message.processing", target.getProjectId(), delivery.getMessageId());
-                    }
+                    events.publish("message.processing", target.getProjectId(), delivery.getMessageId());
                 });
             }
             return;
@@ -269,6 +277,9 @@ public class CodexEventBridge {
         String turnStatus = params.path("turn").path("status").asText();
         if (task.getStatus() == TaskStatus.BLOCKED) {
             task.setLastError(task.getLastError() == null ? "Agent reported a blocker" : task.getLastError());
+        } else if ("completed".equalsIgnoreCase(turnStatus) && task.getReport() == null
+                && task.getLastError() != null && !task.getLastError().isBlank()) {
+            task.setStatus(TaskStatus.BLOCKED);
         } else if ("completed".equalsIgnoreCase(turnStatus) && (task.getReport() == null || task.getReport().isBlank())) {
             boolean orchestratorWaiting = task.getKind() == com.agenticform.task.TaskKind.ORCHESTRATION
                     && taskDispatch.hasDescendants(task.getId());
