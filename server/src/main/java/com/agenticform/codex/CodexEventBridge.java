@@ -118,6 +118,9 @@ public class CodexEventBridge {
                     if (!authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, target)) return;
                     delivery.markProcessing(turnId);
                     messageDeliveries.save(delivery);
+                    target.setStatus(AgentStatus.WORKING);
+                    target.setActiveTurnId(turnId);
+                    agentRepository.save(target);
                     messageService.refreshAggregate(delivery.getMessageId());
                     if (target != null) {
                         events.publish("message.processing", target.getProjectId(), delivery.getMessageId());
@@ -206,6 +209,7 @@ public class CodexEventBridge {
                                  String runtimeSessionId) {
         AgentEntity target = agentRepository.findById(delivery.getToAgentId()).orElse(null);
         if (!authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, target)) return;
+        String turnId = params.path("turn").path("id").asText(null);
         String turnStatus = params.path("turn").path("status").asText();
         if ("completed".equalsIgnoreCase(turnStatus)) {
             delivery.markCompleted();
@@ -213,6 +217,11 @@ public class CodexEventBridge {
             delivery.markProcessingFailed("Recipient Codex turn completed with status " + turnStatus);
         }
         messageDeliveries.save(delivery);
+        if (target != null && turnId != null && turnId.equals(target.getActiveTurnId()) && target.getActiveTaskId() == null) {
+            target.setActiveTurnId(null);
+            target.setStatus(AgentStatus.IDLE);
+            agentRepository.save(target);
+        }
         messageService.refreshAggregate(delivery.getMessageId());
         if (target != null) {
             events.publish("message.terminal", target.getProjectId(), delivery.getMessageId());
