@@ -237,11 +237,11 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
         <div className="brand"><span className="brand-mark" aria-hidden="true">A</span><div><strong>Agenticform</strong><small>Unit / CP-01</small></div></div>
         <div className="nav-caption">Workspace</div>
         <nav>
-          {nav.slice(0, 4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}</button>)}
+          {nav.slice(0, 4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><span className="nav-item-label">{item.label}</span></button>)}
         </nav>
         <div className="nav-caption nav-caption-spaced">Supervision</div>
         <nav>
-          {nav.slice(4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}{item.id === 'approvals' && approvals.some((approval) => approval.status === 'PENDING') && <span className="nav-count">{approvals.filter((approval) => approval.status === 'PENDING').length}</span>}</button>)}
+          {nav.slice(4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><span className="nav-item-label">{item.label}</span>{item.id === 'approvals' && approvals.some((approval) => approval.status === 'PENDING') && <span className="nav-count">{approvals.filter((approval) => approval.status === 'PENDING').length}</span>}</button>)}
         </nav>
         <div className="sidebar-footer"><ConnectionStatus state={connection} /></div>
       </aside>
