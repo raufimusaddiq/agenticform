@@ -130,7 +130,11 @@ public class AgentRuntimeRecoveryService {
 
         ProjectEntity project = projects.get(agent.getProjectId());
         long generation = agent.getRuntimeGeneration() + 1;
-        String branch = "restart/" + safe(agent.getName()) + "-" + agent.getId().toString().substring(0, 8) + "-g" + generation;
+        // Preserve the agent's working branch across restarts; recovery branches are only
+        // for lost-node recovery, not deliberate restarts.
+        String branch = agent.getBranch() == null || agent.getBranch().isBlank()
+                ? "restart/" + safe(agent.getName()) + "-" + agent.getId().toString().substring(0, 8) + "-g" + generation
+                : agent.getBranch();
         UUID nodeId = agent.getExecutionNodeId();
         agent.reassignRuntime(nodeId, branch);
         agents.save(agent);
