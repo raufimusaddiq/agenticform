@@ -964,7 +964,7 @@ func (c *rpcClient) forwardNotification(method string, params any) {
 }
 
 func shouldForwardNotification(method string) bool {
-	return method == "item/started" || method == "turn/completed"
+	return method == "item/started" || method == "item/agentMessage/delta" || method == "turn/completed"
 }
 
 func (d *daemonRuntime) runtimeIdentityForParams(params any) (runtimeIdentity, bool) {
