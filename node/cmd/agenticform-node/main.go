@@ -152,6 +152,7 @@ type rpcClient struct {
 	http                 *http.Client
 	runtimeIdentityFor   func(any) (runtimeIdentity, bool)
 	notificationObserver func(string, any)
+	forwardMu            sync.Mutex
 }
 
 func main() {
@@ -861,7 +862,9 @@ func (c *rpcClient) readLoop() {
 			if c.notificationObserver != nil {
 				c.notificationObserver(method, message["params"])
 			}
-			go c.forwardNotification(method, message["params"])
+			c.forwardMu.Lock()
+			c.forwardNotification(method, message["params"])
+			c.forwardMu.Unlock()
 		}
 	}
 }
