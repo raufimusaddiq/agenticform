@@ -31,6 +31,7 @@ import java.util.UUID;
 public class AgentMessageService {
     public static final int MAX_HOPS = 6;
     public static final int MAX_FANOUT = 24;
+    private static final String TRANSIENT_RUNTIME_ERROR = "Target remote runtime is not ready";
 
     public record AudienceRequest(AgentMessageAudienceType type, List<UUID> agentIds,
                                   AgentRole role, UUID groupId) {}
@@ -207,6 +208,23 @@ public class AgentMessageService {
     @Scheduled(fixedDelayString = "${agenticform.scheduler.message-reconcile-delay-ms:10000}")
     public void reconcileStaleDeliveries() {
         Instant cutoff = Instant.now().minus(Duration.ofMinutes(2));
+        // A delivery that failed only because the recipient runtime was mid-rehydration must be
+        // retried once the runtime is ready again; otherwise the message stays FAILED forever
+        // even though the agent recovered.
+        for (AgentMessageDeliveryEntity delivery : deliveryRepository.findAllByStatus(AgentMessageStatus.FAILED)) {
+            if (delivery.getAttemptCount() >= 3 || !TRANSIENT_RUNTIME_ERROR.equals(delivery.getLastError())) continue;
+            AgentEntity target = agent(delivery.getToAgentId());
+            if (target.getStatus() == AgentStatus.STOPPED || target.getStatus() == AgentStatus.FAILED) continue;
+            if (waitingForRuntime(target)) continue;
+            AgentMessageEntity message = repository.findById(delivery.getMessageId()).orElse(null);
+            if (message == null) continue;
+            AgentEntity source = agent(message.getFromAgentId());
+            delivery.resetForRetry();
+            deliveryRepository.save(delivery);
+            dispatch(message, delivery, source, target);
+            updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(message.getId()));
+            repository.save(message);
+        }
         for (AgentMessageStatus status : List.of(AgentMessageStatus.QUEUED,
                 AgentMessageStatus.DISPATCHED, AgentMessageStatus.PROCESSING)) {
             for (AgentMessageDeliveryEntity delivery : deliveryRepository.findTop50ByStatusOrderByCreatedAtAsc(status)) {
@@ -324,6 +342,10 @@ public class AgentMessageService {
 
     private String runtimeSessionId(AgentEntity agent) {
         return agent.getRuntimeSessionId();
+    }
+
+    private boolean waitingForRuntime(AgentEntity target) {
+        return target.getRuntimeSessionId() == null || target.getRuntimeSessionId().isBlank();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {
