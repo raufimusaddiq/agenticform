@@ -547,6 +547,20 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		if err := os.MkdirAll(filepath.Dir(workingDirectory), 0700); err != nil {
 			return nil, err
 		}
+		// Existing worktrees are reused across runtime restarts. Refresh remote refs
+		// outside the agent sandbox first: read-only reviewer runtimes cannot run
+		// `git fetch` inside a read-only .git, and a stale checkout otherwise hides
+		// newly pushed implementation revisions from review tasks.
+		if _, err := os.Stat(workingDirectory); err == nil && runGit(workingDirectory, "diff-index", "--quiet", "HEAD", "--") == nil {
+			if requestedBranch != "" {
+				_ = runGit(repoRoot, "fetch", "origin", requestedBranch)
+			} else {
+				_ = runGit(repoRoot, "fetch", "origin", baseBranch)
+			}
+			if requestedBranch != "" && runGit(workingDirectory, "rev-parse", "--verify", "--quiet", "origin/"+requestedBranch) == nil {
+				_ = runGit(workingDirectory, "checkout", "-B", requestedBranch, "origin/"+requestedBranch)
+			}
+		}
 		if _, err := os.Stat(workingDirectory); errors.Is(err, os.ErrNotExist) {
 			if requestedBranch != "" {
 				_ = runGit(repoRoot, "fetch", "origin", requestedBranch)
