@@ -77,13 +77,24 @@ class TaskReportIdentityTest {
         });
         for (var status : java.util.List.of(com.agenticform.agent.AgentStatus.IDLE, com.agenticform.agent.AgentStatus.WORKING)) {
             when(agent.getStatus()).thenReturn(status);
-            TaskEntity created = service.create(agentId, "delegated " + status, "implement", 0);
+            TaskEntity created = service.create(agentId, "delegated " + status, "implement", 0,
+                    java.util.List.of(), null, TaskKind.IMPLEMENTATION,
+                    new TaskDispatchService.DeliveryRequest(TaskDeliverable.IMPLEMENTATION, true, false, true, "staging"));
             assertNotNull(created.getId());
             assertEquals(TaskStatus.READY, created.getStatus());
             assertEquals(agentId, created.getAssignedAgentId());
         }
         verify(agent, never()).setStatus(any());
         verify(agent, never()).setActiveTaskId(any());
+    }
+
+    @Test
+    void deploymentRequiredRootTaskRequiresEnvironmentKey() {
+        when(agent.getCapabilityProfile()).thenReturn(com.agenticform.agent.AgentCapabilityProfile.IMPLEMENTER);
+        when(agent.getStatus()).thenReturn(com.agenticform.agent.AgentStatus.IDLE);
+        assertThrows(IllegalArgumentException.class, () -> service.create(agentId, "implement", "do work", 0,
+                java.util.List.of(), null, TaskKind.IMPLEMENTATION,
+                new TaskDispatchService.DeliveryRequest(TaskDeliverable.IMPLEMENTATION, true, false, true, null)));
     }
 
     @Test
