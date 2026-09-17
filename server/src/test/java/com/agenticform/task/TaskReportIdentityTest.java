@@ -106,6 +106,21 @@ class TaskReportIdentityTest {
     }
 
     @Test
+    void orchestratorCanReportBlockedWhileDelegatedWorkIsUnresolved() {
+        when(agent.getRole()).thenReturn(AgentRole.ORCHESTRATOR);
+        when(task.getDeliverable()).thenReturn(TaskDeliverable.GENERAL);
+        when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(taskId)).thenReturn(List.of());
+        TaskEvidence evidence = new TaskEvidence(TaskEvidence.BLOCKED, List.of(), List.of(),
+                List.of("implementation and review are blocked"), List.of());
+
+        assertSame(task, service.report(agentId, taskId, 3, "Workflow blocked by child tasks", evidence));
+        verify(task).recordEvidence(evidence);
+        verify(task).setStatus(TaskStatus.BLOCKED);
+        verify(task).setLastError("implementation and review are blocked");
+        verify(tasks).save(task);
+    }
+
+    @Test
     void currentTaskAndGenerationCanReport() {
         org.mockito.Mockito.when(task.getDeliverable()).thenReturn(TaskDeliverable.ANALYSIS);
         TaskEvidence evidence = new TaskEvidence(TaskEvidence.COMPLETED, java.util.List.of(

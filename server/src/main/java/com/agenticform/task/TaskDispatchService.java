@@ -212,7 +212,7 @@ public class TaskDispatchService {
         if (outcome == null) outcome = TaskEvidence.COMPLETED;
         // Validate the workflow graph before the leaf evidence contract so an
         // orchestrator can never complete on a partial or missing child set.
-        if (agent.getRole() == AgentRole.ORCHESTRATOR) {
+        if (agent.getRole() == AgentRole.ORCHESTRATOR && TaskEvidence.COMPLETED.equals(outcome)) {
             List<TaskEntity> descendants = descendants(taskId);
             List<TaskEntity> unfinished = descendants.stream()
                     .filter(child -> child.getStatus() != TaskStatus.COMPLETED
@@ -230,6 +230,16 @@ public class TaskDispatchService {
         task.setReport(report.trim());
         if (evidence != null) {
             task.recordEvidence(evidence);
+            if (TaskEvidence.BLOCKED.equals(outcome)) {
+                if (!evidence.hasUnresolvedBlocker()) {
+                    throw new IllegalArgumentException("A blocked task report requires at least one blocker");
+                }
+                task.setStatus(TaskStatus.BLOCKED);
+                task.setLastError(String.join("; ", evidence.blockers()));
+            } else if (TaskEvidence.FAILED.equals(outcome)) {
+                task.setStatus(TaskStatus.FAILED);
+                task.setLastError(report.trim());
+            }
         }
         return taskRepository.save(task);
     }

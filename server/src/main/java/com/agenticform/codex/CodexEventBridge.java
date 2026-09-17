@@ -77,11 +77,8 @@ public class CodexEventBridge {
         if ("item/agentMessage/delta".equals(notification.method())) {
             JsonNode delta = params.path("delta");
             if (!delta.isTextual() || delta.asText().isBlank()) return;
-            String threadId = params.path("threadId").asText(null);
-            agentRepository.findAll().stream()
-                    .filter(agent -> authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, agent))
-                    .filter(agent -> threadId != null && threadId.equals(agent.getRuntimeSessionId()))
-                    .findFirst().ifPresent(agent -> events.publishRunOutput(agent.getId(), delta.asText()));
+            String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
+            publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, delta.asText());
             return;
         }
 
@@ -91,16 +88,29 @@ public class CodexEventBridge {
             StringBuilder text = new StringBuilder();
             item.path("content").forEach(part -> {
                 if ("text".equalsIgnoreCase(part.path("type").asText())) text.append(part.path("text").asText(""));
+                else if ("output_text".equalsIgnoreCase(part.path("type").asText())) text.append(part.path("text").asText(""));
                 else if (part.path("text").isTextual()) text.append(part.path("text").asText(""));
             });
+            if (text.isEmpty() && item.path("text").isTextual()) text.append(item.path("text").asText(""));
             if (text.isEmpty()) return;
             String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
-            String effectiveThread = threadId == null ? runtimeSessionId : threadId;
-            if (effectiveThread == null) return;
-            agentRepository.findAll().stream()
-                    .filter(agent -> authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, agent))
-                    .filter(agent -> effectiveThread.equals(agent.getRuntimeSessionId()))
-                    .findFirst().ifPresent(agent -> events.publishRunOutput(agent.getId(), text.toString()));
+            publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, text.toString());
+            return;
+        }
+
+        if ("rawResponseItem/completed".equals(notification.method())) {
+            JsonNode item = params.path("item");
+            if (!"message".equalsIgnoreCase(item.path("type").asText())
+                    || !"assistant".equalsIgnoreCase(item.path("role").asText())) return;
+            StringBuilder text = new StringBuilder();
+            item.path("content").forEach(part -> {
+                if ("output_text".equalsIgnoreCase(part.path("type").asText())) {
+                    text.append(part.path("text").asText(""));
+                }
+            });
+            if (text.isEmpty()) return;
+            String threadId = params.path("threadId").asText(null);
+            publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, text.toString());
             return;
         }
 
@@ -160,6 +170,21 @@ public class CodexEventBridge {
             messageDeliveries.findByTurnId(turnId).ifPresent(delivery ->
                     completeMessage(delivery, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId));
         }
+    }
+
+    /**
+     * Publishes assistant text for the agent that owns the reporting runtime. The runtime identity is
+     * authenticated upstream by the node signature; threadId is only a secondary binding, so output
+     * is never dropped when the app-server omits or renames it.
+     */
+    private void publishRunOutput(UUID executionNodeId, long runtimeGeneration, RuntimeType runtimeType,
+                                  String runtimeSessionId, String threadId, String text) {
+        AgentEntity owner = agentRepository.findAll().stream()
+                .filter(agent -> authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, agent))
+                .filter(agent -> threadId == null || threadId.isBlank() || threadId.equals(agent.getRuntimeSessionId()))
+                .findFirst().orElse(null);
+        if (owner == null) return;
+        events.publishRunOutput(owner.getId(), text);
     }
 
     private UUID taskId(String clientId) {
