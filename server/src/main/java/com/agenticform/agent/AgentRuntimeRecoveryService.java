@@ -80,18 +80,18 @@ public class AgentRuntimeRecoveryService {
         String previousBranch = agent.getBranch();
         boolean operatorBranch = previousBranch != null && !previousBranch.isBlank()
                 && !previousBranch.startsWith("recovery/") && !previousBranch.startsWith("restart/");
+        String stableBranch = operatorBranch ? previousBranch
+                : agent.getBaseBranch() == null || agent.getBaseBranch().isBlank()
+                        ? project.getDefaultBranch() : agent.getBaseBranch();
         UUID activeTaskId = agent.getActiveTaskId();
         TaskEntity activeTask = activeTaskId == null ? null : tasks.findById(activeTaskId).orElse(null);
         if (activeTask != null && terminal(activeTask.getStatus())) activeTask = null;
-        // Preserve the agent's real working branch across rehydration. A synthetic
-        // recovery branch is only minted when the agent has never been bound to a
-        // concrete branch, or when its recorded branch is itself a past synthetic one.
-        // Otherwise rehydration silently moves the agent off the feature branch it is
-        // supposed to be implementing or reviewing.
-        String recoveryBranch = operatorBranch || activeTask != null && previousBranch != null && !previousBranch.isBlank()
-                ? previousBranch
-                : "recovery/" + safe(agent.getName()) + "-"
-                        + agent.getId().toString().substring(0, 8) + "-g" + nextGeneration;
+        // Keep the working branch stable across node loss. Synthetic recovery names
+        // are not repository branches and make later implementation/review tasks
+        // unable to see the project's actual branch.
+        String recoveryBranch = activeTask != null && previousBranch != null && !previousBranch.isBlank()
+                && (operatorBranch || !previousBranch.startsWith("recovery/") && !previousBranch.startsWith("restart/"))
+                ? previousBranch : stableBranch;
 
         long generation = agent.reassignRuntime(replacement.getId(), recoveryBranch);
         agents.save(agent);
@@ -111,8 +111,7 @@ public class AgentRuntimeRecoveryService {
         payload.put("projectSlug", project.getSlug());
         payload.put("repositoryUrl", project.getRepositoryUrl());
         payload.put("defaultBranch", project.getDefaultBranch());
-        payload.put("baseBranch", previousBranch == null || previousBranch.isBlank()
-                ? project.getDefaultBranch() : previousBranch);
+        payload.put("baseBranch", stableBranch);
         payload.put("workspaceMode", agent.getWorkspaceMode().name());
         payload.put("agentName", agent.getName());
         payload.put("requestedBranch", recoveryBranch);

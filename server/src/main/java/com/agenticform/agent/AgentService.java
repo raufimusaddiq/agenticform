@@ -189,6 +189,7 @@ public class AgentService {
                 queueMode, humanControlMode, role, systemManaged, null, capabilityProfile);
         agent.setRuntimeType(runtimeType);
         agent.setRuntimeProfileId(runtimeProfileId);
+        agent.setBaseBranch(baseBranch);
         return repository.save(agent);
     }
 
@@ -208,6 +209,7 @@ public class AgentService {
                 node.getId(), capabilityProfile);
         agent.setRuntimeType(runtimeType);
         agent.setRuntimeProfileId(runtimeProfileId);
+        agent.setBaseBranch(baseBranch);
         agent = repository.save(agent);
 
         try {
