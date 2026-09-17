@@ -460,30 +460,69 @@ function AgentForm({ projects, templates, initialProjectId, onClose, onSubmit }:
 
 type TaskFormInput = {
   agentId: string; title: string; prompt: string; priority: number;
+  kind: string;
   deliverable?: string; deploymentRequired?: boolean; environmentKey?: string;
 };
 
 function TaskForm({ agents, onClose, onSubmit }: { agents: Agent[]; onClose: () => void; onSubmit: (input: TaskFormInput) => void }) {
   const [agentId, setAgentId] = useState(agents[0]?.id ?? ''); const [title, setTitle] = useState(''); const [prompt, setPrompt] = useState(''); const [priority, setPriority] = useState(0);
-  const [deliverable, setDeliverable] = useState('IMPLEMENTATION');
   const [environmentKey, setEnvironmentKey] = useState('');
   const [deploymentRequired, setDeploymentRequired] = useState(true);
-  const needsEnvironment = deliverable === 'IMPLEMENTATION' && deploymentRequired;
+  const agent = agents.find((item) => item.id === agentId);
+  const kind = kindForAgent(agent);
+  const deliverable = deliverableForKind(kind);
+  const implementsCode = kind === 'IMPLEMENTATION';
+  const needsEnvironment = implementsCode && deploymentRequired;
   return <Modal title="Create task" onClose={onClose}><form onSubmit={(event: FormEvent) => {
     event.preventDefault();
     onSubmit({
-      agentId, title, prompt, priority, deliverable,
-      deploymentRequired: deliverable === 'IMPLEMENTATION' ? deploymentRequired : false,
+      agentId, title, prompt, priority, kind, deliverable,
+      deploymentRequired: implementsCode ? deploymentRequired : false,
       ...(needsEnvironment ? { environmentKey: environmentKey.trim() } : {})
     });
   }}>
     <label>Agent<select required value={agentId} onChange={(e) => setAgentId(e.target.value)}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} / {label(agent.status)} / {agent.humanControlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</option>)}</select></label>
+    <p className="form-note">{workNote(kind, agent?.role)}</p>
     <label>Title<input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Implement refresh-token fallback" /></label>
     <label>Instruction<textarea required rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Inspect the current token lifecycle, implement the fallback, add tests, and report any compatibility risks." /></label>
-    <label>Requested deliverable<select value={deliverable} onChange={(e) => setDeliverable(e.target.value)}>{['GENERAL','ANALYSIS','DOCUMENTATION','IMPLEMENTATION','REVIEW','TEST'].map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></label>
-    {deliverable === 'IMPLEMENTATION' && <label className="checkbox-row"><input type="checkbox" checked={deploymentRequired} onChange={(e) => setDeploymentRequired(e.target.checked)} />Require verified deployment before this task is delivered</label>}
+    {implementsCode && <label className="checkbox-row"><input type="checkbox" checked={deploymentRequired} onChange={(e) => setDeploymentRequired(e.target.checked)} />Require verified deployment before this task is delivered</label>}
     {needsEnvironment && <label>Target environment / service<input required value={environmentKey} onChange={(e) => setEnvironmentKey(e.target.value)} placeholder="staging" /></label>}
     <label>Priority<input type="number" min="-100" max="100" value={priority} onChange={(e) => setPriority(Number(e.target.value))} /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Create task</button></footer>
   </form></Modal>;
+}
+
+/** Work type follows the selected agent's capability profile; the operator picks the agent, not the contract. */
+function kindForAgent(agent?: Agent) {
+  switch (agent?.role) {
+    case 'ORCHESTRATOR': return 'ORCHESTRATION';
+    default: break;
+  }
+  switch (agent?.capabilityProfile) {
+    case 'ARCHITECT': return 'ARCHITECTURE';
+    case 'REVIEWER': return 'REVIEW';
+    case 'OPS': return 'OPERATIONS';
+    default: return 'IMPLEMENTATION';
+  }
+}
+
+function deliverableForKind(kind: string) {
+  switch (kind) {
+    case 'ORCHESTRATION': return 'GENERAL';
+    case 'ARCHITECTURE': return 'ANALYSIS';
+    case 'REVIEW': return 'REVIEW';
+    case 'TEST': return 'TEST';
+    case 'OPERATIONS': return 'OPERATIONS';
+    default: return 'IMPLEMENTATION';
+  }
+}
+
+function workNote(kind: string, role?: Agent['role']) {
+  if (kind === 'ORCHESTRATION') return role === 'ORCHESTRATOR'
+    ? 'The Orchestrator owns this workflow: it delegates implementation, review, and tests, then submits the consolidated report. Deployment is coordinated through Operations.'
+    : 'This agent coordinates the workflow instead of editing code.';
+  if (kind === 'ARCHITECTURE') return 'This agent produces an architecture analysis; implementation stays delegated.';
+  if (kind === 'REVIEW') return 'This agent reviews existing work and reports findings.';
+  if (kind === 'OPERATIONS') return 'Operational work runs through the operational handoff.';
+  return 'This agent implements the change and submits evidence.';
 }
