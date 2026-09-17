@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.Base64;
 import java.util.regex.Pattern;
 
 /**
@@ -100,6 +101,49 @@ public class RepositoryRunbookDiscovery {
         return new Plan(plan.projectId(), plan.source(), plan.manifestPath(), plan.repository(), plan.commitSha(),
                 plan.environment(), registered.getKey(), registered.getAction(), registered.getDescription(),
                 registry.decodeSteps(registered.getDefinitionJson()), true, null, plan.approvalExpectation());
+    }
+
+    /** Creates a pull request containing a validated Operational-Agent-authored manifest. */
+    public ObjectNode propose(UUID projectId, String environmentKey, JsonNode manifest) {
+        ProjectEntity project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new NoSuchElementException("Project not found: " + projectId));
+        OperationalEnvironmentEntity environment = resolveEnvironment(projectId, environmentKey);
+        if (project.getSourceType() != ProjectSourceType.GIT || blank(project.getRepositoryUrl()))
+            throw new IllegalArgumentException("Project has no Git repository");
+        String repository = GitHubManifestClient.repositoryPath(project.getRepositoryUrl());
+        if (repository == null) throw new IllegalArgumentException("Repository must be a github.com owner/repository URL");
+        String token = projectService.githubToken(projectId);
+        String headSha = client.resolveCommitSha(repository, project.getDefaultBranch(), token);
+        if (client.fetchManifest(repository, headSha, token) != null)
+            throw new IllegalArgumentException("Repository already has " + MANIFEST_PATH + "; review/update that runbook instead");
+        ParsedRunbook parsed = parse(manifest, environment.getKey());
+        registry.validateSteps(projectId, environment.getId(), parsed.steps());
+        String branch = "agenticform/runbook-" + UUID.randomUUID();
+        String content;
+        try { content = mapper.writeValueAsString(manifest); }
+        catch (Exception error) { throw new IllegalStateException("Unable to serialize runbook manifest", error); }
+        client.createBranch(repository, branch, headSha, token);
+        client.createFile(repository, branch, content, token);
+        ObjectNode pr = client.createPullRequest(repository, branch, project.getDefaultBranch(),
+                "Add Agenticform deployment runbook", "Generated from repository evidence by the Operational Agent. Review every step before merging. Merge is required before discovery; deployment remains REQUIRE_HUMAN.", token);
+        ObjectNode result = mapper.createObjectNode();
+        result.put("repository", repository); result.put("branch", branch); result.put("baseCommit", headSha);
+        result.put("manifestPath", MANIFEST_PATH); result.put("pullRequest", pr.path("html_url").asText());
+        result.put("approval", "Human review and merge required; deployment remains REQUIRE_HUMAN.");
+        return result;
+    }
+
+    /** Bounded source files at the pinned default-branch commit for evidence-based authoring. */
+    public ObjectNode evidence(UUID projectId) {
+        ProjectEntity project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new NoSuchElementException("Project not found: " + projectId));
+        if (project.getSourceType() != ProjectSourceType.GIT || blank(project.getRepositoryUrl()))
+            throw new IllegalArgumentException("Project has no Git repository");
+        String repository = GitHubManifestClient.repositoryPath(project.getRepositoryUrl());
+        if (repository == null) throw new IllegalArgumentException("Repository must be a github.com owner/repository URL");
+        String token = projectService.githubToken(projectId);
+        String sha = client.resolveCommitSha(repository, project.getDefaultBranch(), token);
+        return client.fetchEvidence(repository, sha, token);
     }
 
     /** Resolves what would be used without registering anything. */
@@ -263,6 +307,87 @@ public class RepositoryRunbookDiscovery {
         JsonNode fetchManifest(String repository, String commitSha, String token) {
             String encoded = MANIFEST_PATH.replace("/", "%2F");
             return get("repos/" + repository + "/contents/" + encoded + "?ref=" + commitSha, token);
+        }
+
+        ObjectNode fetchEvidence(String repository, String sha, String token) {
+            ObjectNode result = new ObjectMapper().createObjectNode();
+            result.put("repository", repository); result.put("commitSha", sha);
+            ArrayNode files = result.putArray("files");
+            JsonNode tree = get("repos/" + repository + "/git/trees/" + sha + "?recursive=1", token);
+            List<String> paths = new ArrayList<>();
+            if (tree != null && tree.path("tree").isArray()) for (JsonNode item : tree.path("tree")) {
+                String path = item.path("path").asText("");
+                if ((path.startsWith(".github/workflows/") || path.startsWith(".agenticform/") || path.startsWith("runbook/")) && path.endsWith(".md")
+                        || path.startsWith(".github/workflows/") && path.endsWith(".yml")
+                        || path.startsWith(".github/workflows/") && path.endsWith(".yaml")
+                        || path.equals("Dockerfile") || path.equals("docker-compose.yml") || path.equals("compose.yaml") || path.equals("Makefile")) paths.add(path);
+            }
+            paths.stream().distinct().sorted().limit(20).forEach(path -> {
+                String content = getTextContent("repos/" + repository + "/contents/" + path.replace("/", "%2F") + "?ref=" + sha, token);
+                if (content != null) {
+                    if (content.length() > 12000) content = content.substring(0, 12000);
+                    files.addObject().put("path", path).put("content", content);
+                }
+            });
+            return result;
+        }
+
+        private String getTextContent(String path, String token) {
+            JsonNode wrapper = getRawJson(path, token);
+            if (wrapper == null || !wrapper.hasNonNull("content")) return null;
+            try { return new String(Base64.getDecoder().decode(wrapper.path("content").asText().replaceAll("\s", "")), java.nio.charset.StandardCharsets.UTF_8); }
+            catch (IllegalArgumentException error) { return null; }
+        }
+
+        private JsonNode getRawJson(String path, String token) {
+            URI base = properties.getApiUrl();
+            String root = base.toString().endsWith("/") ? base.toString() : base + "/";
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(root + path)).timeout(TIMEOUT)
+                    .header("Accept", "application/vnd.github+json").header("X-GitHub-Api-Version", "2022-11-28").GET();
+            String credential = firstNonBlank(token, properties.getToken());
+            if (credential != null) builder.header("Authorization", "Bearer " + credential);
+            try {
+                HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 404) return null;
+                if (response.statusCode() != 200) throw new IllegalArgumentException("GitHub read failed (HTTP " + response.statusCode() + ") for " + path);
+                return new ObjectMapper().readTree(response.body());
+            } catch (IllegalArgumentException error) { throw error; }
+            catch (Exception error) { throw new IllegalStateException("Unable to read " + path + " from GitHub", error); }
+        }
+
+        String createBranch(String repository, String branch, String sha, String token) {
+            ObjectNode body = new ObjectMapper().createObjectNode().put("ref", "refs/heads/" + branch).put("sha", sha);
+            return post("repos/" + repository + "/git/refs", body, token).path("ref").asText();
+        }
+
+        void createFile(String repository, String branch, String content, String token) {
+            ObjectNode body = new ObjectMapper().createObjectNode().put("message", "docs: add deployment runbook manifest")
+                    .put("content", Base64.getEncoder().encodeToString(content.getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                    .put("branch", branch);
+            post("repos/" + repository + "/contents/" + MANIFEST_PATH.replace("/", "%2F"), body, token);
+        }
+
+        ObjectNode createPullRequest(String repository, String head, String base, String title, String bodyText, String token) {
+            ObjectNode body = new ObjectMapper().createObjectNode().put("title", title).put("head", head).put("base", base).put("body", bodyText);
+            return (ObjectNode) post("repos/" + repository + "/pulls", body, token);
+        }
+
+        private JsonNode post(String path, JsonNode payload, String token) {
+            URI base = properties.getApiUrl();
+            String root = base.toString().endsWith("/") ? base.toString() : base + "/";
+            String credential = firstNonBlank(token, properties.getToken());
+            if (credential == null) throw new IllegalArgumentException("GitHub token required to open runbook proposal PR");
+            HttpRequest request = HttpRequest.newBuilder(URI.create(root + path)).timeout(TIMEOUT)
+                    .header("Accept", "application/vnd.github+json").header("X-GitHub-Api-Version", "2022-11-28")
+                    .header("Authorization", "Bearer " + credential).header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(payload.toString())).build();
+            try {
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() < 200 || response.statusCode() >= 300)
+                    throw new IllegalArgumentException("GitHub write failed (HTTP " + response.statusCode() + ") for " + path);
+                return new ObjectMapper().readTree(response.body());
+            } catch (IllegalArgumentException error) { throw error; }
+            catch (Exception error) { throw new IllegalStateException("Unable to write " + path + " to GitHub", error); }
         }
 
         private JsonNode get(String path, String token) {

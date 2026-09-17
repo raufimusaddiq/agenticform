@@ -25,6 +25,7 @@ import tools.jackson.databind.JsonNode;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 class AgenticformDynamicToolHandlerSecurityTest {
@@ -63,6 +64,59 @@ class AgenticformDynamicToolHandlerSecurityTest {
                 .set("arguments", new ObjectMapper().createObjectNode());
 
         assertThrows(IllegalStateException.class, () -> handler.handle(request(params)));
+    }
+
+    @Test
+    void proposeRepositoryRunbookRequiresDeployCapabilityAndAStructuredManifest() {
+        AgentRepository agents = mock(AgentRepository.class);
+        AgentEntity source = mock(AgentEntity.class);
+        com.agenticform.operation.RepositoryRunbookDiscovery discovery =
+                mock(com.agenticform.operation.RepositoryRunbookDiscovery.class);
+        when(agents.findByRuntimeTypeAndRuntimeSessionId(RuntimeType.CODEX, "thread-1")).thenReturn(Optional.of(source));
+        when(source.getId()).thenReturn(UUID.randomUUID());
+        when(source.getProjectId()).thenReturn(UUID.randomUUID());
+        when(source.getRole()).thenReturn(com.agenticform.agent.AgentRole.OPERATIONAL);
+        when(source.getCapabilityProfile()).thenReturn(com.agenticform.agent.AgentCapabilityProfile.OPS);
+        when(discovery.propose(any(), any(), any())).thenReturn(new ObjectMapper().createObjectNode().put("pullRequest", "https://github.com/o/r/pull/1"));
+        AgenticformDynamicToolHandler handler = new AgenticformDynamicToolHandler(
+                mock(CodexJsonRpcClient.class), agents, mock(AgentMessageService.class),
+                mock(HumanApprovalService.class), mock(PolicyRuleService.class),
+                mock(OperationalRegistryService.class), mock(OperationRunService.class),
+                new AgentCapabilityPolicy(), mock(OperationalSignalService.class),
+                mock(OperationalIncidentService.class), mock(TaskDispatchService.class), discovery, new ObjectMapper());
+        ObjectNode params = new ObjectMapper().createObjectNode()
+                .put("namespace", "agenticform").put("threadId", "thread-1").put("tool", "propose_repository_runbook")
+                .set("arguments", new ObjectMapper().createObjectNode().set("manifest", new ObjectMapper().createObjectNode().put("version", 1)));
+
+        String responseText = handler.handle(request(params)).toCompletableFuture().join()
+                .path("contentItems").get(0).path("text").asText();
+
+        assertEquals("https://github.com/o/r/pull/1", new ObjectMapper().readTree(responseText).path("pullRequest").asText());
+    }
+
+    @Test
+    void proposeRepositoryRunbookRejectsMissingManifestBeforeTouchingTheRepository() {
+        AgentRepository agents = mock(AgentRepository.class);
+        AgentEntity source = mock(AgentEntity.class);
+        com.agenticform.operation.RepositoryRunbookDiscovery discovery =
+                mock(com.agenticform.operation.RepositoryRunbookDiscovery.class);
+        when(agents.findByRuntimeTypeAndRuntimeSessionId(RuntimeType.CODEX, "thread-1")).thenReturn(Optional.of(source));
+        when(source.getId()).thenReturn(UUID.randomUUID());
+        when(source.getProjectId()).thenReturn(UUID.randomUUID());
+        when(source.getRole()).thenReturn(com.agenticform.agent.AgentRole.OPERATIONAL);
+        when(source.getCapabilityProfile()).thenReturn(com.agenticform.agent.AgentCapabilityProfile.OPS);
+        AgenticformDynamicToolHandler handler = new AgenticformDynamicToolHandler(
+                mock(CodexJsonRpcClient.class), agents, mock(AgentMessageService.class),
+                mock(HumanApprovalService.class), mock(PolicyRuleService.class),
+                mock(OperationalRegistryService.class), mock(OperationRunService.class),
+                new AgentCapabilityPolicy(), mock(OperationalSignalService.class),
+                mock(OperationalIncidentService.class), mock(TaskDispatchService.class), discovery, new ObjectMapper());
+        ObjectNode params = new ObjectMapper().createObjectNode()
+                .put("namespace", "agenticform").put("threadId", "thread-1").put("tool", "propose_repository_runbook")
+                .set("arguments", new ObjectMapper().createObjectNode());
+
+        assertThrows(IllegalArgumentException.class, () -> handler.handle(request(params)));
+        org.mockito.Mockito.verify(discovery, org.mockito.Mockito.never()).propose(any(), any(), any());
     }
 
     @Test
