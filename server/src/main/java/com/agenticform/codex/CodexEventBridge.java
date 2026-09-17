@@ -82,6 +82,15 @@ public class CodexEventBridge {
             return;
         }
 
+        if ("item/commandExecution/outputDelta".equals(notification.method())
+                || "command/exec/outputDelta".equals(notification.method())) {
+            JsonNode delta = params.path("delta");
+            if (!delta.isTextual() || delta.asText().isBlank()) return;
+            String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
+            publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, delta.asText());
+            return;
+        }
+
         if ("item/completed".equals(notification.method())) {
             JsonNode item = params.path("item");
             if (!"agentMessage".equalsIgnoreCase(item.path("type").asText())) return;
