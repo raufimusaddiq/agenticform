@@ -76,6 +76,23 @@ class TaskDependencyServiceTest {
     }
 
     @Test
+    void infrastructureBlockedPrerequisiteFailsSuccessDependencyInsteadOfWaitingForever() {
+        UUID project = UUID.randomUUID();
+        TaskEntity downstream = task(project, TaskStatus.WAITING_DEPENDENCY);
+        TaskEntity upstream = task(project, TaskStatus.BLOCKED);
+        upstream.setLastError("Execution node was lost; task will resume after runtime rehydration");
+        when(tasks.findById(downstream.getId())).thenReturn(Optional.of(downstream));
+        when(tasks.findById(upstream.getId())).thenReturn(Optional.of(upstream));
+        when(dependencies.findAllByTaskId(downstream.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
+
+        assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.BLOCKED);
+        service.reconcile(downstream.getId());
+        assertThat(downstream.getStatus()).isEqualTo(TaskStatus.BLOCKED);
+        assertThat(downstream.getLastError()).startsWith("Dependency failed:");
+    }
+
+    @Test
     void blocksRelationshipWaitsForAnyTerminalOutcome() {
         UUID project = UUID.randomUUID();
         TaskEntity downstream = task(project, TaskStatus.READY);
