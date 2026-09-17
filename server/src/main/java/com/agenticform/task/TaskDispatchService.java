@@ -222,8 +222,10 @@ public class TaskDispatchService {
                             || (child.getEvidence() != null && child.getEvidence().hasUnresolvedBlocker()))
                     .toList();
             if (!unfinished.isEmpty()) {
-                throw new IllegalStateException("Orchestrator cannot complete while delegated tasks remain unresolved: "
-                        + unfinished.stream().map(child -> child.getId() + "=" + child.getStatus()).toList());
+                throw new ReportRejectedException("DELEGATED_TASKS_UNRESOLVED", task.getId(), task.getAssignedAgentId(),
+                        "Orchestrator cannot complete while delegated tasks remain unresolved: "
+                                + unfinished.stream().map(child -> child.getId() + "=" + child.getStatus()).toList()
+                                + "; wait for children to reach COMPLETED with evidence, resolve blockers, or report this task as BLOCKED with the outstanding child ids");
             }
             requireDescendantEvidence(task, descendants);
         }
