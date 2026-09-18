@@ -116,6 +116,11 @@ public class TaskDependencyService {
                     }
                 }
                 case REQUIRES_SUCCESS -> {
+                    TaskEvidence evidence = prerequisite.getEvidence();
+                    if (evidence != null && TaskEvidence.BLOCKED.equals(TaskEvidence.normalizeOutcome(evidence.outcome()))) {
+                        return new Evaluation(State.BLOCKED,
+                                prerequisite.getId() + " reported BLOCKED evidence");
+                    }
                     if (prerequisite.getStatus() == TaskStatus.COMPLETED) continue;
                     // A task blocked by infrastructure loss is terminal from the graph's
                     // perspective; it can no longer reach COMPLETED, so dependents must

@@ -93,6 +93,24 @@ class TaskDependencyServiceTest {
     }
 
     @Test
+    void blockedEvidenceFailsSuccessDependencyEvenIfLegacyStatusSaysCompleted() {
+        UUID project = UUID.randomUUID();
+        TaskEntity downstream = task(project, TaskStatus.READY);
+        TaskEntity upstream = task(project, TaskStatus.COMPLETED);
+        upstream.recordEvidence(new TaskEvidence(TaskEvidence.BLOCKED, List.of(), List.of(),
+                List.of("delivery configuration missing"), List.of()));
+        when(tasks.findById(downstream.getId())).thenReturn(Optional.of(downstream));
+        when(tasks.findById(upstream.getId())).thenReturn(Optional.of(upstream));
+        when(dependencies.findAllByTaskId(downstream.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
+
+        assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.BLOCKED);
+        service.reconcile(downstream.getId());
+        assertThat(downstream.getStatus()).isEqualTo(TaskStatus.BLOCKED);
+        assertThat(downstream.getLastError()).contains("reported BLOCKED evidence");
+    }
+
+    @Test
     void blocksRelationshipWaitsForAnyTerminalOutcome() {
         UUID project = UUID.randomUUID();
         TaskEntity downstream = task(project, TaskStatus.READY);
