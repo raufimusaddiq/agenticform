@@ -198,7 +198,7 @@ public class CodexEventBridge {
             // Node-dispatched tasks can hold a queued-submission id in turn_id and only learn the
             // Codex turn id when the item/started notification arrives. Fall back to the agent's
             // active task so a completed turn is never dropped and the agent cannot stay WORKING.
-            TaskEntity turnTask = taskRepository.findByTurnId(turnId).orElse(null);
+            TaskEntity turnTask = taskRepository.findFirstByTurnIdOrderByUpdatedAtDesc(turnId).orElse(null);
             if (turnTask != null) {
                 if (authorizedRuntime(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, turnTask)) {
                     completeTask(turnTask, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId);
@@ -209,7 +209,7 @@ public class CodexEventBridge {
                     completeTask(activeTask, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, true);
                 }
             }
-            messageDeliveries.findByTurnId(turnId).ifPresent(delivery ->
+            messageDeliveries.findFirstByTurnIdOrderByUpdatedAtDesc(turnId).ifPresent(delivery ->
                     completeMessage(delivery, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId));
         }
         String completedThreadId = params.path("threadId").asText(params.path("thread_id").asText(null));
