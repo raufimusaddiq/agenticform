@@ -79,9 +79,9 @@ class CodexEventBridgeTest {
         AgentRepository agents = mock(AgentRepository.class);
         when(agents.findById(agentId)).thenReturn(Optional.of(agent));
         TaskRepository tasks = mock(TaskRepository.class);
-        when(tasks.findByTurnId("turn-2")).thenReturn(Optional.of(task));
+        when(tasks.findFirstByTurnIdOrderByUpdatedAtDesc("turn-2")).thenReturn(Optional.of(task));
         AgentMessageDeliveryRepository deliveries = mock(AgentMessageDeliveryRepository.class);
-        when(deliveries.findByTurnId("turn-2")).thenReturn(Optional.empty());
+        when(deliveries.findFirstByTurnIdOrderByUpdatedAtDesc("turn-2")).thenReturn(Optional.empty());
         ControlPlaneEventBus events = new ControlPlaneEventBus();
         CodexEventBridge bridge = new CodexEventBridge(mock(CodexJsonRpcClient.class), tasks, agents,
                 deliveries, mock(AgentMessageService.class), mock(TaskDependencyService.class),

@@ -239,7 +239,15 @@ public class ExecutionNodeService {
                 || task.getUpdatedAt().isAfter(Instant.now().minus(Duration.ofSeconds(30)))) return;
 
         String report = task.getReport() == null ? "" : task.getReport().trim();
-        if (report.isBlank()) {
+        com.agenticform.task.TaskEvidence evidence = task.getEvidence();
+        if (evidence != null && com.agenticform.task.TaskEvidence.BLOCKED.equals(com.agenticform.task.TaskEvidence.normalizeOutcome(evidence.outcome()))) {
+            task.setStatus(TaskStatus.BLOCKED);
+            task.setLastError(evidence.blockers().isEmpty()
+                    ? "Agent reported a blocker" : String.join("; ", evidence.blockers()));
+        } else if (evidence != null && com.agenticform.task.TaskEvidence.FAILED.equals(com.agenticform.task.TaskEvidence.normalizeOutcome(evidence.outcome()))) {
+            task.setStatus(TaskStatus.FAILED);
+            task.setLastError(report.isBlank() ? "Agent reported task failure" : report);
+        } else if (report.isBlank()) {
             task.setStatus(TaskStatus.BLOCKED);
             task.setLastError("Runtime reported IDLE without a terminal task event or task report");
         } else if (report.startsWith("BLOCKER:")) {

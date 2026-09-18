@@ -156,4 +156,68 @@ class ExecutionNodeRecoveryTest {
         verify(agent).setActiveTaskId(null);
         verify(agent).setActiveTurnId(null);
     }
+
+    @Test
+    void idleHeartbeatKeepsStructuredBlockedOutcomeBlocked() {
+        UUID nodeId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        ExecutionNodeEntity node = org.mockito.Mockito.mock(ExecutionNodeEntity.class);
+        ExecutionNodeService.Heartbeat heartbeat = new ExecutionNodeService.Heartbeat(1, "{}", "{}", 1,
+                "linux", "amd64", "node", "test", 1, 1L, 1L,
+                java.util.List.of(new ExecutionNodeService.RuntimeObservation(agentId, RuntimeType.CODEX, 4L,
+                        "session-4", "/repo", "/work", "agent/work", "IDLE")));
+
+        when(nodes.findById(nodeId)).thenReturn(Optional.of(node));
+        when(nodes.save(node)).thenReturn(node);
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntimeAssignment(nodeId, 4L, RuntimeType.CODEX)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, "session-4")).thenReturn(true);
+        when(agent.getActiveTaskId()).thenReturn(taskId);
+        when(tasks.findById(taskId)).thenReturn(Optional.of(task));
+        when(task.getStatus()).thenReturn(TaskStatus.RUNNING);
+        when(task.getUpdatedAt()).thenReturn(Instant.now().minusSeconds(60));
+        when(task.getReport()).thenReturn("Implementation complete and pushed");
+        when(task.getEvidence()).thenReturn(new com.agenticform.task.TaskEvidence(
+                com.agenticform.task.TaskEvidence.BLOCKED, java.util.List.of(), java.util.List.of(),
+                java.util.List.of("DELIVERY_CONFIGURATION_REQUIRED"), java.util.List.of()));
+        when(snapshots.findByNodeIdAndAgentId(nodeId, agentId)).thenReturn(Optional.empty());
+
+        service.heartbeat(nodeId, heartbeat);
+
+        verify(task).setStatus(TaskStatus.BLOCKED);
+        verify(task).setLastError("DELIVERY_CONFIGURATION_REQUIRED");
+    }
+
+    @Test
+    void idleHeartbeatKeepsStructuredFailedOutcomeFailed() {
+        UUID nodeId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        ExecutionNodeEntity node = org.mockito.Mockito.mock(ExecutionNodeEntity.class);
+        ExecutionNodeService.Heartbeat heartbeat = new ExecutionNodeService.Heartbeat(1, "{}", "{}", 1,
+                "linux", "amd64", "node", "test", 1, 1L, 1L,
+                java.util.List.of(new ExecutionNodeService.RuntimeObservation(agentId, RuntimeType.CODEX, 4L,
+                        "session-4", "/repo", "/work", "agent/work", "IDLE")));
+
+        when(nodes.findById(nodeId)).thenReturn(Optional.of(node));
+        when(nodes.save(node)).thenReturn(node);
+        when(agents.findById(agentId)).thenReturn(Optional.of(agent));
+        when(agent.ownsRuntimeAssignment(nodeId, 4L, RuntimeType.CODEX)).thenReturn(true);
+        when(agent.ownsRuntime(nodeId, 4L, RuntimeType.CODEX, "session-4")).thenReturn(true);
+        when(agent.getActiveTaskId()).thenReturn(taskId);
+        when(tasks.findById(taskId)).thenReturn(Optional.of(task));
+        when(task.getStatus()).thenReturn(TaskStatus.RUNNING);
+        when(task.getUpdatedAt()).thenReturn(Instant.now().minusSeconds(60));
+        when(task.getReport()).thenReturn("Implementation failed");
+        when(task.getEvidence()).thenReturn(new com.agenticform.task.TaskEvidence(
+                com.agenticform.task.TaskEvidence.FAILED, java.util.List.of(), java.util.List.of(),
+                java.util.List.of(), java.util.List.of()));
+        when(snapshots.findByNodeIdAndAgentId(nodeId, agentId)).thenReturn(Optional.empty());
+
+        service.heartbeat(nodeId, heartbeat);
+
+        verify(task).setStatus(TaskStatus.FAILED);
+        verify(task).setLastError("Implementation failed");
+    }
 }
