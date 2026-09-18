@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 import type { Agent, AgentMessage, AgentMessageType, CommunicationRule, Project } from './types';
 import { Status, label, shortId } from './ui';
+import { displayMessageContent } from './messageContent';
 import './messages.css';
 
 const messageTypes: AgentMessageType[] = [
@@ -86,7 +87,7 @@ export function MessagesView({ messages, agents, projects, communicationRules, o
           return <article className="message-row" key={message.id}>
             <div className="message-meta"><div><strong>{from?.name ?? shortId(message.fromAgentId)}</strong><small>{projectById.get(message.projectId)?.name ?? 'Unknown project'} / {new Date(message.createdAt).toLocaleString()}</small></div><span className={`message-type message-type-${message.type.toLowerCase()}`}>{label(message.type)}</span><Status value={message.status} /></div>
             <p className="message-route"><span>to</span><strong>{targetLabel}</strong><span>hop {message.hopCount}/6</span></p>
-            <p className="message-body">{message.content}</p>
+            <p className="message-body">{displayMessageContent(message.content)}</p>
             <button className="button ghost" type="button" onClick={() => { setReplyTo(message); setFromAgentId(message.toAgentId ?? source?.id ?? ''); setToAgentId(message.fromAgentId); }}>Reply</button>
             <div className="message-machine"><code>message {shortId(message.id)}</code><code>queue {shortId(message.queuedSubmissionId)}</code><code>turn {shortId(message.turnId)}</code></div>
             {message.lastError && <p className="inline-error">{message.lastError}</p>}
