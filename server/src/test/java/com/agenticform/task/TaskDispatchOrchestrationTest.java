@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 
 class TaskDispatchOrchestrationTest {
@@ -32,13 +33,19 @@ class TaskDispatchOrchestrationTest {
         when(parent.getProjectId()).thenReturn(projectId);
         when(orchestrator.getProjectId()).thenReturn(projectId);
         when(orchestrator.getRole()).thenReturn(AgentRole.ORCHESTRATOR);
+        when(orchestrator.getId()).thenReturn(agentId);
+        when(orchestrator.getActiveTaskId()).thenReturn(parentId);
+        when(orchestrator.getRuntimeGeneration()).thenReturn(1L);
+        when(parent.getStatus()).thenReturn(TaskStatus.RUNNING);
         when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(parentId)).thenReturn(List.of(child));
         when(child.getStatus()).thenReturn(TaskStatus.BLOCKED);
 
         TaskDispatchService service = new TaskDispatchService(tasks, agents, mock(AgentRuntimeRegistry.class),
                 mock(ExecutionNodeService.class), mock(TaskDependencyService.class));
 
-        assertThrows(IllegalStateException.class, () -> service.report(agentId, parentId, "done"));
+        TaskDispatchService.ReportRejectedException rejection = assertThrows(TaskDispatchService.ReportRejectedException.class,
+                () -> service.report(agentId, parentId, 1, "done"));
+        assertEquals("DELEGATED_TASKS_UNRESOLVED", rejection.code);
         verify(parent, never()).setReport(anyString());
     }
 
@@ -60,20 +67,26 @@ class TaskDispatchOrchestrationTest {
         when(parent.getAssignedAgentId()).thenReturn(agentId);
         when(parent.getProjectId()).thenReturn(projectId);
         when(parent.getPrompt()).thenReturn("Product Requirements Document: build the extraction feature");
+        when(parent.getDeliverable()).thenReturn(TaskDeliverable.IMPLEMENTATION);
+        when(parent.isReviewRequired()).thenReturn(true);
         when(orchestrator.getProjectId()).thenReturn(projectId);
         when(orchestrator.getRole()).thenReturn(AgentRole.ORCHESTRATOR);
-        when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(parentId)).thenReturn(List.of(architectTask));
+        when(orchestrator.getId()).thenReturn(agentId);
+        when(orchestrator.getActiveTaskId()).thenReturn(parentId);
+        when(orchestrator.getRuntimeGeneration()).thenReturn(1L);
+        when(parent.getStatus()).thenReturn(TaskStatus.RUNNING);
         when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
+        when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(parentId)).thenReturn(List.of(architectTask));
         when(architectTask.getId()).thenReturn(UUID.randomUUID());
         when(architectTask.getAssignedAgentId()).thenReturn(childAgentId);
         when(architectTask.getStatus()).thenReturn(TaskStatus.COMPLETED);
-        when(architectTask.getReport()).thenReturn("Changed files: none. Read-only architecture review.");
+        when(architectTask.getDeliverable()).thenReturn(TaskDeliverable.ANALYSIS);
         when(architect.getCapabilityProfile()).thenReturn(AgentCapabilityProfile.ARCHITECT);
 
         TaskDispatchService service = new TaskDispatchService(tasks, agents, mock(AgentRuntimeRegistry.class),
                 mock(ExecutionNodeService.class), mock(TaskDependencyService.class));
 
-        assertThrows(IllegalStateException.class, () -> service.report(agentId, parentId, "sprint complete"));
+        assertThrows(IllegalStateException.class, () -> service.report(agentId, parentId, 1, "sprint complete"));
     }
 
     @Test
@@ -94,21 +107,29 @@ class TaskDispatchOrchestrationTest {
         when(parent.getAssignedAgentId()).thenReturn(agentId);
         when(parent.getProjectId()).thenReturn(projectId);
         when(parent.getPrompt()).thenReturn("PRD: implement the feature");
+        when(parent.getDeliverable()).thenReturn(TaskDeliverable.IMPLEMENTATION);
+        when(parent.isReviewRequired()).thenReturn(true);
         when(orchestrator.getProjectId()).thenReturn(projectId);
         when(orchestrator.getRole()).thenReturn(AgentRole.ORCHESTRATOR);
-        when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(parentId)).thenReturn(List.of(reviewTask));
+        when(orchestrator.getId()).thenReturn(agentId);
+        when(orchestrator.getActiveTaskId()).thenReturn(parentId);
+        when(orchestrator.getRuntimeGeneration()).thenReturn(1L);
+        when(parent.getStatus()).thenReturn(TaskStatus.RUNNING);
         when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
+        when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(parentId)).thenReturn(List.of(reviewTask));
         when(reviewTask.getId()).thenReturn(UUID.randomUUID());
         when(reviewTask.getAssignedAgentId()).thenReturn(childAgentId);
         when(reviewTask.getStatus()).thenReturn(TaskStatus.COMPLETED);
         when(reviewTask.getKind()).thenReturn(TaskKind.REVIEW);
-        when(reviewTask.getReport()).thenReturn("BLOCK remains: full PRD scope is incomplete");
+        when(reviewTask.getDeliverable()).thenReturn(TaskDeliverable.REVIEW);
+        when(reviewTask.getEvidence()).thenReturn(new TaskEvidence(TaskEvidence.BLOCKED, java.util.List.of(),
+                java.util.List.of(), java.util.List.of("full PRD scope is incomplete"), java.util.List.of()));
         when(reviewer.getCapabilityProfile()).thenReturn(AgentCapabilityProfile.REVIEWER);
 
         TaskDispatchService service = new TaskDispatchService(tasks, agents, mock(AgentRuntimeRegistry.class),
                 mock(ExecutionNodeService.class), mock(TaskDependencyService.class));
 
-        assertThrows(IllegalStateException.class, () -> service.report(agentId, parentId, "sprint complete"));
+        assertThrows(IllegalStateException.class, () -> service.report(agentId, parentId, 1, "sprint complete"));
     }
 
     @Test

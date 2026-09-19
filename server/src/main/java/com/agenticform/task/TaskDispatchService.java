@@ -64,6 +64,21 @@ public class TaskDispatchService {
     public TaskEntity create(UUID agentId, String title, String prompt, int priority,
                              List<TaskDependencyService.DependencyRequest> dependencies, UUID parentTaskId,
                              TaskKind requestedKind) {
+        return create(agentId, title, prompt, priority, dependencies, parentTaskId, requestedKind, null);
+    }
+
+    /**
+     * Requested deliverable contract. Persisted at creation so completion never
+     * depends on prompt wording.
+     */
+    public record DeliveryRequest(TaskDeliverable deliverable, Boolean reviewRequired,
+                                 Boolean architectureRequired, Boolean deploymentRequired,
+                                 String environmentKey) {}
+
+    @Transactional
+    public TaskEntity create(UUID agentId, String title, String prompt, int priority,
+                             List<TaskDependencyService.DependencyRequest> dependencies, UUID parentTaskId,
+                             TaskKind requestedKind, DeliveryRequest requestedDelivery) {
         AgentEntity agent = agentRepository.findById(agentId)
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
         if (agent.getRole() == AgentRole.OPERATIONAL) {
@@ -87,6 +102,27 @@ public class TaskDispatchService {
         if (kind == TaskKind.REVIEW && !agent.getCapabilityProfile().allows(AgentCapabilityProfile.Capability.REVIEW)) {
             throw new IllegalArgumentException("Review tasks require an agent with REVIEW capability");
         }
+        DeliveryRequest delivery = requestedDelivery == null ? defaultDelivery(kind) : requestedDelivery;
+        TaskDeliverable deliverable = delivery.deliverable() == null ? deliverableFor(kind) : delivery.deliverable();
+        if (deliverable == TaskDeliverable.OPERATIONS
+                || (requestedDelivery != null && delivery.deliverable() == TaskDeliverable.OPERATIONS)) {
+            throw new IllegalArgumentException("Operational work must use the operational handoff");
+        }
+        if (deliverable == TaskDeliverable.IMPLEMENTATION
+                && !agent.getCapabilityProfile().allows(AgentCapabilityProfile.Capability.WRITE)) {
+            throw new IllegalArgumentException("Implementation deliverables require an agent with WRITE capability");
+        }
+        boolean reviewRequired = delivery.reviewRequired() == null
+                ? deliverable == TaskDeliverable.IMPLEMENTATION : delivery.reviewRequired();
+        boolean architectureRequired = delivery.architectureRequired() != null && delivery.architectureRequired();
+        // Only the workflow root carries the delivery obligation; children are
+        // milestones whose artifacts the root gate consumes.
+        boolean deploymentRequired = parentTaskId == null && (delivery.deploymentRequired() == null
+                ? deliverable == TaskDeliverable.IMPLEMENTATION || kind == TaskKind.ORCHESTRATION
+                : delivery.deploymentRequired());
+        if (deploymentRequired && (delivery.environmentKey() == null || delivery.environmentKey().isBlank())) {
+            throw new IllegalArgumentException("deploymentRequired=true requires an environmentKey; specify the target or disable deployment only when the request excludes deployment");
+        }
         TaskEntity existing = taskRepository.findAllByProjectIdOrderByCreatedAtDesc(agent.getProjectId()).stream()
                 .filter(candidate -> candidate.getAssignedAgentId().equals(agentId))
                 .filter(candidate -> java.util.Objects.equals(candidate.getParentTaskId(), parentTaskId))
@@ -100,6 +136,9 @@ public class TaskDispatchService {
                 .findFirst().orElse(null);
         if (existing != null) return existing;
         TaskEntity task = taskRepository.save(new TaskEntity(agent.getProjectId(), agentId, title, prompt, priority, parentTaskId, kind, workflowId));
+        task.configureDelivery(deliverable, reviewRequired, architectureRequired, deploymentRequired,
+                delivery.environmentKey());
+        task = taskRepository.save(task);
         if (dependencies != null) {
             for (TaskDependencyService.DependencyRequest dependency : dependencies) {
                 if (dependency == null || dependency.taskId() == null) {
@@ -111,53 +150,253 @@ public class TaskDispatchService {
         return taskRepository.findById(task.getId()).orElse(task);
     }
 
+    private DeliveryRequest defaultDelivery(TaskKind kind) {
+        return switch (kind) {
+            case IMPLEMENTATION -> new DeliveryRequest(TaskDeliverable.IMPLEMENTATION, true, false, true, null);
+            default -> new DeliveryRequest(deliverableFor(kind), false, false, false, null);
+        };
+    }
+
+    private TaskDeliverable deliverableFor(TaskKind kind) {
+        return switch (kind) {
+            case ARCHITECTURE -> TaskDeliverable.ANALYSIS;
+            case IMPLEMENTATION -> TaskDeliverable.IMPLEMENTATION;
+            case REVIEW -> TaskDeliverable.REVIEW;
+            case TEST -> TaskDeliverable.TEST;
+            case OPERATIONS -> TaskDeliverable.OPERATIONS;
+            case ORCHESTRATION, GENERAL -> TaskDeliverable.GENERAL;
+        };
+    }
+
+    private TaskDeliverable deliverableOf(TaskEntity task) {
+        return task.getDeliverable() == null ? TaskDeliverable.GENERAL : task.getDeliverable();
+    }
+
+    /**
+     * Resolve the workflow-root task an operational run may deliver. Returns null
+     * when the candidate is not a root application task in this project, so a
+     * non-delivery operation never binds to an unrelated task.
+     */
+    public UUID resolveDeliverableRoot(UUID projectId, UUID explicitTaskId, UUID activeTaskId) {
+        UUID resolved = resolveDeliverableRoot(projectId, explicitTaskId);
+        return resolved != null ? resolved : resolveDeliverableRoot(projectId, activeTaskId);
+    }
+
+    public UUID resolveDeliverableRoot(UUID projectId, UUID candidateTaskId) {
+        if (projectId == null || candidateTaskId == null) return null;
+        TaskEntity candidate = taskRepository.findById(candidateTaskId).orElse(null);
+        if (candidate == null || !projectId.equals(candidate.getProjectId())) return null;
+        if (candidate.getParentTaskId() != null) return null;
+        if (deliverableOf(candidate) != TaskDeliverable.IMPLEMENTATION) return null;
+        return candidate.getId();
+    }
+
     @Transactional
-    public TaskEntity report(UUID agentId, UUID taskId, String report) {
+    public TaskEntity report(UUID agentId, UUID taskId, long runtimeGeneration, String report) {
+        return report(agentId, taskId, runtimeGeneration, report, null);
+    }
+
+    /**
+     * Durable task report. A successful outcome is accepted only when the persisted
+     * deliverable contract is satisfied by structured evidence; prose is retained for
+     * humans but is never used to prove completion.
+     */
+    @Transactional
+    public TaskEntity report(UUID agentId, UUID taskId, long runtimeGeneration, String report,
+                             TaskEvidence evidence) {
         AgentEntity agent = agentRepository.findById(agentId)
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new NoSuchElementException("Task not found: " + taskId));
-        if (!task.getAssignedAgentId().equals(agentId) || !task.getProjectId().equals(agent.getProjectId())) {
-            throw new IllegalArgumentException("Agent may only report its own project task");
-        }
+        requireReportIdentity(agent, task, taskId, runtimeGeneration);
         if (report == null || report.isBlank()) throw new IllegalArgumentException("Task report is required");
         if (report.length() > 20000) throw new IllegalArgumentException("Task report is too long");
-        if (agent.getRole() == AgentRole.ORCHESTRATOR) {
+        String outcome = evidence == null ? TaskEvidence.COMPLETED : TaskEvidence.normalizeOutcome(evidence.outcome());
+        if (outcome == null) outcome = TaskEvidence.COMPLETED;
+        // Validate the workflow graph before the leaf evidence contract so an
+        // orchestrator can never complete on a partial or missing child set.
+        if (agent.getRole() == AgentRole.ORCHESTRATOR && TaskEvidence.COMPLETED.equals(outcome)) {
             List<TaskEntity> descendants = descendants(taskId);
             List<TaskEntity> unfinished = descendants.stream()
-                    .filter(child -> (child.getStatus() != TaskStatus.COMPLETED && child.getStatus() != TaskStatus.CANCELLED)
-                            || (child.getReport() != null && child.getReport().startsWith("BLOCKER:")))
+                    .filter(child -> child.getStatus() != TaskStatus.COMPLETED
+                            || (child.getEvidence() != null && child.getEvidence().hasUnresolvedBlocker()))
                     .toList();
             if (!unfinished.isEmpty()) {
-                throw new IllegalStateException("Orchestrator cannot complete while delegated tasks remain unresolved: "
-                        + unfinished.stream().map(child -> child.getId() + "=" + child.getStatus()).toList());
+                throw new ReportRejectedException("DELEGATED_TASKS_UNRESOLVED", task.getId(), task.getAssignedAgentId(),
+                        "Orchestrator cannot complete while delegated tasks remain unresolved: "
+                                + unfinished.stream().map(child -> child.getId() + "=" + child.getStatus()).toList()
+                                + "; wait for children to reach COMPLETED with evidence, resolve blockers, or report this task as BLOCKED with the outstanding child ids");
             }
-            if (requiresImplementation(task) && descendants.stream().noneMatch(this::hasImplementationEvidence)) {
-                throw new IllegalStateException("Orchestrator cannot complete an implementation workflow without an Implementer child report containing changed-file evidence");
-            }
-            if (requiresImplementation(task) && descendants.stream().noneMatch(this::hasArchitectureEvidence)) {
-                throw new IllegalStateException("Orchestrator cannot complete an implementation workflow without an architecture report");
-            }
-            if (requiresImplementation(task) && descendants.stream().noneMatch(this::hasReviewEvidence)) {
-                throw new IllegalStateException("Orchestrator cannot complete an implementation workflow without a completed review report");
-            }
+            requireDescendantEvidence(task, descendants);
+        }
+        if (TaskEvidence.COMPLETED.equals(outcome)) {
+            requireCompletionEvidence(task, evidence);
         }
         task.setReport(report.trim());
+        if (evidence != null) {
+            task.recordEvidence(evidence);
+            if (TaskEvidence.BLOCKED.equals(outcome)) {
+                if (!evidence.hasUnresolvedBlocker()) {
+                    throw new IllegalArgumentException("A blocked task report requires at least one blocker");
+                }
+                task.setStatus(TaskStatus.BLOCKED);
+                task.setLastError(String.join("; ", evidence.blockers()));
+            } else if (TaskEvidence.FAILED.equals(outcome)) {
+                task.setStatus(TaskStatus.FAILED);
+                task.setLastError(report.trim());
+            }
+        }
         return taskRepository.save(task);
     }
 
+    private void requireCompletionEvidence(TaskEntity task, TaskEvidence evidence) {
+        if (task.requiresVerifiedDelivery()) {
+            if (task.getEnvironmentKey() == null || task.getEnvironmentKey().isBlank()) {
+                throw new ReportRejectedException("DELIVERY_CONFIGURATION_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                        "Record the intended environment/service, then hand the validated artifact to operations");
+            }
+            if (!task.hasVerifiedDelivery()) {
+                throw new ReportRejectedException("DELIVERY_NOT_VERIFIED", task.getId(), task.getAssignedAgentId(),
+                        "Application changes are delivered only after verified deployment; hand off to operations and verify the target");
+            }
+        }
+        if (evidence == null) {
+            if (deliverableOf(task) == TaskDeliverable.GENERAL) return;
+            throw new ReportRejectedException("EVIDENCE_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                    "Submit structured evidence (outcome, artifacts, validations, blockers, follow-up); prose alone does not prove completion");
+        }
+        if (evidence.hasUnresolvedBlocker()) {
+            throw new ReportRejectedException("UNRESOLVED_BLOCKERS", task.getId(), task.getAssignedAgentId(),
+                    "Resolve blockers or report the task as BLOCKED instead of COMPLETED");
+        }
+        switch (deliverableOf(task)) {
+            // Root orchestration completeness is proved by required descendant
+            // phases and the deployment gate above, not by prose.
+            case GENERAL -> { }
+            case ANALYSIS -> {
+                if (!evidence.hasArtifact(TaskEvidence.ArtifactType.ANALYSIS)
+                        && !evidence.hasArtifact(TaskEvidence.ArtifactType.DOCUMENT)) {
+                    throw new ReportRejectedException("ANALYSIS_EVIDENCE_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                            "Analysis tasks complete with an analysis or document artifact reference");
+                }
+            }
+            case DOCUMENTATION -> {
+                if (!evidence.hasArtifact(TaskEvidence.ArtifactType.DOCUMENT)
+                        || !evidence.hasPassedValidation()) {
+                    throw new ReportRejectedException("DOCUMENTATION_EVIDENCE_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                            "Documentation tasks complete with a document reference and a passed documentation validation");
+                }
+            }
+            case IMPLEMENTATION -> {
+                if (!evidence.hasRevisionedArtifact(TaskEvidence.ArtifactType.COMMIT)
+                        && !evidence.hasRevisionedArtifact(TaskEvidence.ArtifactType.PULL_REQUEST)) {
+                    throw new ReportRejectedException("IMPLEMENTATION_EVIDENCE_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                            "Implementation tasks complete with a revisioned commit or pull-request artifact");
+                }
+                if (!evidence.hasPassedValidation()) {
+                    throw new ReportRejectedException("VALIDATION_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                            "Implementation tasks complete only with at least one passed validation");
+                }
+            }
+            case REVIEW -> {
+                if (!evidence.hasArtifact(TaskEvidence.ArtifactType.REVIEW)
+                        || !evidence.hasPassedValidation()) {
+                    throw new ReportRejectedException("REVIEW_EVIDENCE_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                            "Review tasks complete with a review artifact and a passed validation");
+                }
+            }
+            case TEST -> {
+                if (!evidence.hasArtifact(TaskEvidence.ArtifactType.TEST_RUN)
+                        || !evidence.hasPassedValidation()) {
+                    throw new ReportRejectedException("TEST_EVIDENCE_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                            "Test tasks complete with a test-run artifact and a passed validation");
+                }
+            }
+            case OPERATIONS -> {
+                if (!evidence.hasArtifact(TaskEvidence.ArtifactType.OPERATION_RUN)) {
+                    throw new ReportRejectedException("OPERATION_EVIDENCE_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                            "Operations tasks complete with an operation-run artifact reference");
+                }
+            }
+        }
+    }
+
+    private void requireDescendantEvidence(TaskEntity task, List<TaskEntity> descendants) {
+        // Record the review milestone on the root as soon as a review child has
+        // completed, so the UI can distinguish implementation-finished from
+        // review-passed before deployment begins.
+        // Descendants are resolved by parent chain, which is workflow-scoped by
+        // construction: a child created under a different root never appears here,
+        // so a report from another workflow can never satisfy this gate.
+        if (descendants.stream().anyMatch(child -> deliverableOf(child) == TaskDeliverable.REVIEW
+                && child.getStatus() == TaskStatus.COMPLETED)) {
+            task.recordReviewPassed();
+        }
+        TaskDeliverable deliverable = deliverableOf(task);
+        if (deliverable != TaskDeliverable.IMPLEMENTATION) {
+            if (task.isArchitectureRequired() && descendants.stream().noneMatch(child ->
+                    deliverableOf(child) == TaskDeliverable.ANALYSIS && child.getStatus() == TaskStatus.COMPLETED)) {
+                throw new ReportRejectedException("ARCHITECTURE_CHILD_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                        "This workflow requires a completed architecture child task");
+            }
+            if (task.isReviewRequired() && descendants.stream().noneMatch(child ->
+                    deliverableOf(child) == TaskDeliverable.REVIEW && child.getStatus() == TaskStatus.COMPLETED)) {
+                throw new ReportRejectedException("REVIEW_CHILD_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                        "This workflow requires a completed review child task");
+            }
+            return;
+        }
+        if (task.isArchitectureRequired() && descendants.stream().noneMatch(child ->
+                deliverableOf(child) == TaskDeliverable.ANALYSIS && child.getStatus() == TaskStatus.COMPLETED)) {
+            throw new ReportRejectedException("ARCHITECTURE_CHILD_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                    "Implementation workflow requires a completed architecture child task");
+        }
+        boolean hasImplementation = descendants.stream().anyMatch(child ->
+                deliverableOf(child) == TaskDeliverable.IMPLEMENTATION
+                        && child.getStatus() == TaskStatus.COMPLETED
+                        && child.getEvidence() != null
+                        && (child.getEvidence().hasRevisionedArtifact(TaskEvidence.ArtifactType.COMMIT)
+                            || child.getEvidence().hasRevisionedArtifact(TaskEvidence.ArtifactType.PULL_REQUEST))
+                        && child.getEvidence().hasPassedValidation());
+        if (!hasImplementation) {
+            throw new ReportRejectedException("IMPLEMENTATION_CHILD_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                    "Implementation workflow requires a completed implementation child with revisioned artifacts and passed validation");
+        }
+        if (task.isReviewRequired() && descendants.stream().noneMatch(child ->
+                deliverableOf(child) == TaskDeliverable.REVIEW && child.getStatus() == TaskStatus.COMPLETED)) {
+            throw new ReportRejectedException("REVIEW_CHILD_REQUIRED", task.getId(), task.getAssignedAgentId(),
+                    "Implementation workflow requires a completed review child task");
+        }
+    }
+
     @Transactional
-    public TaskEntity block(UUID agentId, String reason) {
+    public TaskEntity block(UUID agentId, UUID taskId, long runtimeGeneration, String reason) {
         AgentEntity agent = agentRepository.findById(agentId)
                 .orElseThrow(() -> new NoSuchElementException("Agent not found: " + agentId));
-        if (agent.getActiveTaskId() == null) throw new IllegalStateException("Agent has no active task");
-        TaskEntity task = taskRepository.findById(agent.getActiveTaskId())
-                .orElseThrow(() -> new NoSuchElementException("Active task not found: " + agent.getActiveTaskId()));
-        if (!task.getAssignedAgentId().equals(agentId)) throw new IllegalArgumentException("Agent may only block its own task");
+        TaskEntity task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new NoSuchElementException("Task not found: " + taskId));
+        requireReportIdentity(agent, task, taskId, runtimeGeneration);
+        if (reason == null || reason.isBlank() || reason.length() > 20000) throw new IllegalArgumentException("Blocker must contain 1 to 20000 characters");
         task.setStatus(TaskStatus.BLOCKED);
         task.setLastError(reason);
         task.setReport("BLOCKER: " + reason);
         return taskRepository.save(task);
+    }
+
+    private void requireReportIdentity(AgentEntity agent, TaskEntity task, UUID taskId, long runtimeGeneration) {
+        if (!task.getAssignedAgentId().equals(agent.getId()) || !task.getProjectId().equals(agent.getProjectId())) {
+            throw new IllegalArgumentException("Agent may only report its own project task");
+        }
+        if (runtimeGeneration < 0 || (agent.getExecutionNodeId() != null && runtimeGeneration == 0)
+                || runtimeGeneration != agent.getRuntimeGeneration()) {
+            throw new ReportRejectedException("STALE_RUNTIME", taskId, agent.getActiveTaskId(), "Inspect the current runtime; do not resubmit an old report under a new generation");
+        }
+        if (!taskId.equals(agent.getActiveTaskId())) {
+            throw new ReportRejectedException("STALE_TASK", taskId, agent.getActiveTaskId(), "Inspect the original task; do not attach this report to another task");
+        }
+        if (task.getStatus() != TaskStatus.DISPATCHED && task.getStatus() != TaskStatus.RUNNING) {
+            throw new ReportRejectedException("TASK_NOT_REPORTABLE", taskId, agent.getActiveTaskId(), "Resolve the task blocker or approval before reporting; do not create a replacement task");
+        }
     }
 
     private List<TaskEntity> descendants(UUID parentTaskId) {
@@ -169,18 +408,6 @@ public class TaskDispatchService {
         return result;
     }
 
-    private boolean requiresImplementation(TaskEntity task) {
-        if (task.getKind() == TaskKind.ORCHESTRATION) return true;
-        String prompt = task.getPrompt() == null ? "" : task.getPrompt().toLowerCase(java.util.Locale.ROOT);
-        if (prompt.contains("read-only") || prompt.contains("read only")
-                || prompt.contains("review-only") || prompt.contains("review only")
-                || prompt.contains("design-only") || prompt.contains("design only")) return false;
-        return prompt.contains("product requirements") || prompt.contains("prd")
-                || prompt.contains("implement") || prompt.contains("build")
-                || prompt.contains("feature") || prompt.contains("bug fix")
-                || prompt.contains("sprint") || prompt.contains("code change");
-    }
-
     private TaskKind kindFor(AgentEntity agent) {
         return switch (agent.getCapabilityProfile()) {
             case ORCHESTRATOR -> TaskKind.ORCHESTRATION;
@@ -189,45 +416,6 @@ public class TaskDispatchService {
             case OPS -> TaskKind.OPERATIONS;
             case IMPLEMENTER -> TaskKind.IMPLEMENTATION;
         };
-    }
-
-    private boolean hasImplementationEvidence(TaskEntity task) {
-        AgentEntity childAgent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-        String report = task.getReport() == null ? "" : task.getReport().toLowerCase(java.util.Locale.ROOT);
-        return childAgent != null
-                && childAgent.getCapabilityProfile() == AgentCapabilityProfile.IMPLEMENTER
-                && !report.contains("changed files: none")
-                && !report.matches("(?s).*\\bblock(?:ed)?\\b.*")
-                && !report.contains("no sha")
-                && !report.contains("no commit")
-                && !report.contains("uncommitted")
-                && report.contains("validation")
-                && (report.contains("changed files") || report.contains("implemented"));
-    }
-
-    private boolean hasReviewEvidence(TaskEntity task) {
-        AgentEntity childAgent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-        String report = task.getReport() == null ? "" : task.getReport().toLowerCase(java.util.Locale.ROOT);
-        return task.getKind() == TaskKind.REVIEW
-                && childAgent != null
-                && childAgent.getCapabilityProfile() == AgentCapabilityProfile.REVIEWER
-                && !report.contains("fail")
-                && !report.matches("(?s).*\\bblock(?:ed)?\\b.*")
-                && !report.contains("no sha")
-                && !report.contains("no commit")
-                && !report.contains("uncommitted")
-                && report.contains("validation")
-                && (report.contains("review") || report.contains("validation") || report.contains("approved"));
-    }
-
-    private boolean hasArchitectureEvidence(TaskEntity task) {
-        AgentEntity childAgent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
-        String report = task.getReport() == null ? "" : task.getReport().toLowerCase(java.util.Locale.ROOT);
-        return task.getKind() == TaskKind.ARCHITECTURE
-                && childAgent != null
-                && childAgent.getCapabilityProfile() == AgentCapabilityProfile.ARCHITECT
-                && !report.contains("blocker")
-                && (report.contains("architecture") || report.contains("design") || report.contains("implementation brief"));
     }
 
     public synchronized void dispatchReadyTasks() {
@@ -319,7 +507,7 @@ public class TaskDispatchService {
                                 "runtimeType", runtimeType(agent).name(),
                                 "runtimeSessionId", runtimeSessionId(agent),
                                 "clientMessageId", clientMessageId,
-                        "prompt", promptWithCompletionContract(task.getPrompt())));
+                        "prompt", promptWithCompletionContract(task, agent)));
                 task.setQueuedSubmissionId("node-command:" + command.getId());
                 task.setTurnId(null);
                 task.setStatus(TaskStatus.DISPATCHED);
@@ -332,7 +520,7 @@ public class TaskDispatchService {
             }
 
             RuntimeDispatchReceipt receipt = runtimeRegistry.get(agent.getRuntimeType()).dispatch(
-                    new RuntimeSession(agent.getRuntimeSessionId()), clientMessageId, promptWithCompletionContract(task.getPrompt()));
+                    new RuntimeSession(agent.getRuntimeSessionId()), clientMessageId, promptWithCompletionContract(task, agent));
             TaskEntity currentTask = taskRepository.findById(task.getId()).orElse(task);
                 currentTask.setQueuedSubmissionId(receipt.queuedSubmissionId());
                 if (receipt.turnId() != null) currentTask.setTurnId(receipt.turnId());
@@ -372,7 +560,29 @@ public class TaskDispatchService {
                 + ":a" + (task.getUpdatedAt() == null ? System.nanoTime() : task.getUpdatedAt().toEpochMilli());
     }
 
-    public static String promptWithCompletionContract(String prompt) {
-        return prompt + COMPLETION_CONTRACT;
+    public static String promptWithCompletionContract(TaskEntity task, AgentEntity agent) {
+        // Agents must never guess their workspace: an explicit path and branch prevent the
+        // "requested branch/worktree unavailable" blocker that silently stalls delegated work.
+        String workspace = agent.getWorkingDirectory() == null || agent.getWorkingDirectory().isBlank()
+                ? ""
+                : "\nWorkspace: workingDirectory=" + agent.getWorkingDirectory()
+                        + "; branch=" + (agent.getBranch() == null ? "" : agent.getBranch())
+                        + ". Work only inside this directory; do not search for or create other checkouts.";
+        return task.getPrompt() + COMPLETION_CONTRACT + workspace + "\nReport identity: taskId=" + task.getId()
+                + "; runtimeGeneration=" + agent.getRuntimeGeneration()
+                + ". Pass both unchanged to report_task. A RESULT message does not submit a task report.";
+    }
+
+    public static class ReportRejectedException extends IllegalStateException {
+        public final String code;
+        public final UUID taskId;
+        public final UUID activeTaskId;
+
+        public ReportRejectedException(String code, UUID taskId, UUID activeTaskId, String nextAction) {
+            super(nextAction);
+            this.code = code;
+            this.taskId = taskId;
+            this.activeTaskId = activeTaskId;
+        }
     }
 }

@@ -48,9 +48,14 @@ class TaskDependencyServiceTest {
                 new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
 
         assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.WAITING);
+        service.reconcile(downstream.getId());
+        assertThat(downstream.getDependencyReason()).contains(upstream.getId().toString());
 
         upstream.setStatus(TaskStatus.COMPLETED);
         assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.READY);
+        service.reconcile(downstream.getId());
+        assertThat(downstream.getDependencyReason()).isNull();
+        assertThat(downstream.getLastError()).isNull();
     }
 
     @Test
@@ -68,6 +73,41 @@ class TaskDependencyServiceTest {
         when(dependencies.findAllByTaskId(downstream.getId())).thenReturn(List.of(
                 new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_COMPLETION)));
         assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.READY);
+    }
+
+    @Test
+    void infrastructureBlockedPrerequisiteFailsSuccessDependencyInsteadOfWaitingForever() {
+        UUID project = UUID.randomUUID();
+        TaskEntity downstream = task(project, TaskStatus.WAITING_DEPENDENCY);
+        TaskEntity upstream = task(project, TaskStatus.BLOCKED);
+        upstream.setLastError("Execution node was lost; task will resume after runtime rehydration");
+        when(tasks.findById(downstream.getId())).thenReturn(Optional.of(downstream));
+        when(tasks.findById(upstream.getId())).thenReturn(Optional.of(upstream));
+        when(dependencies.findAllByTaskId(downstream.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
+
+        assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.BLOCKED);
+        service.reconcile(downstream.getId());
+        assertThat(downstream.getStatus()).isEqualTo(TaskStatus.BLOCKED);
+        assertThat(downstream.getLastError()).startsWith("Dependency failed:");
+    }
+
+    @Test
+    void blockedEvidenceFailsSuccessDependencyEvenIfLegacyStatusSaysCompleted() {
+        UUID project = UUID.randomUUID();
+        TaskEntity downstream = task(project, TaskStatus.READY);
+        TaskEntity upstream = task(project, TaskStatus.COMPLETED);
+        upstream.recordEvidence(new TaskEvidence(TaskEvidence.BLOCKED, List.of(), List.of(),
+                List.of("delivery configuration missing"), List.of()));
+        when(tasks.findById(downstream.getId())).thenReturn(Optional.of(downstream));
+        when(tasks.findById(upstream.getId())).thenReturn(Optional.of(upstream));
+        when(dependencies.findAllByTaskId(downstream.getId())).thenReturn(List.of(
+                new TaskDependencyEntity(downstream.getId(), upstream.getId(), TaskDependencyType.REQUIRES_SUCCESS)));
+
+        assertThat(service.evaluate(downstream.getId()).state()).isEqualTo(TaskDependencyService.State.BLOCKED);
+        service.reconcile(downstream.getId());
+        assertThat(downstream.getStatus()).isEqualTo(TaskStatus.BLOCKED);
+        assertThat(downstream.getLastError()).contains("reported BLOCKED evidence");
     }
 
     @Test

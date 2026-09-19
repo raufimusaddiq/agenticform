@@ -123,6 +123,10 @@ export const api = {
   operationalEnvironments: () => request<OperationalEnvironment[]>('/api/operations/environments'),
   operationalServices: () => request<OperationalService[]>('/api/operations/services'),
   operationalRunbooks: () => request<OperationalRunbook[]>('/api/operations/runbooks'),
+  repositoryRunbookPlan: (projectId: string, environmentKey: string) =>
+    request<RepositoryRunbookPlan>('/api/operations/runbooks/plan?projectId=' + encodeURIComponent(projectId) + '&environmentKey=' + encodeURIComponent(environmentKey)),
+  syncRepositoryRunbook: (projectId: string, environmentKey: string) =>
+    request<RepositoryRunbookPlan>('/api/operations/runbooks/sync?projectId=' + encodeURIComponent(projectId) + '&environmentKey=' + encodeURIComponent(environmentKey), { method: 'POST' }),
   operationRuns: () => request<OperationRun[]>('/api/operations/runs'),
   operationRun: (runId: string) => request<OperationRunDetail>(`/api/operations/runs/${runId}`),
   operationExternalWaits: (runId: string) => request<OperationExternalWait[]>(`/api/operations/runs/${runId}/external-waits`),
@@ -202,8 +206,10 @@ export const api = {
       body: JSON.stringify({ reason })
     }),
 
-  createTask: (input: { agentId: string; title: string; prompt: string; priority: number }) =>
-    request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
+  createTask: (input: {
+    agentId: string; title: string; prompt: string; priority: number;
+    kind?: string; deliverable?: string; deploymentRequired?: boolean; environmentKey?: string;
+  }) => request<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
 
   dispatchTask: (taskId: string) =>
     request<Task>(`/api/tasks/${taskId}/dispatch`, { method: 'POST' }),
@@ -281,4 +287,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ actor, reason })
     })
+};
+
+export type RepositoryRunbookPlan = {
+  projectId: string;
+  source: 'REPOSITORY_MANIFEST' | 'HUMAN_GATED_FALLBACK';
+  manifestPath: string;
+  repository: string | null;
+  commitSha: string | null;
+  environment: OperationalEnvironment;
+  runbookKey: string;
+  action: string;
+  description: string;
+  steps: RunbookStep[];
+  registered: boolean;
+  fallbackReason: string | null;
+  approvalExpectation: string;
 };

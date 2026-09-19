@@ -13,6 +13,7 @@ import java.util.UUID;
 @Service
 public class TaskDependencyService {
     private static final String DEPENDENCY_BLOCK_PREFIX = "Dependency failed:";
+    private static final String INFRASTRUCTURE_BLOCK_PREFIX = "Execution node was lost";
 
     private final TaskRepository tasks;
     private final TaskDependencyRepository dependencies;
@@ -64,14 +65,15 @@ public class TaskDependencyService {
         boolean becameDependencyBlocked = false;
         if (isPreDispatchDependencyState(task)) {
             boolean wasDependencyBlocked = task.getStatus() == TaskStatus.BLOCKED && isDependencyBlock(task);
+            boolean wasWaiting = task.getStatus() == TaskStatus.WAITING_DEPENDENCY;
             switch (evaluation.state()) {
                 case READY -> {
                     task.setStatus(TaskStatus.READY);
-                    if (wasDependencyBlocked) task.setLastError(null);
+                    if (wasDependencyBlocked || wasWaiting) task.setLastError(null);
                 }
                 case WAITING -> {
                     task.setStatus(TaskStatus.WAITING_DEPENDENCY);
-                    task.setLastError(null);
+                    task.setLastError(evaluation.reason());
                 }
                 case BLOCKED -> {
                     task.setStatus(TaskStatus.BLOCKED);
@@ -114,7 +116,21 @@ public class TaskDependencyService {
                     }
                 }
                 case REQUIRES_SUCCESS -> {
+                    TaskEvidence evidence = prerequisite.getEvidence();
+                    if (evidence != null && TaskEvidence.BLOCKED.equals(TaskEvidence.normalizeOutcome(evidence.outcome()))) {
+                        return new Evaluation(State.BLOCKED,
+                                prerequisite.getId() + " reported BLOCKED evidence");
+                    }
                     if (prerequisite.getStatus() == TaskStatus.COMPLETED) continue;
+                    // A task blocked by infrastructure loss is terminal from the graph's
+                    // perspective; it can no longer reach COMPLETED, so dependents must
+                    // fail fast instead of waiting forever for an outcome that cannot happen.
+                    if (prerequisite.getStatus() == TaskStatus.BLOCKED
+                            && prerequisite.getLastError() != null
+                            && prerequisite.getLastError().startsWith(INFRASTRUCTURE_BLOCK_PREFIX)) {
+                        return new Evaluation(State.BLOCKED,
+                                prerequisite.getId() + " ended as " + prerequisite.getStatus());
+                    }
                     if (isDependencyFailure(prerequisite)) {
                         return new Evaluation(State.BLOCKED,
                                 prerequisite.getId() + " ended as " + prerequisite.getStatus());

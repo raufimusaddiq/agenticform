@@ -58,6 +58,9 @@ public class AgentEntity {
 
     private String branch;
 
+    @Column(name = "base_branch")
+    private String baseBranch;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private AgentStatus status;
@@ -169,6 +172,8 @@ public class AgentEntity {
     public String getSourceDirectory() { return sourceDirectory; }
     public String getWorkingDirectory() { return workingDirectory; }
     public String getBranch() { return branch; }
+    public String getBaseBranch() { return baseBranch; }
+    public void setBaseBranch(String baseBranch) { this.baseBranch = baseBranch; }
     public AgentStatus getStatus() { return status; }
     public AgentQueueMode getQueueMode() { return queueMode; }
     public HumanControlMode getHumanControlMode() { return humanControlMode; }

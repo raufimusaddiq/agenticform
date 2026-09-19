@@ -65,6 +65,19 @@ public class GitHubWebhookService {
                     nullableText(run, "html_url"),
                     createdAt
             ));
+        } else if ("pull_request".equals(event)) {
+            JsonNode root = mapper.readTree(body);
+            JsonNode pr = root.path("pull_request");
+            String repository = root.path("repository").path("full_name").asText();
+            String action = root.path("action").asText();
+            if (repository.isBlank() || pr.isMissingNode()) throw new IllegalArgumentException("Invalid pull_request webhook payload");
+            if ("closed".equals(action) && pr.path("merged").asBoolean(false)) {
+                String mergeSha = pr.path("merge_commit_sha").asText(null);
+                workflows.handleMerge(new ExternalWorkflowService.MergeWebhook(
+                        repository,
+                        pr.path("base").path("ref").asText(null),
+                        mergeSha));
+            }
         }
 
         deliveries.save(new GitHubWebhookDeliveryEntity(deliveryId, event, payloadHash));

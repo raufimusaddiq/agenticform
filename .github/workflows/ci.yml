@@ -76,12 +76,17 @@ jobs:
         with:
           node-version: "24"
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Build web
         run: npm run build
+      - name: Test web recovery state
+        run: npm test
       - name: Build web container
         working-directory: .
-        run: docker build -f web/Dockerfile .
+        run: docker build -t agenticform-web:stream-test -f web/Dockerfile .
+      - name: Verify both authenticated streams through the shipped proxy
+        working-directory: .
+        run: sh tests/stream-proxy.sh agenticform-web:stream-test
 
   server-image:
     runs-on: ubuntu-latest
@@ -91,3 +96,39 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build server container
         run: docker build -f server/Dockerfile .
+
+  restore-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify encrypted credentials and durable state survive restore
+        run: sh tests/credential-restore.sh
+
+  clean-install-journey:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Build images and run the clean-install journey
+        run: sh tests/clean-install-journey.sh
+
+  browser-journey:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Drive the UI in headless Chromium against a clean install
+        run: sh tests/browser-journey.sh
+
+  node-loss-journey:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Enroll a node, kill it, verify offline + incident + agent fencing
+        run: sh tests/node-recovery-journey.sh

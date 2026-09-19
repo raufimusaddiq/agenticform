@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,6 +36,23 @@ const (
 	version         = "0.2.0"
 	protocolVersion = 1
 )
+
+// newHTTPClient builds a control-plane HTTP client that dials IPv4 only.
+// Hosts that publish AAAA records without a usable IPv6 route make dual-stack
+// dialing block until the request deadline instead of failing over, which shows
+// up as heartbeat and command-poll timeouts against an otherwise healthy plane.
+func newHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "tcp4", address)
+		},
+		ForceAttemptHTTP2: true,
+		MaxIdleConns:      16,
+		IdleConnTimeout:   90 * time.Second,
+	}
+	return &http.Client{Timeout: timeout, Transport: transport}
+}
 
 func randomID() string {
 	b := make([]byte, 16)
@@ -134,6 +152,7 @@ type rpcClient struct {
 	http                 *http.Client
 	runtimeIdentityFor   func(any) (runtimeIdentity, bool)
 	notificationObserver func(string, any)
+	forwardMu            sync.Mutex
 }
 
 func main() {
@@ -213,7 +232,7 @@ func enroll(stateDir, server string) error {
 	})
 	req, _ := http.NewRequest(http.MethodPost, server+"/api/nodes/enroll", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	resp, err := newHTTPClient(120 * time.Second).Do(req)
 	if err != nil {
 		return fmt.Errorf("enroll request: %w", err)
 	}
@@ -266,7 +285,7 @@ func daemon(stateDir, server string) error {
 		server:            server,
 		id:                id,
 		private:           private,
-		http:              &http.Client{Timeout: 45 * time.Second},
+		http:              newHTTPClient(45 * time.Second),
 		ledger:            ledger,
 		runtimes:          runtimes,
 		runtimeInstanceID: randomID(),
@@ -528,8 +547,28 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 		if err := os.MkdirAll(filepath.Dir(workingDirectory), 0700); err != nil {
 			return nil, err
 		}
+		// Existing worktrees are reused across runtime restarts. Refresh remote refs
+		// outside the agent sandbox first: read-only reviewer runtimes cannot run
+		// `git fetch` inside a read-only .git, and a stale checkout otherwise hides
+		// newly pushed implementation revisions from review tasks.
+		if _, err := os.Stat(workingDirectory); err == nil && runGit(workingDirectory, "diff-index", "--quiet", "HEAD", "--") == nil {
+			if requestedBranch != "" {
+				_ = runGit(repoRoot, "fetch", "origin", requestedBranch)
+			} else {
+				_ = runGit(repoRoot, "fetch", "origin", baseBranch)
+			}
+			if requestedBranch != "" && runGit(workingDirectory, "rev-parse", "--verify", "--quiet", "origin/"+requestedBranch) == nil {
+				_ = runGit(workingDirectory, "checkout", "-B", requestedBranch, "origin/"+requestedBranch)
+			}
+		}
 		if _, err := os.Stat(workingDirectory); errors.Is(err, os.ErrNotExist) {
+			if requestedBranch != "" {
+				_ = runGit(repoRoot, "fetch", "origin", requestedBranch)
+			}
 			base := "origin/" + baseBranch
+			if requestedBranch != "" && runGit(repoRoot, "rev-parse", "--verify", "origin/"+requestedBranch) == nil {
+				base = "origin/" + requestedBranch
+			}
 			if err := runGit(repoRoot, "rev-parse", "--verify", base); err != nil {
 				defaultBranch := stringValue(payload, "defaultBranch")
 				fallback := "origin/" + defaultBranch
@@ -546,6 +585,12 @@ func (d *daemonRuntime) startAgent(command nodeCommand, payload map[string]any) 
 				return nil, err
 			}
 			if err := runGit(workingDirectory, "remote", "set-url", "origin", repositoryURL); err != nil {
+				_ = os.RemoveAll(workingDirectory)
+				return nil, err
+			}
+			// Fresh shared clones may lack remote-tracking refs. Fetch the exact
+			// requested branch inside the clone so checkout resolves to its commit.
+			if err := runGit(workingDirectory, "fetch", "origin", branch); err != nil {
 				_ = os.RemoveAll(workingDirectory)
 				return nil, err
 			}
@@ -843,7 +888,9 @@ func (c *rpcClient) readLoop() {
 			if c.notificationObserver != nil {
 				c.notificationObserver(method, message["params"])
 			}
-			go c.forwardNotification(method, message["params"])
+			c.forwardMu.Lock()
+			c.forwardNotification(method, message["params"])
+			c.forwardMu.Unlock()
 		}
 	}
 }
@@ -946,7 +993,7 @@ func (c *rpcClient) forwardNotification(method string, params any) {
 }
 
 func shouldForwardNotification(method string) bool {
-	return method == "item/started" || method == "turn/completed"
+	return method == "item/started" || method == "item/agentMessage/delta" || method == "item/commandExecution/outputDelta" || method == "command/exec/outputDelta" || method == "item/completed" || method == "rawResponseItem/completed" || method == "turn/completed"
 }
 
 func (d *daemonRuntime) runtimeIdentityForParams(params any) (runtimeIdentity, bool) {

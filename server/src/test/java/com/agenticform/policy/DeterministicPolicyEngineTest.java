@@ -15,6 +15,36 @@ class DeterministicPolicyEngineTest {
     private final DeterministicPolicyEngine engine = new DeterministicPolicyEngine(repository);
 
     @Test
+    void agentScopedWildcardCannotEraseGlobalProductionDeployGate() {
+        UUID project = UUID.randomUUID();
+        UUID agent = UUID.randomUUID();
+        PolicyRuleEntity productionGate = rule(PolicyScopeType.GLOBAL, null, "PRODUCTION_DEPLOY", "production", PolicyEffect.REQUIRE_HUMAN);
+        PolicyRuleEntity evasion = rule(PolicyScopeType.AGENT, agent, "*", "*", PolicyEffect.ALLOW);
+        PolicyRuleEntity fallback = rule(PolicyScopeType.GLOBAL, null, "*", "*", PolicyEffect.ALLOW);
+        when(repository.findAllByEnabledTrue()).thenReturn(List.of(evasion, fallback, productionGate));
+
+        PolicyDecision decision = engine.evaluate(new PolicyContext(project, agent, null, "PRODUCTION_DEPLOY", "production"));
+
+        assertThat(decision.effect()).isEqualTo(PolicyEffect.REQUIRE_HUMAN);
+        assertThat(decision.matchedRuleId()).isEqualTo(productionGate.getId());
+    }
+
+    @Test
+    void agentScopedWildcardCannotEraseDeletionGate() {
+        UUID project = UUID.randomUUID();
+        UUID agent = UUID.randomUUID();
+        PolicyRuleEntity deletionGate = rule(PolicyScopeType.GLOBAL, null, "DELETE_DATA", "*", PolicyEffect.REQUIRE_HUMAN);
+        PolicyRuleEntity evasion = rule(PolicyScopeType.PROJECT, project, "*", "*", PolicyEffect.ALLOW);
+        PolicyRuleEntity fallback = rule(PolicyScopeType.GLOBAL, null, "*", "*", PolicyEffect.ALLOW);
+        when(repository.findAllByEnabledTrue()).thenReturn(List.of(evasion, fallback, deletionGate));
+
+        PolicyDecision decision = engine.evaluate(new PolicyContext(project, agent, null, "DELETE_DATA", "staging"));
+
+        assertThat(decision.effect()).isEqualTo(PolicyEffect.REQUIRE_HUMAN);
+        assertThat(decision.matchedRuleId()).isEqualTo(deletionGate.getId());
+    }
+
+    @Test
     void taskScopeBeatsAgentProjectAndGlobal() {
         UUID project = UUID.randomUUID();
         UUID agent = UUID.randomUUID();

@@ -4,6 +4,7 @@ import com.agenticform.agent.AgentEntity;
 import com.agenticform.agent.AgentRepository;
 import com.agenticform.agent.AgentRole;
 import com.agenticform.agent.AgentStatus;
+import com.agenticform.event.ControlPlaneEventBus;
 import com.agenticform.node.ExecutionNodeService;
 import com.agenticform.runtime.AgentRuntime;
 import com.agenticform.runtime.AgentRuntimeRegistry;
@@ -31,6 +32,7 @@ import java.util.UUID;
 public class AgentMessageService {
     public static final int MAX_HOPS = 6;
     public static final int MAX_FANOUT = 24;
+    private static final String TRANSIENT_RUNTIME_ERROR = "Target remote runtime is not ready";
 
     public record AudienceRequest(AgentMessageAudienceType type, List<UUID> agentIds,
                                   AgentRole role, UUID groupId) {}
@@ -48,6 +50,7 @@ public class AgentMessageService {
     private final ExecutionNodeService nodeService;
     private final TaskWorkflowGate workflowGate;
     private final ObjectMapper mapper;
+    private final ControlPlaneEventBus events;
 
     public AgentMessageService(AgentMessageRepository repository,
                                AgentMessageDeliveryRepository deliveryRepository,
@@ -58,7 +61,8 @@ public class AgentMessageService {
                                AgentRuntimeRegistry runtimeRegistry,
                                ExecutionNodeService nodeService,
                                TaskWorkflowGate workflowGate,
-                               ObjectMapper mapper) {
+                               ObjectMapper mapper,
+                               ControlPlaneEventBus events) {
         this.repository = repository;
         this.deliveryRepository = deliveryRepository;
         this.agentRepository = agentRepository;
@@ -69,6 +73,7 @@ public class AgentMessageService {
         this.nodeService = nodeService;
         this.workflowGate = workflowGate;
         this.mapper = mapper;
+        this.events = events;
     }
 
     public List<AgentMessageEntity> list(UUID projectId, UUID agentId) {
@@ -171,7 +176,9 @@ public class AgentMessageService {
             deliveries.add(deliveryRepository.findById(delivery.getId()).orElse(delivery));
         }
         updateAggregate(message, deliveries);
-        return new SendResult(repository.save(message), List.copyOf(deliveries));
+        AgentMessageEntity saved = repository.save(message);
+        events.publish("message.updated", saved.getProjectId(), saved.getId());
+        return new SendResult(saved, List.copyOf(deliveries));
     }
 
     @Transactional
@@ -192,7 +199,9 @@ public class AgentMessageService {
         }
         List<AgentMessageDeliveryEntity> current = deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(messageId);
         updateAggregate(message, current);
-        return new SendResult(repository.save(message), current);
+        AgentMessageEntity saved = repository.save(message);
+        events.publish("message.updated", saved.getProjectId(), saved.getId());
+        return new SendResult(saved, current);
     }
 
     @Transactional
@@ -200,13 +209,33 @@ public class AgentMessageService {
         AgentMessageEntity message = repository.findById(messageId)
                 .orElseThrow(() -> new NoSuchElementException("Message not found: " + messageId));
         updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(messageId));
-        return repository.save(message);
+        AgentMessageEntity saved = repository.save(message);
+        events.publish("message.updated", saved.getProjectId(), saved.getId());
+        return saved;
     }
 
     @Transactional
     @Scheduled(fixedDelayString = "${agenticform.scheduler.message-reconcile-delay-ms:10000}")
     public void reconcileStaleDeliveries() {
         Instant cutoff = Instant.now().minus(Duration.ofMinutes(2));
+        // A delivery that failed only because the recipient runtime was mid-rehydration must be
+        // retried once the runtime is ready again; otherwise the message stays FAILED forever
+        // even though the agent recovered.
+        for (AgentMessageDeliveryEntity delivery : deliveryRepository.findAllByStatus(AgentMessageStatus.FAILED)) {
+            if (delivery.getAttemptCount() >= 3 || !TRANSIENT_RUNTIME_ERROR.equals(delivery.getLastError())) continue;
+            AgentEntity target = agent(delivery.getToAgentId());
+            if (target.getStatus() == AgentStatus.STOPPED || target.getStatus() == AgentStatus.FAILED) continue;
+            if (waitingForRuntime(target)) continue;
+            AgentMessageEntity message = repository.findById(delivery.getMessageId()).orElse(null);
+            if (message == null) continue;
+            AgentEntity source = agent(message.getFromAgentId());
+            delivery.resetForRetry();
+            deliveryRepository.save(delivery);
+            dispatch(message, delivery, source, target);
+            updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(message.getId()));
+            repository.save(message);
+            events.publish("message.updated", message.getProjectId(), message.getId());
+        }
         for (AgentMessageStatus status : List.of(AgentMessageStatus.QUEUED,
                 AgentMessageStatus.DISPATCHED, AgentMessageStatus.PROCESSING)) {
             for (AgentMessageDeliveryEntity delivery : deliveryRepository.findTop50ByStatusOrderByCreatedAtAsc(status)) {
@@ -222,6 +251,7 @@ public class AgentMessageService {
                 dispatch(message, delivery, source, target);
                 updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(message.getId()));
                 repository.save(message);
+                events.publish("message.updated", message.getProjectId(), message.getId());
             }
         }
         for (AgentMessageEntity message : repository.findTop50ByStatusInOrderByCreatedAtAsc(List.of(
@@ -230,6 +260,7 @@ public class AgentMessageService {
                 AgentMessageStatus.PARTIAL))) {
             updateAggregate(message, deliveryRepository.findAllByMessageIdOrderByCreatedAtAsc(message.getId()));
             repository.save(message);
+            events.publish("message.updated", message.getProjectId(), message.getId());
         }
     }
 
@@ -324,6 +355,10 @@ public class AgentMessageService {
 
     private String runtimeSessionId(AgentEntity agent) {
         return agent.getRuntimeSessionId();
+    }
+
+    private boolean waitingForRuntime(AgentEntity target) {
+        return target.getRuntimeSessionId() == null || target.getRuntimeSessionId().isBlank();
     }
 
     private RuntimeType runtimeType(AgentEntity agent) {

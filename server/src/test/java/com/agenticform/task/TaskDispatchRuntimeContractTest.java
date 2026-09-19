@@ -45,17 +45,18 @@ class TaskDispatchRuntimeContractTest {
         when(agent.getStatus()).thenReturn(AgentStatus.IDLE);
         when(agent.getExecutionNodeId()).thenReturn(null);
         when(agent.getRuntimeSessionId()).thenReturn("opaque-session-1");
+        when(agent.getRuntimeGeneration()).thenReturn(1L);
         when(runtimeRegistry.get(any())).thenReturn(runtime);
         when(dependencies.reconcile(taskId)).thenReturn(new TaskDependencyService.Evaluation(
                 TaskDependencyService.State.READY, null));
-        when(runtime.dispatch(any(RuntimeSession.class), eq("agenticform-task:" + taskId),
-                eq(TaskDispatchService.promptWithCompletionContract("inspect"))))
+        String expectedPrompt = TaskDispatchService.promptWithCompletionContract(task, agent);
+        when(runtime.dispatch(any(RuntimeSession.class), eq("agenticform-task:" + taskId), eq(expectedPrompt)))
                 .thenReturn(new RuntimeDispatchReceipt("queue-1", "turn-1"));
 
         new TaskDispatchService(tasks, agents, runtimeRegistry, nodes, dependencies).dispatchManually(taskId);
 
         verify(runtime).dispatch(new RuntimeSession("opaque-session-1"),
-                "agenticform-task:" + taskId, TaskDispatchService.promptWithCompletionContract("inspect"));
+                "agenticform-task:" + taskId, expectedPrompt);
         verify(task).setQueuedSubmissionId("queue-1");
         verify(task).setTurnId("turn-1");
     }

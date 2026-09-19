@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +23,60 @@ func TestLoadRuntimeStateLoadsRuntimeSession(t *testing.T) {
 	record := state.Runtimes["agent-1"]
 	if record.RuntimeType != "CODEX" || record.RuntimeSessionID != "session-1" {
 		t.Fatalf("runtime state was not loaded: %+v", record)
+	}
+}
+
+func TestControlPlaneClientDialsIPv4Only(t *testing.T) {
+	if _, err := net.Listen("tcp4", "127.0.0.1:0"); err != nil {
+		t.Skipf("IPv4 loopback unavailable: %v", err)
+	}
+	ipv6Only, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	defer ipv6Only.Close()
+	go http.Serve(ipv6Only, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+
+	url := "http://localhost:" + portOf(ipv6Only.Addr().String())
+	response, err := newHTTPClient(2 * time.Second).Get(url)
+	if err == nil {
+		response.Body.Close()
+		t.Fatal("IPv4-only control-plane client connected to an IPv6-only listener")
+	}
+	if !strings.Contains(err.Error(), "dial tcp4") && !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("expected an IPv4 dial failure, got %v", err)
+	}
+}
+
+func portOf(address string) string {
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return ""
+	}
+	return port
+}
+
+func TestControlPlaneClientReachesIPv4Listener(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+
+	client := newHTTPClient(5 * time.Second)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"http://127.0.0.1:"+portOf(listener.Addr().String()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("IPv4 control-plane request failed: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("unexpected status: %d", response.StatusCode)
 	}
 }
 

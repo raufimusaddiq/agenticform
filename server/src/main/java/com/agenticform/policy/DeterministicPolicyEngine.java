@@ -47,7 +47,11 @@ public class DeterministicPolicyEngine {
                 .comparingInt((PolicyRuleEntity rule) -> actionSpecificity(rule, context)).reversed();
         Comparator<PolicyRuleEntity> environment = Comparator
                 .comparingInt((PolicyRuleEntity rule) -> environmentSpecificity(rule, context)).reversed();
-        return scope.thenComparing(action).thenComparing(environment)
+        // A specific matcher must outrank a broader scope. Otherwise a project/
+        // agent/task-scoped wildcard ALLOW would silently erase the global
+        // PRODUCTION_DEPLOY / DELETE_DATA REQUIRE_HUMAN guarantees, which would be
+        // a privilege-escalation path rather than a policy customization.
+        return action.thenComparing(environment).thenComparing(scope)
                 .thenComparing(rule -> rule.getId().toString());
     }
 

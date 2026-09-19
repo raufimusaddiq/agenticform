@@ -23,6 +23,36 @@ Open `AGENTICFORM_PUBLIC_URL`, enter the admin token once, then register a proje
 
 ## Runtime readiness
 
+### Node image upgrade contract
+
+When upgrading the execution-node image, recreate the container with the exact
+runtime contract below. Do not replace it with an ad-hoc subset.
+
+```bash
+docker run -d --name agenticform-node-local-runner \
+  --restart unless-stopped \
+  --network host \
+  --privileged \
+  --user 1000:1000 \
+  -e ROUTER_API_KEY \
+  -e CODEX_HOME=/codex-home \
+  -e AGENTICFORM_SERVER=https://agentic.investdx.biz.id \
+  -e AGENTICFORM_NODE_MAX_AGENTS=15 \
+  -v /home/agentrunner/.codex:/codex-home \
+  -v /home/agentrunner/.agenticform-node:/var/lib/agenticform-node \
+  ghcr.io/raufimusaddiq/agenticform-node@sha256:<release-digest> \
+  daemon
+```
+
+Required because:
+
+- `--privileged`: node sandboxing uses Bubblewrap user namespaces; without it,
+  repo-sandboxed execution fails with `bwrap: No permissions to create new namespace`.
+- `--user 1000:1000`: matches ownership of `/home/agentrunner/.agenticform-node/identity.json`
+  and `/home/agentrunner/.codex`.
+- `ROUTER_API_KEY`: Codex provider credential. Missing it causes Codex 401 failures.
+- Bind mounts: preserve node identity and Codex session/auth state.
+
 The node card separates control-plane connectivity from Codex readiness:
 
 - `Codex runtime missing`: node image/runtime installation problem.

@@ -42,6 +42,28 @@ class AdminBearerAuthenticationFilterTest {
     }
 
     @Test
+    void redispatchAuthenticatesValidTokensWithoutPermittingInvalidTokens() throws Exception {
+        AgenticformProperties properties = new AgenticformProperties();
+        properties.getSecurity().setAdminToken(ADMIN_TOKEN);
+        AdminBearerAuthenticationFilter filter = new AdminBearerAuthenticationFilter(properties);
+        for (var dispatcher : java.util.List.of(jakarta.servlet.DispatcherType.ASYNC, jakarta.servlet.DispatcherType.ERROR)) {
+            for (String token : java.util.List.of(ADMIN_TOKEN, "wrong-token", "")) {
+                SecurityContextHolder.clearContext();
+                MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/events/stream");
+                request.setDispatcherType(dispatcher);
+                if (dispatcher == jakarta.servlet.DispatcherType.ERROR) {
+                    request.setAttribute(jakarta.servlet.RequestDispatcher.ERROR_REQUEST_URI, "/api/events/stream");
+                }
+                if (!token.isEmpty()) request.addHeader("Authorization", "Bearer " + token);
+                filter.doFilter(request, new MockHttpServletResponse(), mock(FilterChain.class));
+                var authentication = SecurityContextHolder.getContext().getAuthentication();
+                if (token.equals(ADMIN_TOKEN)) assertEquals("agenticform-admin", authentication.getName());
+                else assertNull(authentication);
+            }
+        }
+    }
+
+    @Test
     void invalidBearerTokenDoesNotAuthenticate() throws Exception {
         AgenticformProperties properties = new AgenticformProperties();
         properties.getSecurity().setAdminToken(ADMIN_TOKEN);

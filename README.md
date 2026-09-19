@@ -33,11 +33,15 @@ docs/     architecture, security, recovery, and operational specifications
 
 ## Local development
 
-Start PostgreSQL:
+Start PostgreSQL (Docker Compose required; no release images or admin token needed):
 
 ```bash
-docker compose up -d postgres
+docker compose -f docker-compose.dev.yml up -d --wait postgres
 ```
+
+The development database uses a separate volume from release deployments. For custom
+`POSTGRES_DB`, `POSTGRES_USER`, or `POSTGRES_PASSWORD`, also set the backend's
+`DATABASE_URL`, `DATABASE_USER`, and `DATABASE_PASSWORD` to matching values.
 
 Generate an admin token of at least 32 characters, for example:
 
@@ -58,7 +62,7 @@ Run the UI in a second terminal:
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
@@ -118,6 +122,17 @@ AGENTICFORM_NODE_IMAGE=ghcr.io/raufimusaddiq/agenticform-node@sha256:<published 
 ```
 
 Remote control planes fail closed if HTTPS, admin authentication, or immutable node-image requirements are not satisfied.
+
+Optional production Compose tuning (defaults in parentheses):
+
+```bash
+AGENTICFORM_SERVER_MEMORY=<container memory limit, e.g. 2g>   # default 1g
+AGENTICFORM_JAVA_TOOL_OPTIONS=<JVM flags>                     # default -XX:MaxRAMPercentage=70.0
+```
+
+Set `AGENTICFORM_SERVER_MEMORY` to the memory the host can dedicate to the
+control plane; the JVM heap percentage is applied relative to it. These are only
+needed when the defaults do not match host capacity.
 
 See [Distributed Agent Fabric](docs/distributed-agent-fabric.md) for enrollment, trust, replay protection, runtime isolation, revocation, and compromise-containment details.
 
@@ -185,6 +200,8 @@ https://github.com/owner/repository.git
 - [Distributed Agent Fabric](docs/distributed-agent-fabric.md)
 - [UI/UX specification](docs/ui-ux.md)
 - [Self-Hosted Alpha](docs/self-hosted-alpha.md)
+- [PR #33 repair evidence and proof of completion](docs/product-reliability-fix-evidence.md)
+- [Product reliability audit (PR #33)](docs/product-reliability-audit.md)
 
 ## Current architecture
 

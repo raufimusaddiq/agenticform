@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
-import { consumeAgentStream, consumeControlPlaneEvents } from './controlPlaneEvents';
+import { consumeAgentStream, consumeControlPlaneEvents, type AgentRunOutput } from './controlPlaneEvents';
+import { combinedConnectionState } from './connectionState';
 import { ApprovalsView } from './ApprovalsView';
 import { MessagesView } from './MessagesView';
 import { OperationsView } from './OperationsView';
@@ -81,6 +82,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [approvals, setApprovals] = useState<HumanApproval[]>([]);
   const [policyRules, setPolicyRules] = useState<PolicyRule[]>([]);
+  const [runOutput, setRunOutput] = useState<Record<string, AgentRunOutput[]>>({});
   const [communicationRules, setCommunicationRules] = useState<CommunicationRule[]>([]);
   const [projectCandidates, setProjectCandidates] = useState<ProjectCandidate[]>([]);
   const [view, setView] = useState<View>(() => viewFromPath(window.location.pathname));
@@ -89,7 +91,10 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [connection, setConnection] = useState<ConnectionState>('CONNECTING');
+  const [eventConnection, setEventConnection] = useState<ConnectionState>('CONNECTING');
+  const [agentConnection, setAgentConnection] = useState<ConnectionState>('CONNECTING');
+  const [snapshotCurrent, setSnapshotCurrent] = useState(false);
+  const connection = combinedConnectionState(eventConnection, agentConnection, snapshotCurrent);
 
   const navigate = useCallback((nextView: View) => {
     const path = routeByView[nextView];
@@ -117,8 +122,10 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
       setApprovals(nextApprovals);
       setPolicyRules(nextPolicyRules);
       setCommunicationRules(nextCommunicationRules);
+      setSnapshotCurrent(true);
       setError(null);
     } catch (cause) {
+      setSnapshotCurrent(false);
       setError(cause instanceof Error ? cause.message : 'Unable to load Agenticform state');
     } finally {
       if (!quiet) setLoading(false);
@@ -144,18 +151,27 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
     const connect = async () => {
       while (!stopped && !controller.signal.aborted) {
         try {
-          await consumeControlPlaneEvents(() => scheduleRefresh(), controller.signal, setConnection);
+          await consumeControlPlaneEvents(() => scheduleRefresh(), controller.signal, (state) => {
+            setEventConnection(state);
+            if (state === 'CONNECTED') { setSnapshotCurrent(false); scheduleRefresh(); }
+          }, (output) => setRunOutput((current) => {
+            const next = { ...current, [output.agentId]: [...(current[output.agentId] ?? []), output] };
+            for (const key of Object.keys(next)) {
+              if (key !== output.agentId && next[key].length > 400) next[key] = next[key].slice(-400);
+            }
+            return next;
+          }));
         } catch (cause) {
           if (controller.signal.aborted || stopped) return;
           if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') {
-            setConnection('AUTH_REQUIRED');
+            setEventConnection('AUTH_REQUIRED');
             setError('ADMIN_AUTH_REQUIRED');
             return;
           }
-          setConnection('RECONNECTING');
+          setEventConnection('RECONNECTING');
         }
         if (!stopped && !controller.signal.aborted) {
-          setConnection('RECONNECTING');
+          setEventConnection('RECONNECTING');
           await reconnectDelay();
         }
       }
@@ -168,12 +184,18 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
     const connectAgents = async () => {
       while (!agentStopped && !controller.signal.aborted) {
         try {
-          await consumeAgentStream(setAgents, controller.signal, (state) => { if (state === 'CONNECTED') setConnection(state); });
+          await consumeAgentStream(setAgents, controller.signal, (state) => {
+            setAgentConnection(state);
+            if (state === 'CONNECTED') { setSnapshotCurrent(false); scheduleRefresh(); }
+          });
         } catch (cause) {
           if (controller.signal.aborted || agentStopped) return;
-          if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') { setError(cause.message); return; }
+          if (cause instanceof Error && cause.message === 'ADMIN_AUTH_REQUIRED') {
+            setAgentConnection('AUTH_REQUIRED'); setError(cause.message); return;
+          }
         }
         if (!agentStopped && !controller.signal.aborted) {
+          setAgentConnection('RECONNECTING');
           await new Promise<void>((resolve) => { agentReconnectTimer = window.setTimeout(resolve, 1500); });
         }
       }
@@ -219,14 +241,14 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
     <div className="shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
       <aside className="sidebar" aria-label="Primary navigation">
-        <div className="brand"><span className="brand-mark" aria-hidden="true">A</span><div><strong>Agenticform</strong><small>control plane</small></div></div>
+        <div className="brand"><span className="brand-mark" aria-hidden="true">A</span><div><strong>Agenticform</strong><small>Unit / CP-01</small></div></div>
         <div className="nav-caption">Workspace</div>
         <nav>
-          {nav.slice(0, 4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}</button>)}
+          {nav.slice(0, 4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><span className="nav-item-label">{item.label}</span></button>)}
         </nav>
         <div className="nav-caption nav-caption-spaced">Supervision</div>
         <nav>
-          {nav.slice(4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}{item.id === 'approvals' && approvals.some((approval) => approval.status === 'PENDING') && <span className="nav-count">{approvals.filter((approval) => approval.status === 'PENDING').length}</span>}</button>)}
+          {nav.slice(4).map((item) => <button type="button" key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><span className="nav-item-label">{item.label}</span>{item.id === 'approvals' && approvals.some((approval) => approval.status === 'PENDING') && <span className="nav-count">{approvals.filter((approval) => approval.status === 'PENDING').length}</span>}</button>)}
         </nav>
         <div className="sidebar-footer"><ConnectionStatus state={connection} /></div>
       </aside>
@@ -250,7 +272,7 @@ export default function App({ onOpenNodes }: { onOpenNodes?: () => void }) {
           <>
             {view === 'overview' && <Overview projects={projects} agents={visibleAgents} tasks={visibleTasks} messages={visibleMessages} approvals={visibleApprovals} attention={attention} active={active} queued={queued} connection={connection} projectById={projectById} agentById={agentById} onRegister={() => setDialog('project')} onOpenNodes={onOpenNodes} onOpenApprovals={() => navigate('approvals')} onOpenAgents={() => navigate('agents')} onOpenTasks={() => navigate('tasks')} onSpawn={() => setDialog('agent')} />}
             {view === 'projects' && <Projects projects={projects} agents={agents} tasks={tasks} candidates={projectCandidates} onRegister={() => setDialog('project')} onEdit={(projectId) => { setEditingProjectId(projectId); setDialog('project-edit'); }} onDiscover={() => void mutate(async () => setProjectCandidates(await api.discoverProjects()))} onRegisterCandidate={(candidate) => void mutate(() => api.registerProject({ name: candidate.name, path: candidate.path, defaultBranch: candidate.detectedBranch || 'main' }))} onEnsureSystemAgents={(projectId) => void mutate(() => api.ensureOperationalAgent(projectId))} />}
-            {view === 'agents' && <Agents agents={visibleAgents} tasks={visibleTasks} projectById={projectById} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} onRestart={(id) => void mutate(() => api.restartRuntime(id))} />}
+{view === 'agents' && <Agents agents={visibleAgents} tasks={visibleTasks} projectById={projectById} runOutput={runOutput} onControlMode={(id, mode) => void mutate(() => api.updateHumanControlMode(id, mode))} onQueueMode={(id, mode) => void mutate(() => api.updateQueueMode(id, mode))} onIntervene={(id) => void mutate(() => api.intervene(id))} onRestart={(id) => void mutate(() => api.restartRuntime(id))} />}
             {view === 'tasks' && <Tasks tasks={visibleTasks} projectById={projectById} agentById={agentById} onDispatch={(id) => void mutate(() => api.dispatchTask(id))} onCreate={() => setDialog('task')} />}
             {view === 'messages' && <MessagesView messages={visibleMessages} agents={visibleAgents.length ? visibleAgents : agents} projects={projects} communicationRules={communicationRules} onSend={async (input) => { await mutate(() => api.sendMessage(input)); }} onSaveRule={async (input) => { await mutate(() => api.saveCommunicationRule(input)); }} onDeleteRule={async (id) => { await mutate(() => api.deleteCommunicationRule(id)); }} />}
             {view === 'operations' && <OperationsView projects={projects} agents={agents} projectFilter={projectFilter} />}
@@ -284,16 +306,16 @@ function Overview({ projects, agents, tasks, messages, approvals, attention, act
     ...messages.map((message) => ({ id: `message-${message.id}`, title: message.subject, detail: `Message ${label(message.status)}`, status: message.status, at: message.updatedAt }))
   ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8);
   const attentionRows = [...pendingApprovals.map((approval) => ({ id: `approval-${approval.id}`, title: approval.summary, agent: agentById.get(approval.agentId)?.name ?? shortId(approval.agentId), reason: 'Approval required', open: onOpenApprovals })), ...blockedTasks.map((task) => ({ id: `task-${task.id}`, title: task.title, agent: agentById.get(task.assignedAgentId)?.name ?? 'Unknown agent', reason: label(task.status), open: onOpenTasks })), ...unhealthyAgents.map((agent) => ({ id: `agent-${agent.id}`, title: agent.name, agent: agent.name, reason: label(agent.status), open: onOpenAgents }))].slice(0, 8);
-  return <div className="workbench-page">
+  return <div className="workbench-page overview-grid">
     {!projects.length && <section className="setup-panel" aria-labelledby="setup-title">
       <div><p className="eyebrow">First run</p><h2 id="setup-title">Set up a project workspace</h2><p>Register a Git repository, enroll an execution node, then assign the first agent.</p></div>
       <div className="setup-actions"><button className="button primary" onClick={onRegister}>Register repository</button><button className="button secondary" onClick={onOpenNodes}>Add execution node</button></div>
     </section>}
-    <section className="workbench-section"><div className="section-header"><h2>Needs attention</h2>{attention > 0 && <button className="button ghost" onClick={onOpenApprovals}>{attention} need attention · Review all</button>}</div>{!attentionRows.length ? <Empty title="No action required" body="Approvals, failures, and blocked work appear here." /> : <div className="workbench-table attention-table"><div className="table-head"><span>Item / task</span><span>Agent</span><span>Reason</span><span>Action</span></div>{attentionRows.map((row) => <button className="table-row" key={row.id} onClick={row.open}><span>{row.title}</span><span>{row.agent}</span><span>{row.reason}</span><span>Open</span></button>)}</div>}</section>
-    <section className="workbench-section"><div className="section-header"><h2>Running</h2><button className="button ghost" onClick={projects.length ? onSpawn : onRegister}>{projects.length ? 'Spawn agent' : 'Register project'}</button></div>{!running.length ? <Empty title="No active agents" body="Running agents appear here." /> : <div className="workbench-table"><div className="table-head"><span>Agent</span><span>Project</span><span>Current task</span><span>Elapsed</span></div>{running.map((agent) => <div className="table-row" key={agent.id}><span>{agent.name}</span><span>{projectById.get(agent.projectId)?.name ?? 'Unknown project'}</span><span>{agent.activeTaskId ? tasks.find((task) => task.id === agent.activeTaskId)?.title ?? 'Working' : 'Working'}</span><time title={new Date(agent.updatedAt).toLocaleString()}>{relativeTime(agent.updatedAt)}</time></div>)}</div>}</section>
-    <section className="workbench-section"><div className="section-header"><h2>Queue</h2></div><div className="queue-line">{queue.map(([name, count]) => <span key={name}>{name} <strong>{count}</strong></span>)}</div></section>
-    <section className="workbench-section"><div className="section-header"><h2>Recent activity</h2></div>{!activity.length ? <Empty title="No activity yet" body="Task transitions, approvals, and messages appear here." /> : <div className="activity-list">{activity.map((item) => <div className="activity-row" key={item.id}><time title={new Date(item.at).toLocaleString()}>{new Date(item.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><strong>{item.title}</strong><span>{item.detail}</span></div>)}</div>}</section>
-    <section className="workbench-section"><div className="section-header"><h2>System health</h2></div><div className="health-list"><div><span>Control plane</span><ConnectionStatus state={connection} /></div><div><span>Agents</span><strong>{active} working / {agents.filter((agent) => ['WAITING_APPROVAL', 'BLOCKED'].includes(agent.status)).length} waiting</strong></div><div><span>Queue</span><strong>{queued} waiting</strong></div><div><span>Projects</span><strong>{projects.length} registered</strong></div></div></section>
+    <section className="workbench-section overview-attention"><div className="section-header"><div><h2>Needs attention</h2><small className="section-meta">{attention ? attention + ' items need a decision' : 'Queue clear'}</small></div>{pendingApprovals.length > 0 && <button className="button ghost" onClick={onOpenApprovals}>Open approvals</button>}</div>{!attentionRows.length ? <Empty title="No action required" body="Approvals, failures, and blocked work appear here." /> : <div className="workbench-table attention-table"><div className="table-head"><span>Item / task</span><span>Agent</span><span>Reason</span><span>Action</span></div>{attentionRows.map((row) => <button className="table-row" key={row.id} onClick={row.open}><span>{row.title}</span><span>{row.agent}</span><span>{row.reason}</span><span>Open</span></button>)}</div>}</section>
+    <section className="workbench-section overview-running"><div className="section-header"><h2>Running</h2><button className="button ghost" onClick={projects.length ? onSpawn : onRegister}>{projects.length ? 'Spawn agent' : 'Register project'}</button></div>{!running.length ? <Empty title="No active agents" body="Running agents appear here." /> : <div className="workbench-table"><div className="table-head"><span>Agent</span><span>Project</span><span>Current task</span><span>Elapsed</span></div>{running.map((agent) => <div className="table-row" key={agent.id}><span>{agent.name}</span><span>{projectById.get(agent.projectId)?.name ?? 'Unknown project'}</span><span>{agent.activeTaskId ? tasks.find((task) => task.id === agent.activeTaskId)?.title ?? 'Working' : 'Working'}</span><time title={new Date(agent.updatedAt).toLocaleString()}>{relativeTime(agent.updatedAt)}</time></div>)}</div>}</section>
+    <section className="workbench-section overview-queue"><div className="section-header"><h2>Queue</h2></div><div className="queue-line">{queue.map(([name, count]) => <span key={name}>{name} <strong>{count}</strong></span>)}</div></section>
+    <section className="workbench-section overview-activity"><div className="section-header"><h2>Recent activity</h2></div>{!activity.length ? <Empty title="No activity yet" body="Task transitions, approvals, and messages appear here." /> : <div className="activity-list">{activity.map((item) => <div className="activity-row" key={item.id}><time title={new Date(item.at).toLocaleString()}>{new Date(item.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><strong>{item.title}</strong><span>{item.detail}</span></div>)}</div>}</section>
+    <section className="workbench-section overview-health"><div className="section-header"><h2>System health</h2></div><div className="health-list"><div><span>Control plane</span><ConnectionStatus state={connection} /></div><div><span>Agents</span><strong>{active} working / {agents.filter((agent) => ['WAITING_APPROVAL', 'BLOCKED'].includes(agent.status)).length} waiting</strong></div><div><span>Queue</span><strong>{queued} waiting</strong></div><div><span>Projects</span><strong>{projects.length} registered</strong></div></div></section>
   </div>;
 }
 
@@ -325,9 +347,10 @@ function Projects({ projects, agents, tasks, candidates, onRegister, onEdit, onD
   </section>;
 }
 
-function Agents({ agents, tasks, projectById, onControlMode, onQueueMode, onIntervene, onRestart }: {
+function Agents({ agents, tasks, projectById, runOutput, onControlMode, onQueueMode, onIntervene, onRestart }: {
   agents: Agent[]; tasks: Task[];
   projectById: Map<string, Project>;
+  runOutput: Record<string, AgentRunOutput[]>;
   onControlMode: (id: string, mode: HumanControlMode) => void;
   onQueueMode: (id: string, mode: AgentQueueMode) => void;
   onIntervene: (id: string) => void;
@@ -339,6 +362,7 @@ function Agents({ agents, tasks, projectById, onControlMode, onQueueMode, onInte
   const selected = agents.find((agent) => agent.id === selectedId);
   return <section className="panel"><div className="section-header"><div><h2>Agents</h2></div></div>
     <div className="inline-summary"><span>{working} working</span><span>{blocked} attention</span><span>{agents.length} total</span></div>
+    {selected && <section className="run-console"><header className="run-console-head"><h3>Live run</h3><span className="run-console-tag">AGENT / {shortId(selected.id)}</span></header><dl className="run-console-meta"><div><dt>Subject</dt><dd>{selected.name}</dd></div><div><dt>Thread</dt><dd><code>{shortId(selected.runtimeSessionId)}</code></dd></div><div><dt>Gen</dt><dd><code>G{selected.runtimeGeneration}</code></dd></div><div><dt>Line</dt><dd><code>{(runOutput[selected.id] ?? []).length.toString().padStart(4, '0')}</code></dd></div></dl><div className="agent-run-stream" role="log" aria-live="polite" aria-label={`Live run output for ${selected.name}`}>{(runOutput[selected.id] ?? []).length === 0 ? <p className="run-console-empty">/// NO OUTPUT CAPTURED — AWAITING NEXT CODEX DELTA ///</p> : runOutput[selected.id].slice(-200).map((entry, index) => <p key={index}><span className="run-console-seq">{String(index + 1).padStart(4, '0')}</span>{entry.text}</p>)}</div></section>}
     {!agents.length ? <Empty title="No agents match this scope" body="Spawn an agent from the current project selection." /> : <div className="split-workbench"><div className="workbench-table agent-table"><div className="table-head"><span>Agent</span><span>State</span><span>Current work</span><span>Project</span><span>Supervision</span></div>{agents.map((agent) => <button className={`table-row${selectedId === agent.id ? ' selected' : ''}`} key={agent.id} onClick={() => setSelectedId(agent.id)}><span>{agent.name}</span><Status value={agent.status} /><span>{tasks.find((task) => task.id === agent.activeTaskId)?.title ?? '-'}</span><span>{projectById.get(agent.projectId)?.name ?? 'Unknown project'}</span><HumanControlIndicator mode={agent.humanControlMode} /></button>)}</div><aside className="inspector">{selected ? <><h3>Selected agent</h3><Status value={selected.status} /><dl><dt>Current task</dt><dd>{tasks.find((task) => task.id === selected.activeTaskId)?.title ?? '-'}</dd><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name ?? 'Unknown project'}</dd><dt>Supervision</dt><dd><select className="compact-select" value={selected.humanControlMode} onChange={(event) => onControlMode(selected.id, event.target.value as HumanControlMode)}><option value="ON_THE_LOOP">Human on the loop</option><option value="IN_THE_LOOP">Human in the loop</option></select></dd><dt>Responsibility</dt><dd>{selected.responsibility}</dd><dt>Capability</dt><dd>{selected.capabilityProfile}</dd><dt>Runtime</dt><dd>{selected.runtimeType}</dd><dt>Session</dt><dd><code>{shortId(selected.runtimeSessionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.activeTurnId)}</code></dd><dt>Directory</dt><dd><code>{selected.workingDirectory}</code></dd><dt>Branch</dt><dd><code>{selected.branch ?? 'shared workspace'}</code></dd><dt>Execution node</dt><dd><code>{shortId(selected.executionNodeId)}</code></dd><dt>Queue mode</dt><dd><select className="compact-select" value={selected.queueMode} onChange={(event) => onQueueMode(selected.id, event.target.value as AgentQueueMode)}><option value="AUTO">Automatic</option><option value="REVIEW_BETWEEN_TASKS">Review between tasks</option><option value="PAUSED">Paused</option></select></dd></dl><div className="form-actions"><button className="button secondary" onClick={() => onIntervene(selected.id)} disabled={selected.queueMode === 'PAUSED' && !selected.activeTurnId}>Intervene</button><button className="button ghost" type="button" onClick={() => { if (window.confirm(`Restart ${selected.name}'s runtime? This creates a new Codex thread.`)) onRestart(selected.id); }} disabled={Boolean(selected.activeTaskId || selected.activeTurnId)}>Restart runtime</button></div></> : <p className="muted">Select an agent.</p>}</aside></div>}
   </section>;
 }
@@ -362,8 +386,15 @@ function Tasks({ tasks, projectById, agentById, onDispatch, onCreate }: { tasks:
     return result;
   }, new Map<string, { workflowId: string; parent: Task | null; tasks: Task[] }>()).values()]
     .sort((a, b) => Math.max(...b.tasks.map((task) => Date.parse(task.updatedAt))) - Math.max(...a.tasks.map((task) => Date.parse(task.updatedAt))));
-  const nextAction = (task: Task) => task.status === 'WAITING_APPROVAL' ? 'Review approval' : task.status === 'WAITING_DEPENDENCY' ? 'Wait dependency' : task.status === 'FAILED' ? 'Inspect failure' : task.status === 'BLOCKED' ? 'Review blocker' : '-';
-  return <section className="panel"><div className="section-header"><h2>Tasks</h2><button className="button primary" onClick={onCreate}>New task</button></div><div className="filter-tabs">{[['ALL','All'],['RUNNING','Running'],['WAITING','Waiting'],['WAITING_APPROVAL','Needs approval'],['BLOCKED','Blocked'],['COMPLETED','Completed'],['FAILED','Failed']].map(([value, text]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{text}</button>)}</div>{!visible.length ? <Empty title="No tasks in this view" body="Choose another state or create a task." /> : <div className="split-workbench"><div className="workbench-table task-table"><div className="table-head"><span>Task</span><span>State</span><span>Agent</span><span>Project</span><span>Next action</span></div>{groups.map((group) => { const collapsed = collapsedWorkflows.has(group.workflowId); return <section className="task-group" key={group.workflowId}><header className="task-group-header"><button className="task-group-toggle" type="button" aria-expanded={!collapsed} onClick={() => setCollapsedWorkflows((current) => { const next = new Set(current); if (next.has(group.workflowId)) next.delete(group.workflowId); else next.add(group.workflowId); return next; })}><span aria-hidden="true">{collapsed ? '▸' : '▾'}</span><strong>{group.parent?.title ?? 'Workflow tasks'}</strong></button><code title={group.workflowId}>{shortId(group.workflowId)}</code><span>{group.tasks.length} related</span></header>{!collapsed && group.tasks.slice().sort((a, b) => Number(Boolean(a.parentTaskId)) - Number(Boolean(b.parentTaskId)) || Date.parse(a.createdAt) - Date.parse(b.createdAt)).map((task) => <button className={`table-row${task.parentTaskId ? ' child-task' : ''}${selectedId === task.id ? ' selected' : ''}`} key={task.id} onClick={() => setSelectedId(task.id)}><span>{task.parentTaskId ? `↳ ${task.title}` : task.title}</span><Status value={task.status} /><span>{agentById.get(task.assignedAgentId)?.name ?? 'Unknown agent'}</span><span>{projectById.get(task.projectId)?.name ?? 'Unknown project'}</span><span>{nextAction(task)}</span></button>)}</section>; })}</div><aside className="inspector">{selected ? <><h3>Selected task</h3><Status value={selected.status} /><dl><dt>Assigned agent</dt><dd>{agentById.get(selected.assignedAgentId)?.name ?? 'Unknown agent'}</dd><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name}</dd><dt>Priority</dt><dd>{selected.priority}</dd><dt>Next action</dt><dd>{nextAction(selected)}</dd><dt>Workflow</dt><dd><code>{shortId(selected.workflowId)}</code></dd><dt>Parent task</dt><dd><code>{shortId(selected.parentTaskId)}</code></dd><dt>Queue submission</dt><dd><code>{shortId(selected.queuedSubmissionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.turnId)}</code></dd><dt>Creation source</dt><dd className="muted">Not recorded by the API</dd></dl>{selected.report && <><h3>Report</h3><p>{selected.report}</p></>}{selected.lastError && <><h3>Failure</h3><p className="inline-error">{selected.lastError}</p></> }<button className="button secondary" disabled={!['READY', 'BLOCKED'].includes(selected.status)} onClick={() => onDispatch(selected.id)}>Dispatch</button></> : <p className="muted">Select a task.</p>}</aside></div>}</section>;
+  const dispatchBlockedReason = (task: Task) => {
+    if (!['READY', 'BLOCKED'].includes(task.status)) return `Task is ${label(task.status)}`;
+    if (task.dependencyReason) return `Unresolved dependency: ${task.dependencyReason}`;
+    return null;
+  };
+
+  const nextAction = (task: Task) => task.dependencyReason ?? task.nextAction ??
+    (task.deliveryStage && task.deliveryStage !== 'DELIVERED' ? 'Delivery: ' + task.deliveryStage : 'Inspect task details');
+  return <section className="panel"><div className="section-header"><h2>Tasks</h2><button className="button primary" onClick={onCreate}>New task</button></div><div className="filter-tabs">{[['ALL','All'],['RUNNING','Running'],['WAITING','Waiting'],['WAITING_APPROVAL','Needs approval'],['BLOCKED','Blocked'],['COMPLETED','Completed'],['FAILED','Failed']].map(([value, text]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{text}</button>)}</div>{!visible.length ? <Empty title="No tasks in this view" body="Choose another state or create a task." /> : <div className="split-workbench"><div className="workbench-table task-table"><div className="table-head"><span>Task</span><span>State</span><span>Agent</span><span>Project</span><span>Next action</span></div>{groups.map((group) => { const collapsed = collapsedWorkflows.has(group.workflowId); return <section className="task-group" key={group.workflowId}><header className="task-group-header"><button className="task-group-toggle" type="button" aria-expanded={!collapsed} onClick={() => setCollapsedWorkflows((current) => { const next = new Set(current); if (next.has(group.workflowId)) next.delete(group.workflowId); else next.add(group.workflowId); return next; })}><span aria-hidden="true">{collapsed ? '▸' : '▾'}</span><strong>{group.parent?.title ?? 'Workflow tasks'}</strong></button><code title={group.workflowId}>{shortId(group.workflowId)}</code><span>{group.tasks.length} related</span></header>{!collapsed && group.tasks.slice().sort((a, b) => Number(Boolean(a.parentTaskId)) - Number(Boolean(b.parentTaskId)) || Date.parse(a.createdAt) - Date.parse(b.createdAt)).map((task) => <button className={`table-row${task.parentTaskId ? ' child-task' : ''}${selectedId === task.id ? ' selected' : ''}`} key={task.id} onClick={() => setSelectedId(task.id)}><span>{task.parentTaskId ? `↳ ${task.title}` : task.title}</span><Status value={task.status} /><span>{agentById.get(task.assignedAgentId)?.name ?? 'Unknown agent'}</span><span>{projectById.get(task.projectId)?.name ?? 'Unknown project'}</span><span>{nextAction(task)}</span></button>)}</section>; })}</div><aside className="inspector">{selected ? <><h3>Selected task</h3><Status value={selected.status} /><dl><dt>Assigned agent</dt><dd>{agentById.get(selected.assignedAgentId)?.name ?? 'Unknown agent'}</dd><dt>Project</dt><dd>{projectById.get(selected.projectId)?.name}</dd><dt>Priority</dt><dd>{selected.priority}</dd><dt>Next action</dt><dd>{nextAction(selected)}</dd><dt>Workflow</dt><dd><code>{shortId(selected.workflowId)}</code></dd><dt>Parent task</dt><dd><code>{shortId(selected.parentTaskId)}</code></dd><dt>Queue submission</dt><dd><code>{shortId(selected.queuedSubmissionId)}</code></dd><dt>Turn</dt><dd><code>{shortId(selected.turnId)}</code></dd><dt>Creation source</dt><dd className="muted">Not recorded by the API</dd><>{selected.deliverable && <><dt>Deliverable</dt><dd>{selected.deliverable}</dd></>}{selected.deliveryStage && <><dt>Delivery</dt><dd>{selected.deliveryStage}</dd></>}{selected.deliveryEnvironment && <><dt>Delivered environment</dt><dd>{selected.deliveryEnvironment}</dd></>}{selected.deliveryRevision && <><dt>Delivered revision</dt><dd>{selected.deliveryRevision}</dd></>}{selected.deliveryArtifactDigest && <><dt>Artifact digest</dt><dd>{selected.deliveryArtifactDigest}</dd></>}{selected.deliveryVerifiedAt && <><dt>Delivery verified</dt><dd>{new Date(selected.deliveryVerifiedAt).toISOString()}</dd></>}</></dl>{selected.report && <><h3>Report</h3><p>{selected.report}</p></>}{selected.lastError && <><h3>Failure</h3><p className="inline-error">{selected.lastError}</p></> }<button className="button secondary" disabled={dispatchBlockedReason(selected) !== null} title={dispatchBlockedReason(selected) ?? undefined} onClick={() => onDispatch(selected.id)}>Dispatch</button></> : <p className="muted">Select a task.</p>}</aside></div>}</section>;
 }
 
 function Empty({ title, body }: { title: string; body: string }) { return <div className="empty"><strong>{title}</strong><p>{body}</p></div>; }
@@ -436,13 +467,71 @@ function AgentForm({ projects, templates, initialProjectId, onClose, onSubmit }:
   </form></Modal>;
 }
 
-function TaskForm({ agents, onClose, onSubmit }: { agents: Agent[]; onClose: () => void; onSubmit: (input: { agentId: string; title: string; prompt: string; priority: number }) => void }) {
+type TaskFormInput = {
+  agentId: string; title: string; prompt: string; priority: number;
+  kind: string;
+  deliverable?: string; deploymentRequired?: boolean; environmentKey?: string;
+};
+
+function TaskForm({ agents, onClose, onSubmit }: { agents: Agent[]; onClose: () => void; onSubmit: (input: TaskFormInput) => void }) {
   const [agentId, setAgentId] = useState(agents[0]?.id ?? ''); const [title, setTitle] = useState(''); const [prompt, setPrompt] = useState(''); const [priority, setPriority] = useState(0);
-  return <Modal title="Create task" onClose={onClose}><form onSubmit={(event: FormEvent) => { event.preventDefault(); onSubmit({ agentId, title, prompt, priority }); }}>
+  const [environmentKey, setEnvironmentKey] = useState('');
+  const [deploymentRequired, setDeploymentRequired] = useState(true);
+  const agent = agents.find((item) => item.id === agentId);
+  const kind = kindForAgent(agent);
+  const deliverable = deliverableForKind(kind);
+  const implementsCode = kind === 'IMPLEMENTATION';
+  const needsEnvironment = implementsCode && deploymentRequired;
+  return <Modal title="Create task" onClose={onClose}><form onSubmit={(event: FormEvent) => {
+    event.preventDefault();
+    onSubmit({
+      agentId, title, prompt, priority, kind, deliverable,
+      deploymentRequired: implementsCode ? deploymentRequired : false,
+      ...(needsEnvironment ? { environmentKey: environmentKey.trim() } : {})
+    });
+  }}>
     <label>Agent<select required value={agentId} onChange={(e) => setAgentId(e.target.value)}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} / {label(agent.status)} / {agent.humanControlMode === 'IN_THE_LOOP' ? 'HITL' : 'HOTL'}</option>)}</select></label>
+    <p className="form-note">{workNote(kind, agent?.role)}</p>
     <label>Title<input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Implement refresh-token fallback" /></label>
     <label>Instruction<textarea required rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Inspect the current token lifecycle, implement the fallback, add tests, and report any compatibility risks." /></label>
+    {implementsCode && <label className="checkbox-row"><input type="checkbox" checked={deploymentRequired} onChange={(e) => setDeploymentRequired(e.target.checked)} />Require verified deployment before this task is delivered</label>}
+    {needsEnvironment && <label>Target environment / service<input required value={environmentKey} onChange={(e) => setEnvironmentKey(e.target.value)} placeholder="staging" /></label>}
     <label>Priority<input type="number" min="-100" max="100" value={priority} onChange={(e) => setPriority(Number(e.target.value))} /></label>
     <footer className="form-actions"><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary">Create task</button></footer>
   </form></Modal>;
+}
+
+/** Work type follows the selected agent's capability profile; the operator picks the agent, not the contract. */
+function kindForAgent(agent?: Agent) {
+  switch (agent?.role) {
+    case 'ORCHESTRATOR': return 'ORCHESTRATION';
+    default: break;
+  }
+  switch (agent?.capabilityProfile) {
+    case 'ARCHITECT': return 'ARCHITECTURE';
+    case 'REVIEWER': return 'REVIEW';
+    case 'OPS': return 'OPERATIONS';
+    default: return 'IMPLEMENTATION';
+  }
+}
+
+function deliverableForKind(kind: string) {
+  switch (kind) {
+    case 'ORCHESTRATION': return 'GENERAL';
+    case 'ARCHITECTURE': return 'ANALYSIS';
+    case 'REVIEW': return 'REVIEW';
+    case 'TEST': return 'TEST';
+    case 'OPERATIONS': return 'OPERATIONS';
+    default: return 'IMPLEMENTATION';
+  }
+}
+
+function workNote(kind: string, role?: Agent['role']) {
+  if (kind === 'ORCHESTRATION') return role === 'ORCHESTRATOR'
+    ? 'The Orchestrator owns this workflow: it delegates implementation, review, and tests, then submits the consolidated report. Deployment is coordinated through Operations.'
+    : 'This agent coordinates the workflow instead of editing code.';
+  if (kind === 'ARCHITECTURE') return 'This agent produces an architecture analysis; implementation stays delegated.';
+  if (kind === 'REVIEW') return 'This agent reviews existing work and reports findings.';
+  if (kind === 'OPERATIONS') return 'Operational work runs through the operational handoff.';
+  return 'This agent implements the change and submits evidence.';
 }
