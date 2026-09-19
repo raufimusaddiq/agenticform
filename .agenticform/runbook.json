@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "action": "PRODUCTION_DEPLOY",
+  "environment": "production",
+  "steps": [
+    {
+      "key": "request-deployment",
+      "name": "Request production deployment",
+      "type": "GITHUB_WORKFLOW",
+      "timeoutSeconds": 3600,
+      "config": {
+        "mode": "DISPATCH",
+        "repository": "raufimusaddiq/agenticform",
+        "workflow": "deploy-production.yml",
+        "ref": "main",
+        "expectedHeadSha": "${param:sha}",
+        "inputs": {
+          "sha": "${param:sha}"
+        }
+      }
+    }
+  ]
+}

@@ -98,10 +98,21 @@ cannot point at in the current commit.
 
 ## Richmod
 
-Richmod existing release-images.yml and deploy-production.yml workflows match
-this contract. Add the JSON manifest above to Richmod when its maintainers want
-Agenticform to discover and sync that runbook. Until then, Agenticform uses the
-human-gated fallback, as required.
+Richmod's existing release-images.yml and deploy-production.yml workflows match
+this contract. Its manifest waits for immutable images, then dispatches the
+manual production workflow. That is the runbook's endpoint: GitHub's protected
+production Environment owns the final deployment approval and the runbook does
+not issue post-dispatch checks.
+
+## Agenticform
+
+Agenticform's manifest dispatches `.github/workflows/deploy-production.yml` and
+stops at that workflow. The workflow builds immutable server/web images from
+the requested main SHA, then deploys them only after the GitHub `production`
+Environment gate. Configure required reviewers and the `PROD_DEPLOY_HOST`,
+`PROD_DEPLOY_USER`, `PROD_DEPLOY_SSH_KEY`, and `PROD_DEPLOY_KNOWN_HOSTS`
+environment secrets before enabling it. It preserves the host's node image
+digest and runtime environment file.
 
 ## Security invariants
 
