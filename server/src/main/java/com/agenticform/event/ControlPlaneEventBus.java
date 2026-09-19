@@ -34,6 +34,18 @@ public class ControlPlaneEventBus {
         for (SseEmitter emitter : subscribers) send(emitter, event);
     }
 
+    public void publishRunOutput(UUID agentId, String text) {
+        RunOutput event = new RunOutput(agentId, text, Instant.now());
+        for (SseEmitter emitter : subscribers) {
+            try {
+                emitter.send(SseEmitter.event().name("agent-run").data(event));
+            } catch (IOException | IllegalStateException error) {
+                subscribers.remove(emitter);
+                try { emitter.complete(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
     @Scheduled(fixedDelayString = "${agenticform.events.reconcile-delay-ms:30000}")
     public void reconciliationPulse() {
         publish("reconcile");
@@ -58,4 +70,5 @@ public class ControlPlaneEventBus {
     int subscriberCount() { return subscribers.size(); }
 
     public record Event(long sequence, String type, UUID projectId, UUID entityId, Instant occurredAt) {}
+    public record RunOutput(UUID agentId, String text, Instant occurredAt) {}
 }

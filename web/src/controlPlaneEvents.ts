@@ -12,10 +12,13 @@ export type ControlPlaneEvent = {
   occurredAt: string;
 };
 
+export type AgentRunOutput = { agentId: string; text: string; occurredAt: string };
+
 export async function consumeControlPlaneEvents(
   onEvent: (event: ControlPlaneEvent) => void,
   signal: AbortSignal,
-  onState?: (state: ConnectionState) => void
+  onState?: (state: ConnectionState) => void,
+  onRun?: (output: AgentRunOutput) => void
 ): Promise<void> {
   onState?.('CONNECTING');
   const token = getAdminToken();
@@ -44,7 +47,7 @@ export async function consumeControlPlaneEvents(
       const { done, value } = await reader.read();
       if (done) return;
       buffer += decoder.decode(value, { stream: true });
-      buffer = consumeFrames(buffer, onEvent);
+      buffer = consumeFrames(buffer, onEvent, onRun);
     }
   } finally {
     reader.releaseLock();
@@ -93,7 +96,11 @@ function consumeAgentFrames(buffer: string, onAgents: (agents: Agent[]) => void)
   }
 }
 
-export function consumeFrames(buffer: string, onEvent: (event: ControlPlaneEvent) => void): string {
+export function consumeFrames(
+  buffer: string,
+  onEvent: (event: ControlPlaneEvent) => void,
+  onRun?: (output: AgentRunOutput) => void
+): string {
   // SSE permits LF and CRLF line endings. Normalize before frame detection so proxy/server
   // choices cannot silently disable UI updates.
   let remaining = buffer.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
@@ -103,16 +110,16 @@ export function consumeFrames(buffer: string, onEvent: (event: ControlPlaneEvent
     const frame = remaining.slice(0, boundary);
     remaining = remaining.slice(boundary + 2);
 
-    const eventName = lineValue(frame, 'event:');
-    if (eventName !== 'control-plane') continue;
     const data = frame.split('\n')
       .filter((line) => line.startsWith('data:'))
       .map((line) => line.slice(5).trimStart())
       .join('\n');
     if (!data) continue;
 
+    const eventName = lineValue(frame, 'event:');
     try {
-      onEvent(JSON.parse(data) as ControlPlaneEvent);
+      if (eventName === 'agent-run') onRun?.(JSON.parse(data) as AgentRunOutput);
+      else if (eventName === 'control-plane') onEvent(JSON.parse(data) as ControlPlaneEvent);
     } catch {
       // A malformed frame must not tear down the durable reconnect loop.
     }

@@ -29,7 +29,7 @@ class TaskReportToolTest {
             mock(CodexJsonRpcClient.class), agents, messages, mock(HumanApprovalService.class),
             mock(PolicyRuleService.class), mock(OperationalRegistryService.class), mock(OperationRunService.class),
             new AgentCapabilityPolicy(), mock(OperationalSignalService.class), mock(OperationalIncidentService.class),
-            tasks, mapper);
+            tasks, mock(com.agenticform.operation.RepositoryRunbookDiscovery.class), mapper);
 
     TaskReportToolTest() {
         when(agents.findByRuntimeTypeAndRuntimeSessionId(RuntimeType.CODEX, "thread-1")).thenReturn(Optional.of(source));

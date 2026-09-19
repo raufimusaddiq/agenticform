@@ -77,12 +77,21 @@ public class AgentRuntimeRecoveryService {
                 : scheduler.select(null, NodeTrustLevel.STANDARD,
                         Set.of("runtime:" + runtimeType.name(), "git"), Set.of(oldNodeId));
         long nextGeneration = agent.getRuntimeGeneration() + 1;
-        String recoveryBranch = "recovery/" + safe(agent.getName()) + "-"
-                + agent.getId().toString().substring(0, 8) + "-g" + nextGeneration;
         String previousBranch = agent.getBranch();
+        boolean operatorBranch = previousBranch != null && !previousBranch.isBlank()
+                && !previousBranch.startsWith("recovery/") && !previousBranch.startsWith("restart/");
+        String stableBranch = operatorBranch ? previousBranch
+                : agent.getBaseBranch() == null || agent.getBaseBranch().isBlank()
+                        ? project.getDefaultBranch() : agent.getBaseBranch();
         UUID activeTaskId = agent.getActiveTaskId();
         TaskEntity activeTask = activeTaskId == null ? null : tasks.findById(activeTaskId).orElse(null);
         if (activeTask != null && terminal(activeTask.getStatus())) activeTask = null;
+        // Keep the working branch stable across node loss. Synthetic recovery names
+        // are not repository branches and make later implementation/review tasks
+        // unable to see the project's actual branch.
+        String recoveryBranch = activeTask != null && previousBranch != null && !previousBranch.isBlank()
+                && (operatorBranch || !previousBranch.startsWith("recovery/") && !previousBranch.startsWith("restart/"))
+                ? previousBranch : stableBranch;
 
         long generation = agent.reassignRuntime(replacement.getId(), recoveryBranch);
         agents.save(agent);
@@ -102,8 +111,7 @@ public class AgentRuntimeRecoveryService {
         payload.put("projectSlug", project.getSlug());
         payload.put("repositoryUrl", project.getRepositoryUrl());
         payload.put("defaultBranch", project.getDefaultBranch());
-        payload.put("baseBranch", previousBranch == null || previousBranch.isBlank()
-                ? project.getDefaultBranch() : previousBranch);
+        payload.put("baseBranch", stableBranch);
         payload.put("workspaceMode", agent.getWorkspaceMode().name());
         payload.put("agentName", agent.getName());
         payload.put("requestedBranch", recoveryBranch);
@@ -130,7 +138,11 @@ public class AgentRuntimeRecoveryService {
 
         ProjectEntity project = projects.get(agent.getProjectId());
         long generation = agent.getRuntimeGeneration() + 1;
-        String branch = "restart/" + safe(agent.getName()) + "-" + agent.getId().toString().substring(0, 8) + "-g" + generation;
+        // Preserve the agent's working branch across restarts; recovery branches are only
+        // for lost-node recovery, not deliberate restarts.
+        String branch = agent.getBranch() == null || agent.getBranch().isBlank()
+                ? "restart/" + safe(agent.getName()) + "-" + agent.getId().toString().substring(0, 8) + "-g" + generation
+                : agent.getBranch();
         UUID nodeId = agent.getExecutionNodeId();
         agent.reassignRuntime(nodeId, branch);
         agents.save(agent);

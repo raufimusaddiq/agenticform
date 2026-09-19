@@ -18,6 +18,7 @@ import com.agenticform.operation.OperationalRegistryService;
 import com.agenticform.operation.OperationalRunbookEntity;
 import com.agenticform.operation.OperationalSignalEntity;
 import com.agenticform.operation.OperationalSignalService;
+import com.agenticform.operation.RepositoryRunbookDiscovery;
 import com.agenticform.policy.PolicyRuleEntity;
 import com.agenticform.policy.PolicyRuleService;
 import com.agenticform.task.TaskDispatchService;
@@ -58,6 +59,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
     private final OperationalSignalService operationalSignals;
     private final OperationalIncidentService operationalIncidents;
     private final TaskDispatchService taskService;
+    private final RepositoryRunbookDiscovery repositoryRunbookDiscovery;
     private final ObjectMapper mapper;
 
     public AgenticformDynamicToolHandler(CodexJsonRpcClient client, AgentRepository agentRepository,
@@ -69,6 +71,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                                          OperationalSignalService operationalSignals,
                                          OperationalIncidentService operationalIncidents,
                                          TaskDispatchService taskService,
+                                         RepositoryRunbookDiscovery repositoryRunbookDiscovery,
                                          ObjectMapper mapper) {
         this.client = client;
         this.agentRepository = agentRepository;
@@ -81,6 +84,7 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         this.operationalSignals = operationalSignals;
         this.operationalIncidents = operationalIncidents;
         this.taskService = taskService;
+        this.repositoryRunbookDiscovery = repositoryRunbookDiscovery;
         this.mapper = mapper;
     }
 
@@ -139,6 +143,19 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
             case "list_runbooks" -> {
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.READ);
                 yield CompletableFuture.completedFuture(listRunbooks(source));
+            }
+            case "sync_repository_runbook" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
+                yield CompletableFuture.completedFuture(syncRepositoryRunbook(source, arguments));
+            }
+            case "propose_repository_runbook" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
+                yield CompletableFuture.completedFuture(proposeRepositoryRunbook(source, arguments));
+            }
+            case "inspect_repository_deployment_evidence" -> {
+                capabilityPolicy.require(source, AgentCapabilityProfile.Capability.READ);
+                requireOperationalAgent(source);
+                yield CompletableFuture.completedFuture(success(repositoryRunbookDiscovery.evidence(source.getProjectId()).toString()));
             }
             case "request_operation" -> {
                 capabilityPolicy.require(source, AgentCapabilityProfile.Capability.DEPLOY);
@@ -274,7 +291,38 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
         payload.put("projectId", source.getProjectId().toString());
         payload.put("requestAuthority", source.getRole() == AgentRole.OPERATIONAL ? "OPERATIONAL_AGENT" : "HANDOFF_REQUIRED");
         payload.set("runbooks", rows);
+        payload.set("repositoryPlan", repositoryPlan(source));
         return success(payload.toString());
+    }
+
+    /**
+     * The Operational Agent must prefer the deployment process the project itself
+     * declares. This resolves the repository manifest so "list_runbooks" reports
+     * where the runbook came from, and whether the project currently has none
+     * (meaning deployments are human-gated until the repository declares one).
+     * Discovery failures degrade to an explanatory status instead of hiding the
+     * registered runbooks from the agent.
+     */
+    private ObjectNode repositoryPlan(AgentEntity source) {
+        ObjectNode node = mapper.createObjectNode();
+        try {
+            RepositoryRunbookDiscovery.Plan plan = repositoryRunbookDiscovery.plan(source.getProjectId(), null);
+            node.put("source", plan.source().name());
+            node.put("manifestPath", plan.manifestPath());
+            if (plan.repository() != null) node.put("repository", plan.repository());
+            if (plan.commitSha() != null) node.put("commitSha", plan.commitSha());
+            if (plan.runbookKey() != null) node.put("runbookKey", plan.runbookKey());
+            if (plan.action() != null) node.put("action", plan.action());
+            if (plan.fallbackReason() != null) node.put("reason", plan.fallbackReason());
+            node.put("approval", plan.approvalExpectation());
+            node.put("nextAction", plan.source() == RepositoryRunbookDiscovery.Source.REPOSITORY_MANIFEST
+                    ? "Sync with sync_repository_runbook, then request_operation with that runbook key."
+                    : "No repository runbook. Deployments are human-gated: call request_action with action PRODUCTION_DEPLOY so a human performs the deployment and records evidence. If repository artifacts already name every step, you may propose one with propose_repository_runbook; it is review-only until a human merges it.");
+        } catch (RuntimeException error) {
+            node.put("source", "UNAVAILABLE");
+            node.put("reason", error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
+        }
+        return node;
     }
 
     private JsonNode requestOperation(AgentEntity source, JsonNode arguments) {
@@ -288,6 +336,49 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
                 source.getId(), deliverableRoot, "operational-agent:" + source.getId(),
                 stringMap(arguments.path("parameters"))));
         return success(operationPayload(run).toString());
+    }
+
+    /**
+     * Registers the deployment runbook the project repository declares. This is
+     * registration only: nothing is dispatched, and production policy still gates
+     * the resulting run at request_operation time.
+     */
+    private JsonNode syncRepositoryRunbook(AgentEntity source, JsonNode arguments) {
+        requireOperationalAgent(source);
+        String environmentKey = arguments.hasNonNull("environmentKey")
+                ? arguments.get("environmentKey").asText() : null;
+        RepositoryRunbookDiscovery.Plan plan = repositoryRunbookDiscovery.sync(source.getProjectId(), environmentKey);
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("source", plan.source().name());
+        payload.put("manifestPath", plan.manifestPath());
+        payload.put("registered", plan.registered());
+        payload.put("action", plan.action());
+        payload.put("approval", plan.approvalExpectation());
+        if (plan.repository() != null) payload.put("repository", plan.repository());
+        if (plan.commitSha() != null) payload.put("commitSha", plan.commitSha());
+        if (plan.runbookKey() != null) payload.put("runbookKey", plan.runbookKey());
+        if (plan.fallbackReason() != null) payload.put("reason", plan.fallbackReason());
+        payload.put("stepCount", plan.steps().size());
+        payload.put("nextAction", plan.registered()
+                ? "Call request_operation with this runbookKey."
+                : "No repository runbook. Deployments are human-gated: call request_action with action PRODUCTION_DEPLOY so a human performs the deployment and records evidence.");
+        return success(payload.toString());
+    }
+
+    /**
+     * Opens a review-only pull request with a repository runbook manifest the
+     * Operational Agent generated from repository evidence. Nothing becomes
+     * executable: the manifest is validated with the same registry rules and
+     * only discovery after the human merges the pull request can register it.
+     */
+    private JsonNode proposeRepositoryRunbook(AgentEntity source, JsonNode arguments) {
+        requireOperationalAgent(source);
+        JsonNode manifest = arguments.get("manifest");
+        if (manifest == null || !manifest.isObject())
+            throw new IllegalArgumentException("manifest must be a JSON object following the repository runbook contract");
+        String environmentKey = arguments.hasNonNull("environmentKey")
+                ? arguments.get("environmentKey").asText() : null;
+        return success(repositoryRunbookDiscovery.propose(source.getProjectId(), environmentKey, manifest).toString());
     }
 
     private JsonNode getOperationStatus(AgentEntity source, JsonNode arguments) {
@@ -428,7 +519,8 @@ public class AgenticformDynamicToolHandler implements CodexJsonRpcClient.ServerR
 
     private JsonNode sendMessage(AgentEntity source, JsonNode arguments) {
         UUID targetAgentId = UUID.fromString(requiredText(arguments, "targetAgentId"));
-        UUID replyTo = arguments.hasNonNull("replyToMessageId") ? UUID.fromString(arguments.get("replyToMessageId").asText()) : null;
+        String replyToId = textArgument(arguments, "replyToMessageId");
+        UUID replyTo = replyToId == null || replyToId.isBlank() ? null : UUID.fromString(replyToId);
         AgentMessageType type = messageType(arguments);
         String subject = requiredText(arguments, "subject");
         String content = requiredText(arguments, "content");

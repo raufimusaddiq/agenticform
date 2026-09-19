@@ -19,11 +19,13 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class CodexEventBridge {
     private static final String TASK_CLIENT_PREFIX = "agenticform-task:";
     private static final String MESSAGE_CLIENT_PREFIX = "agenticform-message:";
+    private final ConcurrentHashMap<String, StringBuilder> deltaBuffers = new ConcurrentHashMap<>();
 
     private final CodexJsonRpcClient client;
     private final TaskRepository taskRepository;
@@ -74,11 +76,84 @@ public class CodexEventBridge {
         JsonNode params = notification.params();
         if (params == null) return;
 
+        if ("item/agentMessage/delta".equals(notification.method())) {
+            JsonNode delta = params.path("delta");
+            if (!delta.isTextual() || delta.asText().isBlank()) return;
+            String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
+            if (threadId != null) deltaBuffers.computeIfAbsent(threadId, k -> new StringBuilder()).append(delta.asText());
+            publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, delta.asText());
+            return;
+        }
+
+        if ("item/commandExecution/outputDelta".equals(notification.method())
+                || "command/exec/outputDelta".equals(notification.method())) {
+            JsonNode delta = params.path("delta");
+            if (!delta.isTextual() || delta.asText().isBlank()) return;
+            String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
+            publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, delta.asText());
+            return;
+        }
+
+        if ("item/completed".equals(notification.method()) || "rawResponseItem/completed".equals(notification.method())) {
+            JsonNode item = params.path("item");
+            boolean agentMessageItem = "agentMessage".equalsIgnoreCase(item.path("type").asText());
+            boolean rawAssistantMessage = "message".equalsIgnoreCase(item.path("type").asText())
+                    && "assistant".equalsIgnoreCase(item.path("role").asText());
+            if (!agentMessageItem && !rawAssistantMessage) return;
+            StringBuilder text = new StringBuilder();
+            item.path("content").forEach(part -> {
+                if ("text".equalsIgnoreCase(part.path("type").asText())) text.append(part.path("text").asText(""));
+                else if ("output_text".equalsIgnoreCase(part.path("type").asText())) text.append(part.path("text").asText(""));
+                else if (part.path("text").isTextual()) text.append(part.path("text").asText(""));
+            });
+            if (text.isEmpty() && item.path("text").isTextual()) text.append(item.path("text").asText(""));
+            if (text.isEmpty()) return;
+            String threadId = params.path("threadId").asText(params.path("thread_id").asText(null));
+            if (threadId != null) {
+                StringBuilder buffered = deltaBuffers.get(threadId);
+                if (buffered != null && text.toString().contentEquals(buffered)) return;
+            }
+            publishRunOutput(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, threadId, text.toString());
+            return;
+        }
+
         if ("item/started".equals(notification.method())) {
             JsonNode item = params.path("item");
-            if (!"userMessage".equals(item.path("type").asText())) return;
-            String clientId = item.path("clientId").asText("");
+            String itemType = item.path("type").asText();
             String turnId = params.path("turnId").asText(null);
+            if (!"userMessage".equals(itemType)) {
+                // Remote node events may omit the userMessage/clientId item while still
+                // reporting the started Codex turn. Bind it to the authenticated active
+                // task so turn/completed can find and release the task/agent.
+                if (turnId != null && executionNodeId != null) {
+                    TaskEntity activeTask = activeTaskForRuntime(executionNodeId, runtimeGeneration,
+                            runtimeType, runtimeSessionId);
+                    if (activeTask != null && !terminal(activeTask.getStatus())) {
+                        activeTask.setTurnId(turnId);
+                        activeTask.setStatus(TaskStatus.RUNNING);
+                        taskRepository.save(activeTask);
+                        agentRepository.findById(activeTask.getAssignedAgentId()).ifPresent(agent -> {
+                            agent.setStatus(AgentStatus.WORKING);
+                            agent.setActiveTaskId(activeTask.getId());
+                            agent.setActiveTurnId(turnId);
+                            agentRepository.save(agent);
+                        });
+                        events.publish("task.running", activeTask.getProjectId(), activeTask.getId());
+                    }
+                    AgentEntity runtimeAgent = agentRepository.findByRuntimeTypeAndRuntimeSessionId(runtimeType, runtimeSessionId).orElse(null);
+                    if (runtimeAgent != null && authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, runtimeAgent)) {
+                        messageDeliveries.findFirstByToAgentIdAndStatusOrderByCreatedAtAsc(
+                                runtimeAgent.getId(), com.agenticform.message.AgentMessageStatus.DISPATCHED).ifPresent(delivery -> {
+                            delivery.markProcessing(turnId);
+                            messageDeliveries.save(delivery);
+                            messageService.refreshAggregate(delivery.getMessageId());
+                            events.publish("message.processing", runtimeAgent.getProjectId(), delivery.getMessageId());
+                        });
+                    }
+                }
+                return;
+            }
+            String clientId = item.path("clientId").asText("");
 
             UUID taskId = taskId(clientId);
             if (taskId != null) {
@@ -107,10 +182,11 @@ public class CodexEventBridge {
                     if (!authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, target)) return;
                     delivery.markProcessing(turnId);
                     messageDeliveries.save(delivery);
+                    target.setStatus(AgentStatus.WORKING);
+                    target.setActiveTurnId(turnId);
+                    agentRepository.save(target);
                     messageService.refreshAggregate(delivery.getMessageId());
-                    if (target != null) {
-                        events.publish("message.processing", target.getProjectId(), delivery.getMessageId());
-                    }
+                    events.publish("message.processing", target.getProjectId(), delivery.getMessageId());
                 });
             }
             return;
@@ -119,14 +195,40 @@ public class CodexEventBridge {
         if ("turn/completed".equals(notification.method())) {
             String turnId = params.path("turn").path("id").asText(null);
             if (turnId == null) return;
-            taskRepository.findByTurnId(turnId).ifPresent(task -> {
-                if (authorizedRuntime(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, task)) {
-                    completeTask(task, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId);
+            // Node-dispatched tasks can hold a queued-submission id in turn_id and only learn the
+            // Codex turn id when the item/started notification arrives. Fall back to the agent's
+            // active task so a completed turn is never dropped and the agent cannot stay WORKING.
+            TaskEntity turnTask = taskRepository.findFirstByTurnIdOrderByUpdatedAtDesc(turnId).orElse(null);
+            if (turnTask != null) {
+                if (authorizedRuntime(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, turnTask)) {
+                    completeTask(turnTask, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId);
                 }
-            });
-            messageDeliveries.findByTurnId(turnId).ifPresent(delivery ->
+            } else {
+                TaskEntity activeTask = activeTaskForRuntime(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId);
+                if (activeTask != null) {
+                    completeTask(activeTask, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, true);
+                }
+            }
+            messageDeliveries.findFirstByTurnIdOrderByUpdatedAtDesc(turnId).ifPresent(delivery ->
                     completeMessage(delivery, params, executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId));
         }
+        String completedThreadId = params.path("threadId").asText(params.path("thread_id").asText(null));
+        if (completedThreadId != null) deltaBuffers.remove(completedThreadId);
+    }
+
+    /**
+     * Publishes assistant text for the agent that owns the reporting runtime. The runtime identity is
+     * authenticated upstream by the node signature; threadId is only a secondary binding, so output
+     * is never dropped when the app-server omits or renames it.
+     */
+    private void publishRunOutput(UUID executionNodeId, long runtimeGeneration, RuntimeType runtimeType,
+                                  String runtimeSessionId, String threadId, String text) {
+        AgentEntity owner = agentRepository.findAll().stream()
+                .filter(agent -> authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, agent))
+                .filter(agent -> threadId == null || threadId.isBlank() || threadId.equals(agent.getRuntimeSessionId()))
+                .findFirst().orElse(null);
+        if (owner == null) return;
+        events.publishRunOutput(owner.getId(), text);
     }
 
     private UUID taskId(String clientId) {
@@ -163,13 +265,21 @@ public class CodexEventBridge {
 
     private void completeTask(TaskEntity task, JsonNode params, UUID executionNodeId, long generation,
                               RuntimeType runtimeType, String runtimeSessionId) {
+        completeTask(task, params, executionNodeId, generation, runtimeType, runtimeSessionId, false);
+    }
+
+    private void completeTask(TaskEntity task, JsonNode params, UUID executionNodeId, long generation,
+                              RuntimeType runtimeType, String runtimeSessionId, boolean allowTurnMismatch) {
         AgentEntity agent = agentRepository.findById(task.getAssignedAgentId()).orElse(null);
         String turnId = params.path("turn").path("id").asText(null);
-        if (terminal(task.getStatus()) || !matchesTurn(task.getTurnId(), turnId)
+        if (terminal(task.getStatus()) || !(allowTurnMismatch || matchesTurn(task.getTurnId(), turnId))
                 || !authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, agent)) return;
         String turnStatus = params.path("turn").path("status").asText();
         if (task.getStatus() == TaskStatus.BLOCKED) {
             task.setLastError(task.getLastError() == null ? "Agent reported a blocker" : task.getLastError());
+        } else if ("completed".equalsIgnoreCase(turnStatus) && task.getReport() == null
+                && task.getLastError() != null && !task.getLastError().isBlank()) {
+            task.setStatus(TaskStatus.BLOCKED);
         } else if ("completed".equalsIgnoreCase(turnStatus) && (task.getReport() == null || task.getReport().isBlank())) {
             boolean orchestratorWaiting = task.getKind() == com.agenticform.task.TaskKind.ORCHESTRATION
                     && taskDispatch.hasDescendants(task.getId());
@@ -195,6 +305,7 @@ public class CodexEventBridge {
                                  String runtimeSessionId) {
         AgentEntity target = agentRepository.findById(delivery.getToAgentId()).orElse(null);
         if (!authorizedAgent(executionNodeId, generation, runtimeType, runtimeSessionId, target)) return;
+        String turnId = params.path("turn").path("id").asText(null);
         String turnStatus = params.path("turn").path("status").asText();
         if ("completed".equalsIgnoreCase(turnStatus)) {
             delivery.markCompleted();
@@ -202,6 +313,11 @@ public class CodexEventBridge {
             delivery.markProcessingFailed("Recipient Codex turn completed with status " + turnStatus);
         }
         messageDeliveries.save(delivery);
+        if (target != null && turnId != null && turnId.equals(target.getActiveTurnId()) && target.getActiveTaskId() == null) {
+            target.setActiveTurnId(null);
+            target.setStatus(AgentStatus.IDLE);
+            agentRepository.save(target);
+        }
         messageService.refreshAggregate(delivery.getMessageId());
         if (target != null) {
             events.publish("message.terminal", target.getProjectId(), delivery.getMessageId());
@@ -214,5 +330,16 @@ public class CodexEventBridge {
 
     private boolean matchesTurn(String expected, String actual) {
         return actual != null && !actual.isBlank() && (expected == null || expected.isBlank() || expected.equals(actual));
+    }
+
+    private TaskEntity activeTaskForRuntime(UUID executionNodeId, long runtimeGeneration,
+                                            RuntimeType runtimeType, String runtimeSessionId) {
+        if (runtimeSessionId == null || runtimeSessionId.isBlank()) return null;
+        AgentEntity agent = agentRepository.findByRuntimeTypeAndRuntimeSessionId(runtimeType, runtimeSessionId).orElse(null);
+        if (agent == null || agent.getActiveTaskId() == null
+                || !authorizedAgent(executionNodeId, runtimeGeneration, runtimeType, runtimeSessionId, agent)) {
+            return null;
+        }
+        return taskRepository.findById(agent.getActiveTaskId()).orElse(null);
     }
 }

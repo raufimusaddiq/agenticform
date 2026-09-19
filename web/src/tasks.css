@@ -1,7 +1,13 @@
-.task-group{border-bottom:1px solid var(--border)}
-.task-group-header{display:flex;align-items:center;gap:12px;min-height:42px;padding:10px 0;color:var(--muted);font-size:11px}
+/* Task ledger - telemetry rows on a rigid grid. */
+.task-group{border-bottom:1px solid var(--line)}
+.task-group-header{display:flex;align-items:center;gap:12px;min-height:40px;padding:10px var(--gutter);color:var(--ink-faint);font-size:10px;text-transform:uppercase;letter-spacing:.16em;background:var(--bg-deep)}
 .task-group-toggle{display:flex;align-items:center;gap:8px;border:0;background:transparent;color:inherit;padding:0;text-align:left;cursor:pointer}
-.task-group-toggle span{width:12px;color:var(--subtle);font-family:monospace}
-.task-group-header strong{color:var(--text);font-size:12px}
+.task-group-toggle span{width:12px;color:var(--red);font-family:var(--font-mono)}
+.task-group-header strong{color:var(--ink);font-size:11px;font-weight:700}
 .task-group-header code{margin-left:auto}
-.child-task{padding-left:22px}
+.child-task{padding-left:calc(var(--gutter) + 16px)}
+.control-mode-note{display:grid;grid-template-columns:1fr 1fr;margin-top:-1px}
+.control-mode-note>div{padding:14px var(--gutter);display:grid;gap:5px}
+.control-mode-note>div+div{border-left:1px solid var(--line)}
+.control-mode-note span{color:var(--ink-dim);font-size:11px;line-height:1.55}
+.approval-count{font-size:11px;font-weight:700;color:var(--amber)}

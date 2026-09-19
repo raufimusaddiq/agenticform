@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { api, type OperationExternalWait } from './api';
+import { api, type OperationExternalWait, type RepositoryRunbookPlan } from './api';
 import {
   operationalIntelligenceApi,
   type OperationalIncident,
@@ -48,6 +48,9 @@ export function OperationsView({ projects, agents, projectFilter }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [incidentPrompt, setIncidentPrompt] = useState<{ incident: OperationalIncident; status: OperationalIncidentStatus; summary: string } | null>(null);
+  const [discoveryProjectId, setDiscoveryProjectId] = useState('');
+  const [discoveryEnvironmentKey, setDiscoveryEnvironmentKey] = useState('production');
+  const [discoveryPlan, setDiscoveryPlan] = useState<RepositoryRunbookPlan | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -83,6 +86,10 @@ export function OperationsView({ projects, agents, projectFilter }: {
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    if (projectFilter !== 'all') setDiscoveryProjectId(projectFilter);
+  }, [projectFilter]);
 
   const scoped = <T extends { projectId: string }>(rows: T[]) => projectFilter === 'all' ? rows : rows.filter((row) => row.projectId === projectFilter);
   const visibleEnvironments = scoped(environments);
@@ -152,6 +159,37 @@ export function OperationsView({ projects, agents, projectFilter }: {
 
   async function ensureOps(projectId: string) {
     await mutate(() => api.ensureOperationalAgent(projectId));
+  }
+
+  const discoveryProject = visibleProjects.find((project) => project.id === discoveryProjectId) ?? null;
+  const discoveryEnvironment = discoveryProject
+    ? visibleEnvironments.find((environment) => environment.projectId === discoveryProject.id && environment.key === discoveryEnvironmentKey.trim().toLowerCase()) ?? null
+    : null;
+  const discoveryEnvironmentReady = discoveryEnvironment?.enabled === true;
+
+  async function createDiscoveryEnvironment() {
+    if (!discoveryProject) return;
+    await mutate(() => api.createOperationalEnvironment({
+      projectId: discoveryProject.id,
+      key: discoveryEnvironmentKey.trim().toLowerCase(),
+      displayName: discoveryEnvironmentKey.trim(),
+      kind: 'PRODUCTION'
+    }));
+  }
+
+  async function previewDiscovery() {
+    if (!discoveryProject) return;
+    await mutate(async () => {
+      const plan = await api.repositoryRunbookPlan(discoveryProject.id, discoveryEnvironmentKey.trim().toLowerCase());
+      setDiscoveryPlan(plan);
+    });
+  }
+
+  async function syncDiscovery() {
+    if (!discoveryProject) return;
+    await mutate(async () => {
+      setDiscoveryPlan(await api.syncRepositoryRunbook(discoveryProject.id, discoveryEnvironmentKey.trim().toLowerCase()));
+    });
   }
 
   async function cleanup(agent: Agent) {
@@ -239,6 +277,44 @@ export function OperationsView({ projects, agents, projectFilter }: {
 
     <details className="secondary-section operations-runbooks">
       <summary>Runbooks</summary>
+      <div className="runbook-discovery">
+        <p className="form-note">Repository-owned runbook. Preview reads <code>.agenticform/runbook.json</code> from the default branch; sync only registers it. Execution still needs policy approval.</p>
+        <div className="discovery-controls">
+          <label>Project
+            <select value={discoveryProjectId} onChange={(event) => { setDiscoveryProjectId(event.target.value); setDiscoveryPlan(null); }}>
+              <option value="">Select a project</option>
+              {visibleProjects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          </label>
+          <label>Environment
+            <input className="mono" value={discoveryEnvironmentKey} onChange={(event) => { setDiscoveryEnvironmentKey(event.target.value); setDiscoveryPlan(null); }} />
+          </label>
+          <button className="button compact secondary" disabled={!discoveryProject || !discoveryEnvironmentKey.trim() || busy} onClick={() => void previewDiscovery()}>Preview</button>
+          {discoveryProject && !discoveryEnvironment && <button className="button compact ghost" disabled={busy} onClick={() => void createDiscoveryEnvironment()}>Create {discoveryEnvironmentKey.trim()} environment</button>}
+          <button className="button compact primary" disabled={!discoveryEnvironmentReady || discoveryPlan?.source !== 'REPOSITORY_MANIFEST' || busy} onClick={() => void syncDiscovery()}>Sync runbook</button>
+        </div>
+        {discoveryProject && !discoveryEnvironment && <p className="form-note">No <code>{discoveryEnvironmentKey.trim()}</code> environment for {discoveryProject.name}. Create it before discovery can resolve.</p>}
+        {discoveryProject && discoveryEnvironment && !discoveryEnvironment.enabled && <p className="form-note">Environment <code>{discoveryEnvironment.key}</code> is disabled. Enable it before discovery can resolve.</p>}
+        {discoveryPlan && <div className="discovery-plan">
+          <div className="data-row task-detail-row">
+            <div><strong>{discoveryPlan.runbookKey}</strong><small>{discoveryPlan.source === 'REPOSITORY_MANIFEST' ? discoveryPlan.manifestPath : 'human-gated fallback'}{discoveryPlan.repository ? ' / ' + discoveryPlan.repository : ''}</small></div>
+            <Status value={discoveryPlan.source === 'REPOSITORY_MANIFEST' ? 'IDLE' : 'BLOCKED'} />
+            <span>{discoveryPlan.action}</span>
+            <span>{discoveryPlan.steps.length} steps</span>
+            <code title={discoveryPlan.commitSha ?? undefined}>{discoveryPlan.commitSha ? shortId(discoveryPlan.commitSha) : '-'}</code>
+          </div>
+          <p className="form-note">{discoveryPlan.description}</p>
+          {discoveryPlan.fallbackReason && <p className="form-note">Fallback reason: {discoveryPlan.fallbackReason}</p>}
+          <p className="form-note">{discoveryPlan.approvalExpectation}</p>
+          {discoveryPlan.steps.length > 0 && <div className="data-list">
+            {discoveryPlan.steps.map((step) => <div className="data-row task-row" key={step.key}>
+              <div><strong>{step.name}</strong><small>{step.key} / {step.timeoutSeconds}s</small></div>
+              <span>{step.type}</span>
+              <code title={JSON.stringify(step.config)}>{JSON.stringify(step.config).slice(0, 120)}</code>
+            </div>)}
+          </div>}
+        </div>}
+      </div>
       {!visibleRunbooks.length ? <div className="empty"><strong>No runbooks registered</strong><p>Register project operational contracts before agents can request governed operations.</p></div> : <div className="data-list">
         {visibleRunbooks.map((runbook) => <div className="data-row task-detail-row" key={runbook.id}>
           <div><strong>{runbook.name}</strong><small>{projectById.get(runbook.projectId)?.name} / {runbook.key} / v{runbook.version}</small></div>

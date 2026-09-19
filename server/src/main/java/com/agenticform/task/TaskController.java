@@ -41,7 +41,7 @@ public class TaskController {
         TaskDispatchService.DeliveryRequest delivery = new TaskDispatchService.DeliveryRequest(
                 request.deliverable(), request.reviewRequired(), request.architectureRequired(),
                 request.deploymentRequired(), request.environmentKey());
-        return service.create(request.agentId(), request.title(), request.prompt(), request.priority(),
+        return service.create(request.agentId(), request.title(), request.prompt(), request.effectivePriority(),
                 dependencyRequests, null, request.kind(), delivery);
     }
 
@@ -70,7 +70,7 @@ public class TaskController {
             @NotNull UUID agentId,
             @NotBlank String title,
             @NotBlank String prompt,
-            int priority,
+            Integer priority,
             List<DependencyRequest> dependencies,
             TaskKind kind,
             TaskDeliverable deliverable,
@@ -78,7 +78,9 @@ public class TaskController {
             Boolean architectureRequired,
             Boolean deploymentRequired,
             String environmentKey
-    ) {}
+    ) {
+        public int effectivePriority() { return priority == null ? 0 : priority; }
+    }
 
     public record DependencyRequest(@NotNull UUID dependsOnTaskId, TaskDependencyType type) {}
 }

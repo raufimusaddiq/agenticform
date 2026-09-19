@@ -120,6 +120,9 @@ public class TaskDispatchService {
         boolean deploymentRequired = parentTaskId == null && (delivery.deploymentRequired() == null
                 ? deliverable == TaskDeliverable.IMPLEMENTATION || kind == TaskKind.ORCHESTRATION
                 : delivery.deploymentRequired());
+        if (deploymentRequired && (delivery.environmentKey() == null || delivery.environmentKey().isBlank())) {
+            throw new IllegalArgumentException("deploymentRequired=true requires an environmentKey; specify the target or disable deployment only when the request excludes deployment");
+        }
         TaskEntity existing = taskRepository.findAllByProjectIdOrderByCreatedAtDesc(agent.getProjectId()).stream()
                 .filter(candidate -> candidate.getAssignedAgentId().equals(agentId))
                 .filter(candidate -> java.util.Objects.equals(candidate.getParentTaskId(), parentTaskId))
@@ -212,15 +215,17 @@ public class TaskDispatchService {
         if (outcome == null) outcome = TaskEvidence.COMPLETED;
         // Validate the workflow graph before the leaf evidence contract so an
         // orchestrator can never complete on a partial or missing child set.
-        if (agent.getRole() == AgentRole.ORCHESTRATOR) {
+        if (agent.getRole() == AgentRole.ORCHESTRATOR && TaskEvidence.COMPLETED.equals(outcome)) {
             List<TaskEntity> descendants = descendants(taskId);
             List<TaskEntity> unfinished = descendants.stream()
                     .filter(child -> child.getStatus() != TaskStatus.COMPLETED
                             || (child.getEvidence() != null && child.getEvidence().hasUnresolvedBlocker()))
                     .toList();
             if (!unfinished.isEmpty()) {
-                throw new IllegalStateException("Orchestrator cannot complete while delegated tasks remain unresolved: "
-                        + unfinished.stream().map(child -> child.getId() + "=" + child.getStatus()).toList());
+                throw new ReportRejectedException("DELEGATED_TASKS_UNRESOLVED", task.getId(), task.getAssignedAgentId(),
+                        "Orchestrator cannot complete while delegated tasks remain unresolved: "
+                                + unfinished.stream().map(child -> child.getId() + "=" + child.getStatus()).toList()
+                                + "; wait for children to reach COMPLETED with evidence, resolve blockers, or report this task as BLOCKED with the outstanding child ids");
             }
             requireDescendantEvidence(task, descendants);
         }
@@ -230,6 +235,16 @@ public class TaskDispatchService {
         task.setReport(report.trim());
         if (evidence != null) {
             task.recordEvidence(evidence);
+            if (TaskEvidence.BLOCKED.equals(outcome)) {
+                if (!evidence.hasUnresolvedBlocker()) {
+                    throw new IllegalArgumentException("A blocked task report requires at least one blocker");
+                }
+                task.setStatus(TaskStatus.BLOCKED);
+                task.setLastError(String.join("; ", evidence.blockers()));
+            } else if (TaskEvidence.FAILED.equals(outcome)) {
+                task.setStatus(TaskStatus.FAILED);
+                task.setLastError(report.trim());
+            }
         }
         return taskRepository.save(task);
     }
@@ -546,7 +561,14 @@ public class TaskDispatchService {
     }
 
     public static String promptWithCompletionContract(TaskEntity task, AgentEntity agent) {
-        return task.getPrompt() + COMPLETION_CONTRACT + "\nReport identity: taskId=" + task.getId()
+        // Agents must never guess their workspace: an explicit path and branch prevent the
+        // "requested branch/worktree unavailable" blocker that silently stalls delegated work.
+        String workspace = agent.getWorkingDirectory() == null || agent.getWorkingDirectory().isBlank()
+                ? ""
+                : "\nWorkspace: workingDirectory=" + agent.getWorkingDirectory()
+                        + "; branch=" + (agent.getBranch() == null ? "" : agent.getBranch())
+                        + ". Work only inside this directory; do not search for or create other checkouts.";
+        return task.getPrompt() + COMPLETION_CONTRACT + workspace + "\nReport identity: taskId=" + task.getId()
                 + "; runtimeGeneration=" + agent.getRuntimeGeneration()
                 + ". Pass both unchanged to report_task. A RESULT message does not submit a task report.";
     }

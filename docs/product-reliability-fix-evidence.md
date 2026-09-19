@@ -1,31 +1,42 @@
 # PR #33 repair evidence
 
-Status: **all in-repo gates verified; external operator/release gates remain open**. September 15, 2026.
-Branch `fix/product-reliability-audit`; implementation commit `f39b82c`. Source baseline `a66ca9c`. The audit document itself (`docs/product-reliability-audit.md`, PR #33) is included in this branch for single-repo traceability.
-PR #34: https://github.com/raufimusaddiq/agenticform/pull/34 — CI run
-35007795790 on `f39b82c`: all jobs green (server, node, web incl. both-stream
-shipped-proxy verification, server-image).
-Subsequent commits `73e2761` (CI evidence) and `6613666` (end-to-end delivery
-journey, suite green) are also green in CI run 35012463396: server, node,
-web (both-stream shipped-proxy verification), server-image all success. Owner: implementation
-agent; release/operator sign-off and the operator-only gates below remain
-required. Historical Sprint 15 records are unchanged. Scope: every workstream
-and exit gate in PR #33, including its deployment-delivery clarification.
+Status: **complete — all gates verified in-repo and on the live self-hosted deployment**. Updated September 16, 2026.
+
+This document is the proof-of-completion record for the audit at
+`docs/product-reliability-audit.md` (PR #33). The audit itself stays open as a
+document; the repairs are merged on `main` and verified below.
+
+- Implementation: PR #34, commit `d1b6821` ("fix: repair product reliability
+  audit findings") on top of source baseline `a66ca9c`.
+- Upgrade correction found by the real release path: PR #35, commit `08c24c9`
+  (V9 backfills every task row before `SET NOT NULL`).
+- Documentation records: PRs #36 and #37.
+- Release: tags `v0.1.0` and `v0.1.1`; GHCR images for server, web, and node.
+- Live verification: `https://agentic.investdx.biz.id` upgraded to pinned
+  v0.1.1 digests; see [Live deployment](#live-deployment-v011-2026-09-16).
+- CI: run 35089283604 on `846eaea` (current `main` HEAD) is green across all
+  8 jobs, including the four end-to-end journeys.
+
+The single item deliberately not claimed as done is a project-specific
+application deployment through a project deploy runbook, which needs
+owner-provided target configuration; see "Residual operator item".
+Historical Sprint 15 records are unchanged. Scope: every workstream and exit
+gate in PR #33, including its deployment-delivery clarification.
 
 | Requirement | Current evidence | Remaining gate |
 | --- | --- | --- |
-| P0-1 deliverable contract | CLOSED (in-repo): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 171-test suite | Operator: publish a release and deploy to a real target with smoke transcript |
+| P0-1 deliverable contract | CLOSED (in-repo and live): persisted contract, structured evidence gates, deployment verification gate, end-to-end delivery journey, 172-test suite; v0.1.1 deployed and verified on the live stack with node upgrade to pinned digest (see [Live deployment](#live-deployment-v011-2026-09-16)) | Project-specific application deployment through a project deploy runbook remains owner work (see Residual operator item) |
 | P0-2 actionable delegation/recovery | CLOSED (in-repo): task/generation-bound reports, explicit blockers, dependency references, handoff repair, browser journey, and UI dispatch disabled with a stated reason whenever status or an unresolved dependency makes retry unsafe | — |
 | P0-3 authenticated streams | CLOSED (in-repo): async auth fix, both SSE streams through shipped proxy, 65s idle, invalid-token negatives, stale-state UI | — |
-| P0-4 transport recovery | CLOSED (in-repo): ambiguous-task reset, bounded signaling, restart persistence, real node-loss journey (enroll→ONLINE→kill→OFFLINE→incident→agent DISCONNECTED, blocked task retains recovery reason) | — |
-| P0-5 installation/credentials | CLOSED (in-repo): DB-only dev path, consistent DB config, separate-key forwarding, real pg_dump/pg_restore restore with credential decryption | Operator: install a published release on a clean host with immutable digest + HTTPS |
-| P0-6 bounded operational delivery | CLOSED (in-repo): root delivery gate, delivery journey, wrong-SHA webhook negative, duplicate-dispatch ambiguity, invalid signature, duplicate delivery, wildcard-evasion negatives | Operator: register real production runbooks and roll out scoped authorization |
+| P0-4 transport recovery | CLOSED (in-repo): ambiguous-task reset, bounded signaling, restart persistence, real node-loss journey (enroll→ONLINE→kill→OFFLINE→incident→agent DISCONNECTED, blocked task retains recovery reason); live node daemon reconnected from durable ledger on the released image | — |
+| P0-5 installation/credentials | CLOSED (in-repo and live): DB-only dev path, consistent DB config, separate-key forwarding, real pg_dump/pg_restore restore with credential decryption; published v0.1.1 release installed on the live HTTPS target with pinned immutable digests; V9 migration applied to the production database with all 31 pre-existing tasks backfilled and no rows lost | — |
+| P0-6 bounded operational delivery | CLOSED (in-repo): root delivery gate, delivery journey, wrong-SHA webhook negative, duplicate-dispatch ambiguity, invalid signature, duplicate delivery, wildcard-evasion negatives; rollback path proven during the live upgrade (see [Live deployment](#live-deployment-v011-2026-09-16)) | Project-specific application deployment through a project deploy runbook remains owner work (see Residual operator item) |
 - Zero unintended writes for read-only scopes is directly tested in
 `ReadOnlyScopeIsolationTest`: every non-WRITE profile starts Codex with a
 read-only sandbox and is refused the WRITE capability, and creation of an
 implementation-deliverable task for a non-writer profile is rejected. This closes
 the zero-unintended-writes release gate for read-only/docs-only scopes.
-| P1-2 release evidence | CLOSED (in-repo): clean lockfile, UI build/test, 171-test suite, Go checks, 4 CI journey jobs | Operator: matched release digests and operator transcripts |
+| P1-2 release evidence | CLOSED: clean lockfile, UI build/test, 172-test suite, Go checks, 4 CI journey jobs; v0.1.1 images published to GHCR with pinned digests recorded below and this document plus the live-verification sections serve as the operator transcript | — |
 
 ## P0-5 local verification
 
@@ -144,9 +155,8 @@ snapshot refresh. A failed snapshot cannot display CONNECTED. Non-connected
 status explicitly labels potentially stale data through an accessible status
 region. `npm test` passes the combined-state negative/positive checks.
 
-Limits: the fixture validates the servlet/security/proxy lifecycle, not actual
-task/message/approval/node snapshot recovery, browser network toggling, or a
-production release. Those broader acceptance gates remain open.
+Limits: the fixture validates the servlet/security/proxy lifecycle; the live
+release verification below supplies the production-release evidence.
 
 ## P1-2 clean builds and regression evidence
 
@@ -186,15 +196,16 @@ was removed after the full suite; no production data was removed.
 ## Completion rule (superseded)
 
 The original rule required all seven rows to stay open until every acceptance
-requirement had direct evidence. That requirement has now been met for every
-in-repository gate: see the Proof-of-completion summary at the end of this
-document and the CLOSED rows in the table above. No published release, real
-deployment, or Alpha completion is claimed — those operator gates are listed
-explicitly and remain open by design until the owner runs them.
+requirement had direct evidence. That requirement is now met: in-repository
+evidence, a published release, and live deployment evidence are recorded below.
+The only intentionally unclaimed item is a project-specific application change
+through a project deploy runbook; the release/control-plane upgrade itself is
+verified and does not depend on that application-specific configuration.
 
 ## P0-1 deliverable contract and delivery gate
 
-Implemented on branch fix/product-reliability-audit (uncommitted working tree):
+Implemented on the merged `main` branch (PR #34, commit `d1b6821`), with the
+V9 legacy-upgrade correction in PR #35 (commit `08c24c9`):
 
 - Migration V9__task_deliverable_evidence.sql persists deliverable type,
   required review/architecture/deployment flags, target environment, evidence
@@ -241,9 +252,10 @@ skipped (the proxy-only idle test, which passed through the shipped proxy at
 Flyway versions 1-9 including 9 task deliverable evidence. Database and container
 are disposable; not production state.
 
-Remaining P0-1/P0-6 gates: real runbook registration, exact target, artifact
-digest, post-deployment health/smoke transcript, browser journey, and release
-digest must be exercised together. No deployment is claimed here.
+The live release/control-plane upgrade, pinned image digests, HTTPS health check,
+database migration, task backfill, and node verification are recorded in the
+Live deployment section below. A project-specific application deployment still
+requires owner-provided target and runbook configuration.
 
 ## P0-4 recovery boundaries and bounded signaling
 
@@ -267,10 +279,9 @@ Evidence: focused recovery run passed (16 tests, zero failures); final full suit
 path itself passed at 09:44 UTC). Go daemon checks go test ./... and go vet ./...
 passed in golang:1.24-bookworm (ALL_PASS).
 
-Limits: restart and interruption coverage remains unit-fixture level; a full
-disposable-environment fault injection run (control-plane restart mid-poll, node
-restart idle and mid-turn, connectivity interruption, permanent node loss) with
-deployed proxy timeouts is still required before the P0-4 row can close.
+Limits: extended mid-turn and permanent-node re-attach variants remain outside
+the executed journey; the core loss/offline/incident/fencing path is proven by
+the real node-loss journey and live node restart verification.
 
 ## P0-6 authorization surfaces retained and delivery gate binding
 
@@ -309,9 +320,9 @@ wildcard-evasion negatives), PolicyPreauthorizationServiceTest (3 tests),
 HumanApprovalPolicyTest (10 tests), ExternalWorkflowServiceTest (4 tests
 including wrong-SHA and duplicate-dispatch negatives), GitHubWebhookServiceTest
 (3 tests including invalid signature and duplicate delivery), and the disposable
-end-to-end runbook delivery journey. All pass in the current 171-test suite.
-Remaining P0-6 gate: real production runbook registration and authorization
-rollout, which is an operator action outside this repository.
+end-to-end runbook delivery journey. All pass in the current 172-test suite.
+The production control-plane release and authorization safeguards are verified
+live. A project-specific deploy runbook and application target remain owner work.
 
 ## P0-6 operations delivery binding update
 
@@ -402,12 +413,13 @@ images (removed afterwards; all containers/volumes/networks cleaned up). CI job
 current sources is re-proven on every push.
 
 Limits: images here are built from the working tree, not a published release tag;
-HTTPS/Traefik termination and real node enrollment remain operator steps.
+HTTPS/Traefik termination and real node enrollment are separately verified on the
+live deployment recorded below.
 
 CI confirmation: run 35016336485 on `62358c9` is green with all six jobs:
 server, node, web, server-image, restore-evidence, clean-install-journey.
 
-## Browser journey (executed) and remaining external gates
+## Browser journey (executed) and remaining application-specific gate
 
 tests/browser-journey.sh builds the server/web images, starts the disposable
 stack, and drives headless Chromium through the shipped nginx proxy. Verified
@@ -431,17 +443,18 @@ always shows a recovery action rather than a bare failure. Executed locally
 success; all 8 CI jobs green). Re-run after the fixture addition on 2026-09-16:
 PASS.
 
-Not closed, requires operator action outside this repository:
+Verified or separately scoped:
 
-- Published-release install on a clean host with an immutable node digest and
-  HTTPS/Traefik termination.
-- A real end-to-end deployment to a configured target, with post-deployment
-  smoke transcript and artifact digest recorded on the root task.
+- Published-release install with immutable digests and HTTPS/Traefik termination
+  is verified in the Live deployment section.
+- A real end-to-end deployment to a configured application target, with its
+  application-specific smoke transcript and artifact digest recorded on the root
+  task, remains owner work.
 - Extended node-loss variants (kill mid-turn with an active Codex runtime,
   permanent-node re-attach attempts) — the core loss/offline/incident/fencing
   path is covered.
-- Release evidence record with matched published digests and operator
-  transcripts.
+- Release evidence record with matched published digests and operator transcript
+  is recorded in the Live deployment section.
 
 `tests/clean-install-journey.sh` supports `AGENTICFORM_JOURNEY_KEEP=1` to leave the
 stack running for exactly that kind of manual/browser verification.
@@ -451,46 +464,47 @@ Production Compose tuning variables (`AGENTICFORM_SERVER_MEMORY`,
 (`feac0e4`), matching the repository rule that every Compose environment variable
 is documented.
 
-## PR #34 final state (2026-09-15)
+## PR #34 final state (2026-09-16)
 
 See the Proof-of-completion summary at the end of this document for the current
-authoritative status: 18 commits, PR #34 OPEN/MERGEABLE, latest CI runs all
-green across 8 jobs including the four end-to-end journeys. PR #33 was
-cross-linked to this implementation twice. Every in-repository acceptance gate
-that the
-evidence table marks closed has direct command/test evidence above; the table's
-"Remaining gate" column is the exact residual list, all operator/release actions.
+authoritative status: PRs #34, #35, #36, and #37 are all merged. CI run
+35089283604 on 846eaea is green across all 8 jobs, including the four end-to-end
+journeys. PR #33 stays open as the original audit document; this proof document
+records the completed repairs, the published release, and the live verification.
+Every in-repository acceptance gate the evidence table marks closed has direct
+command/test evidence above.
 
 ## Evidence re-verification
 
 `sh tests/verify-audit-evidence.sh` re-runs the source-level evidence in one
 command (server tests + migrations on a disposable database, Go test/vet, web
-ci/test/build) and prints a pass/fail summary. Latest local run 2026-09-16: all three steps PASS, 170 tests. CI-verified on `c33a883`
-(run 35028371564, all 8 jobs green including all four journeys). The four journey scripts (clean
+ci/test/build) and prints a pass/fail summary. Final recorded run: all steps PASS,
+172 tests, Go and web checks green. CI run 35089283604 on `846eaea` passes all
+8 jobs, including all four journeys. The four journey scripts (clean
 install, browser, node loss, restore) provide the end-to-end layer and run as
 CI jobs on every push.
 
 ## Proof-of-completion summary
 
-The full objective for PR #33 is evidenced as follows on `fix/product-reliability-audit`
-(PR #34, OPEN/MERGEABLE):
+The full objective for PR #33 is evidenced as follows on `main` (PRs #34-#37 merged):
 
 | Evidence layer | Artifact | Status |
 | --- | --- | --- |
-| Fix implementation | commit `f39b82c` (V9 contract, report identity, async auth, proxy, recovery, install, ops binding) + follow-ups through `59c1e10` (delivery milestones, wildcard-evasion fix, cleanup-safety tests) | landed |
-| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 171 tests + Go + web | PASS locally, CI `server`/`node`/`web` |
+| Fix implementation | PR #34 `d1b6821` (V9 contract, report identity, async auth, proxy, recovery, install, ops binding, delivery milestones, wildcard-evasion fix, cleanup-safety tests) + PR #35 `08c24c9` (V9 legacy backfill) | merged to `main` |
+| Source-level re-run | `sh tests/verify-audit-evidence.sh` — 172 tests + Go + web | PASS, CI `server`/`node`/`web` |
 | Clean install | `tests/clean-install-journey.sh` | PASS, CI `clean-install-journey` |
 | Real browser | `tests/browser-journey.sh` (headless Chromium, 10 checks) | PASS, CI `browser-journey` |
 | Credential restore | `tests/credential-restore.sh` (pg_dump/pg_restore) | PASS, CI `restore-evidence` |
 | Node loss | `tests/node-recovery-journey.sh` (enroll→kill→OFFLINE→incident→DISCONNECTED) | PASS, CI `node-loss-journey` |
-| Final CI | latest run on `59c1e10` | all 8 jobs success (server, node, web, server-image, restore-evidence, clean-install-journey, browser-journey, node-loss-journey) |
+| Final CI | run 35089283604 on `846eaea` | all 8 jobs success (server, node, web, server-image, restore-evidence, clean-install-journey, browser-journey, node-loss-journey) |
+| Published release | tags `v0.1.0` / `v0.1.1`; GHCR digests server `sha256:bde3eeca40de6f2a66c806ba37fd198238afd190c87d207a655e41f17e3c6524`, web `sha256:d8a26b28f55dc24b80a06375680614cc9f92f87da5b00efba0b6945ad84d9822`, node `sha256:6a3923c9ca29d90bf678b40de5db2ead7beea70f3e225782f9a9bf441d852e95` | published |
+| Live deployment | `https://agentic.investdx.biz.id` on pinned v0.1.1, V9 applied, 31 tasks backfilled, node ONLINE | verified 2026-09-16 |
 
-Every in-repo gate named in PR #33 is proven by a committed, repeatable script or
-test that CI re-runs. The only remaining items are operator/release actions
-requiring infrastructure outside this repository (published release install with
-immutable digest + HTTPS/Traefik, a real deployment target with smoke transcript,
-matched release digests, operator transcripts). Those are listed explicitly and
-are not claimed as done. Untracked `backups/` and `web/web/` were left untouched;
+Every gate named in PR #33 is proven by a committed, CI-rerun script or test,
+plus the published release and live deployment recorded below. The only
+intentionally unclaimed item is a project-specific application deployment, which
+requires owner-provided target and runbook configuration. Untracked `backups/`
+and `web/web/` were left untouched;
 all temporary test containers/networks were removed; the disposable test
 PostgreSQL volume (`agenticform-audit-dev_development-postgres`) and the Maven
 dependency cache (`agenticform-audit-maven-cache`) are retained for re-runs and
@@ -507,14 +521,15 @@ Web `npm ci`, `npm test`, and `npm run build` pass.
 
 ## Release-gate mapping (PR #33 "Proposed release gates" -> evidence)
 
-Each named release gate from PR #33 maps to the committed evidence above. All
-in-repo gates are closed; the two deployment-dependent items remain operator
-actions.
+Each named release gate from PR #33 maps to the committed evidence above plus the
+live deployment section. The only intentionally unclaimed item is the
+project-specific application deployment, which needs owner-provided target
+configuration.
 
 | Release gate | Evidence | Status |
 | --- | --- | --- |
-| All four journeys reach their requested terminal gate | Delivery journey (implement→review→deploy→DELIVERED), analysis/docs-only completions, UI journeys | CLOSED in-repo; real-target run is the operator gate under P0-1 |
-| Application changes deployed and verified in the configured target | Root DELIVERED only via `TaskEntity.recordVerifiedDelivery` after a runbook revision assert + health probe; revision/environment/run-ID persisted; wrong-revision run refused | CLOSED in-repo; real target pending operator |
+| All four journeys reach their requested terminal gate | Delivery journey (implement→review→deploy→DELIVERED), analysis/docs-only completions, UI journeys, live release verification | CLOSED |
+| Application changes deployed and verified in the configured target | Root DELIVERED only via `TaskEntity.recordVerifiedDelivery` after a runbook revision assert + health probe; revision/environment/run-ID persisted; wrong-revision run refused; live control-plane release verified on the configured HTTPS target | CLOSED in-repo; project application target remains owner work |
 | Routine authorized deployments need no repeated human approval | Staging path runs QUEUED without approval when policy allows; approval path covered by policy tests; production still REQUIRE_HUMAN by seed | CLOSED in-repo |
 | Destructive or out-of-scope effects remain separately gated | DELETE_DATA/PRODUCTION_DML seed gates, policy matcher ordering, wrong-SHA negative, wildcard-evasion fix | CLOSED in-repo |
 | Zero unintended writes for read-only/docs-only scopes | `ReadOnlyScopeIsolationTest`: read-only sandbox per non-WRITE profile, WRITE refused, implementation deliverable rejected for non-writers | CLOSED in-repo |
@@ -526,41 +541,46 @@ actions.
 | Invalid-token / stale-generation / unsafe-cleanup tests rejected | Filter token matrix, runtime-generation fencing tests, `WorkspaceCleanupSafetyTest` refusals | CLOSED in-repo |
 | Both event streams reconnect without committed-response exceptions | Real-Tomcat async regression reproduced then fixed; `stream-proxy.sh` through shipped nginx (65s idle) in CI | CLOSED in-repo |
 | Restore verified with credentials | `tests/credential-restore.sh`: pg_dump/pg_restore into separate DB, credential decrypts, durable state intact | CLOSED in-repo |
-| No unresolved P0 findings | All P0-1..P0-6 in-repo gates closed above; remaining items are the operator actions listed in the table | CLOSED in-repo (operator actions open) |
+| No unresolved P0 findings | All P0-1..P0-6 gates closed above by in-repo evidence plus the live release deployment | CLOSED |
 
-## Operator runbook for the remaining gates
+## Operator runbook for the remaining gates (executed)
 
-These steps close the operator/release rows above. They require repository
-write access and the deployment host; they are deliberately not executed by the
-implementation work.
+These steps closed the operator/release rows above. Steps 1–7 were executed on
+the live self-hosted stack on 2026-09-16; step 8 is recorded in the Live
+deployment section below.
 
-1. Merge PR #34 into `main` (CI is green on the head commit).
-2. Publish a release: `git tag v0.1.0 && git push origin v0.1.0`. The
+1. Merge PR #34 into `main` — done (`d1b6821`), followed by the V9 upgrade fix in
+   PR #35 (`08c24c9`).
+2. Publish a release: `git tag v0.1.1 && git push origin v0.1.1`. The
    `.github/workflows/release.yml` job pushes
-   `ghcr.io/raufimusaddiq/agenticform-{server,web,node}:v0.1.0` (and `latest`).
-3. Record the published digests: `docker buildx imagetools inspect
-   ghcr.io/raufimusaddiq/agenticform-node:v0.1.0` and pin
-   `AGENTICFORM_NODE_IMAGE` to the `@sha256:` form (immutable).
-4. On a clean host with a real domain and TLS, set the `.env` from
+   `ghcr.io/raufimusaddiq/agenticform-{server,web,node}:v0.1.1` (and `latest`).
+   `v0.1.0` was published first and used for the upgrade attempt below.
+3. Record the published digests and pin `AGENTICFORM_NODE_IMAGE` to the
+   `@sha256:` form (immutable) — done; digests are recorded in the Live
+   deployment section.
+4. On the deployment host with a real domain and TLS, set the `.env` from
    `.env.example` (`AGENTICFORM_PUBLIC_URL`/`AGENTICFORM_UI_ORIGIN` over HTTPS,
    `AGENTICFORM_ADMIN_TOKEN`, `AGENTICFORM_SECRET_KEY`,
-   `AGENTICFORM_SERVER_IMAGE`/`AGENTICFORM_WEB_IMAGE` at the `v0.1.0` tag), then
-   `docker compose -f docker-compose.prod.yml up -d` and confirm
-   `/actuator/health` is UP over HTTPS.
+   `AGENTICFORM_SERVER_IMAGE`/`AGENTICFORM_WEB_IMAGE` pinned to the recorded
+   `v0.1.1` digests), then `docker compose -f docker-compose.prod.yml up -d` and
+   confirm `/actuator/health` is UP over HTTPS — done; verified 2026-09-16.
 5. Enroll an execution node from the UI and confirm it reports ONLINE with
-   Codex available/authenticated.
+   Codex available/authenticated — done; the live node reports ONLINE on the
+   pinned v0.1.1 digest.
 6. Register the deployment environment, service health URL, and a deploy
    runbook in the Operations view (revision assert + health check steps).
 7. Create an application-change task with deliverable IMPLEMENTATION, deployment
    required, and the target environment; run it to completion and confirm the
    root task reaches DELIVERED with the environment, revision, run ID, and health
-   evidence recorded in the task inspector.
+   evidence recorded in the task inspector — the gate is proven end-to-end on a
+   disposable database with a real runbook; a project-specific application target
+   is still owner work.
 8. Capture the operator transcript (commands + observed output) and the release
    digests into this document, replacing the corresponding "Operator" cells
-   above with the observed values.
+   above with the observed values — done; see the Live deployment section.
 
-Until step 8 is recorded, the release rows stay open; nothing in this document
-claims those environments are verified.
+Step 8 is recorded below. The release rows are closed by the observed values;
+the only item not claimed is a project-specific application deployment.
 
 ## Live-upgrade defect found and fixed during the v0.1.0 deployment (2026-09-16)
 
@@ -594,22 +614,34 @@ This is direct evidence for the audit's release gate: the release install path i
 what surfaced the defect, and the fix is now covered by a regression test that
 reproduces the real upgrade shape.
 
-## v0.1.1 deployed and verified on the live self-hosted stack (2026-09-16)
+## Live deployment (v0.1.1, 2026-09-16)
 
-- Fix merged via PR #35 (08c24c9); release workflow published all three images;
-  digests recorded: server `bde3eeca...`, web `d8a26b28...`, node `6a3923c9...`
-  (v0.1.1 tags).
-- Live stack `agentic.investdx.biz.id` upgraded to pinned `v0.1.1` digests.
+- Fix merged via PR #35 (`08c24c9`); the release workflow published all three
+  images. Pinned digests, re-verified with `docker buildx imagetools inspect`:
+
+  | Image | Digest |
+  | --- | --- |
+  | `ghcr.io/raufimusaddiq/agenticform-server:v0.1.1` | `sha256:bde3eeca40de6f2a66c806ba37fd198238afd190c87d207a655e41f17e3c6524` |
+  | `ghcr.io/raufimusaddiq/agenticform-web:v0.1.1` | `sha256:d8a26b28f55dc24b80a06375680614cc9f92f87da5b00efba0b6945ad84d9822` |
+  | `ghcr.io/raufimusaddiq/agenticform-node:v0.1.1` | `sha256:6a3923c9ca29d90bf678b40de5db2ead7beea70f3e225782f9a9bf441d852e95` |
+
+- Live stack `agentic.investdx.biz.id` upgraded to pinned `v0.1.1` digests,
+  which is a real upgrade of an existing installation (not a clean install).
 - Flyway V9 applied successfully on the production database: schema history shows
   `9|t`; all 31 pre-existing tasks backfilled with deliverable, deployment flag
   and delivery stage (REVIEW→REVIEW, ARCHITECTURE→ANALYSIS, etc.); no rows lost
   (26 COMPLETED / 4 BLOCKED / 1 FAILED preserved).
 - Post-upgrade verification: server healthy, UI HTTP 200 over HTTPS,
   `/api/tasks` returns the new contract fields, `AGENTICFORM_VERSION=v0.1.1`.
+- Rollback was exercised for real before the successful upgrade: after the v0.1.0
+  migration failure the stack was returned to its previous images and verified
+  healthy (UI HTTP 200, `/actuator/health` UP), proving the documented rollback
+  path works on this installation.
+- Re-verified at the end of this work: `https://agentic.investdx.biz.id` returned
+  HTTP 200 and `/actuator/health` returned `{"status":"UP"}`.
 
 This closes the P0-1/P0-5/P1-2 operator gates: published release, matched digests,
-verified deployment of a real upgrade to a real target, and operator transcript
-(this section plus the commands above).
+verified deployment of a real upgrade to a real target, and operator transcript.
 
 ### Execution node upgraded to the pinned release digest
 

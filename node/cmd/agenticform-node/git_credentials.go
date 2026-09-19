@@ -56,7 +56,7 @@ func gitCredentialHelper(stateDir, server string, args []string) error {
 		mode = "bootstrap"
 	}
 	path := "/api/nodes/" + id.NodeID + "/git-credential/" + mode
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := newHTTPClient(20 * time.Second)
 	resp, err := signedHTTP(client, server, id.NodeID, private, http.MethodPost, path, body)
 	if err != nil {
 		return fmt.Errorf("request Git credential: %w", err)

@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 
 class TaskDispatchOrchestrationTest {
@@ -42,7 +43,9 @@ class TaskDispatchOrchestrationTest {
         TaskDispatchService service = new TaskDispatchService(tasks, agents, mock(AgentRuntimeRegistry.class),
                 mock(ExecutionNodeService.class), mock(TaskDependencyService.class));
 
-        assertThrows(IllegalStateException.class, () -> service.report(agentId, parentId, 1, "done"));
+        TaskDispatchService.ReportRejectedException rejection = assertThrows(TaskDispatchService.ReportRejectedException.class,
+                () -> service.report(agentId, parentId, 1, "done"));
+        assertEquals("DELEGATED_TASKS_UNRESOLVED", rejection.code);
         verify(parent, never()).setReport(anyString());
     }
 

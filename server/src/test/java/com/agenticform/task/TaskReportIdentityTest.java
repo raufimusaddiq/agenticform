@@ -77,13 +77,24 @@ class TaskReportIdentityTest {
         });
         for (var status : java.util.List.of(com.agenticform.agent.AgentStatus.IDLE, com.agenticform.agent.AgentStatus.WORKING)) {
             when(agent.getStatus()).thenReturn(status);
-            TaskEntity created = service.create(agentId, "delegated " + status, "implement", 0);
+            TaskEntity created = service.create(agentId, "delegated " + status, "implement", 0,
+                    java.util.List.of(), null, TaskKind.IMPLEMENTATION,
+                    new TaskDispatchService.DeliveryRequest(TaskDeliverable.IMPLEMENTATION, true, false, true, "staging"));
             assertNotNull(created.getId());
             assertEquals(TaskStatus.READY, created.getStatus());
             assertEquals(agentId, created.getAssignedAgentId());
         }
         verify(agent, never()).setStatus(any());
         verify(agent, never()).setActiveTaskId(any());
+    }
+
+    @Test
+    void deploymentRequiredRootTaskRequiresEnvironmentKey() {
+        when(agent.getCapabilityProfile()).thenReturn(com.agenticform.agent.AgentCapabilityProfile.IMPLEMENTER);
+        when(agent.getStatus()).thenReturn(com.agenticform.agent.AgentStatus.IDLE);
+        assertThrows(IllegalArgumentException.class, () -> service.create(agentId, "implement", "do work", 0,
+                java.util.List.of(), null, TaskKind.IMPLEMENTATION,
+                new TaskDispatchService.DeliveryRequest(TaskDeliverable.IMPLEMENTATION, true, false, true, null)));
     }
 
     @Test
@@ -103,6 +114,21 @@ class TaskReportIdentityTest {
         assertThrows(IllegalStateException.class,
                 () -> service.report(agentId, taskId, 3, "done"));
         verify(tasks, never()).save(any());
+    }
+
+    @Test
+    void orchestratorCanReportBlockedWhileDelegatedWorkIsUnresolved() {
+        when(agent.getRole()).thenReturn(AgentRole.ORCHESTRATOR);
+        when(task.getDeliverable()).thenReturn(TaskDeliverable.GENERAL);
+        when(tasks.findAllByParentTaskIdOrderByCreatedAtAsc(taskId)).thenReturn(List.of());
+        TaskEvidence evidence = new TaskEvidence(TaskEvidence.BLOCKED, List.of(), List.of(),
+                List.of("implementation and review are blocked"), List.of());
+
+        assertSame(task, service.report(agentId, taskId, 3, "Workflow blocked by child tasks", evidence));
+        verify(task).recordEvidence(evidence);
+        verify(task).setStatus(TaskStatus.BLOCKED);
+        verify(task).setLastError("implementation and review are blocked");
+        verify(tasks).save(task);
     }
 
     @Test
