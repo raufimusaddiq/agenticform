@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # Agenticform
 
 Agenticform is a Java-based control plane for orchestrating multiple Codex agents across local and enrolled execution nodes.
@@ -88,7 +90,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Open the configured public URL, sign in with the single-owner admin token, register a project, then enroll a node from **Execution nodes**. Public deployments require HTTPS and an immutable `AGENTICFORM_NODE_IMAGE` digest. See [Self-Hosted Alpha](docs/self-hosted-alpha.md) for update, backup/restore, proxy, networking, and runtime-readiness guidance.
+Open the configured public URL, sign in with the single-owner admin token, register a project, then enroll a node from **Execution nodes**. Public deployments require HTTPS and an immutable `AGENTICFORM_NODE_IMAGE` digest. See [Self-Hosted Alpha](self-hosted-alpha.md) for update, backup/restore, proxy, networking, and runtime-readiness guidance.
 
 ## Distributed execution nodes
 
@@ -134,7 +136,7 @@ Set `AGENTICFORM_SERVER_MEMORY` to the memory the host can dedicate to the
 control plane; the JVM heap percentage is applied relative to it. These are only
 needed when the defaults do not match host capacity.
 
-See [Distributed Agent Fabric](docs/distributed-agent-fabric.md) for enrollment, trust, replay protection, runtime isolation, revocation, and compromise-containment details.
+See [Distributed Agent Fabric](distributed-agent-fabric.md) for enrollment, trust, replay protection, runtime isolation, revocation, and compromise-containment details.
 
 ## Distributed runtime recovery
 
@@ -153,7 +155,7 @@ AGENTICFORM_NODE_AUTO_RECOVERY=true
 
 Rehydration creates a new runtime generation and recovery branch. It restores logical/durable Agenticform state and may re-dispatch the active durable task. It does **not** live-migrate a process or recover local-only uncommitted files from a permanently dead node.
 
-See [Durable Recovery](docs/recovery.md) for restart, node-loss, approval, cleanup, and fail-closed semantics.
+See [Durable Recovery](recovery.md) for restart, node-loss, approval, cleanup, and fail-closed semantics.
 
 ## GitHub Actions integration
 
@@ -192,15 +194,15 @@ https://github.com/owner/repository.git
 
 ## Design documents
 
-- [Initial architecture](docs/architecture.md)
-- [Codex queue orchestration](docs/codex-queue.md)
-- [Operational contracts](docs/operations.md)
-- [Durable recovery and GitHub webhooks](docs/recovery.md)
-- [Distributed Agent Fabric](docs/distributed-agent-fabric.md)
-- [UI/UX specification](docs/ui-ux.md)
-- [Self-Hosted Alpha](docs/self-hosted-alpha.md)
-- [PR #33 repair evidence and proof of completion](docs/product-reliability-fix-evidence.md)
-- [Product reliability audit (PR #33)](docs/product-reliability-audit.md)
+- [Initial architecture](architecture.md)
+- [Codex queue orchestration](codex-queue.md)
+- [Operational contracts](operations.md)
+- [Durable recovery and GitHub webhooks](recovery.md)
+- [Distributed Agent Fabric](distributed-agent-fabric.md)
+- [UI/UX specification](ui-ux.md)
+- [Self-Hosted Alpha](self-hosted-alpha.md)
+- [PR #33 repair evidence and proof of completion](product-reliability-fix-evidence.md)
+- [Product reliability audit (PR #33)](product-reliability-audit.md)
 
 ## Current architecture
 

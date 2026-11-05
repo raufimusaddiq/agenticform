@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # Distributed Agent Fabric
 
 Sprint 11 turns Agenticform into a control plane that can place Codex agents on enrolled execution nodes while keeping policy, durable state, operations, approvals, and inter-agent routing centralized.

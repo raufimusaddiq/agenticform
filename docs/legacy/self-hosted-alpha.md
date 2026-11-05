@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # Self-Hosted Alpha
 
 Agenticform Alpha runs from published images. No source build, SQL, curl, or manual Flyway step is part of the supported path.

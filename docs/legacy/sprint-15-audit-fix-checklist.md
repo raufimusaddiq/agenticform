@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # Sprint 15 — Audit Fix Checklist
 
 Audit baseline: September 13, 2026. Scope covers all persisted agents, tasks, messages, deliveries, runtime interactions, node commands, approvals, and recent server/node logs.

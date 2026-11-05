@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # Repository runbook contract
 
 Agenticform is repository-agnostic. Deployment behavior comes from the project

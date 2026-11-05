@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # Sprint 14 — Runtime Abstraction Checklist
 
 Scope: make Codex the first runtime adapter. Preserve existing behavior, data, recovery, and security.

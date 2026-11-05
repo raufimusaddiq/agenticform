@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # Sprint 15 — Seamless Self-Hosted Alpha Checklist
 
 Scope: ship the supported path for daily self-hosted use. Alpha may break between releases; normal installation and operation may not require internal knowledge.

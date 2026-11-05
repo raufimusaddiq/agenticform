@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # Agenticform — Codex Queue Orchestration
 
 ## 1. Why this document exists

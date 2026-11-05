@@ -1,3 +1,5 @@
+> **Legacy:** this describes the Java, Go and nginx stack, which is being replaced. See [the current architecture](../architecture.md).
+
 # PR #33 repair evidence
 
 Status: **complete — all gates verified in-repo and on the live self-hosted deployment**. Updated September 16, 2026.
