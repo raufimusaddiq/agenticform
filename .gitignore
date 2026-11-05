@@ -14,3 +14,6 @@ web/dist/
 # Local configuration
 .env
 .env.local
+
+# Bun
+node_modules/
