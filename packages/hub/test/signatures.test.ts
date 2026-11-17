@@ -123,6 +123,29 @@ describe("heartbeat validation", () => {
     }
   })
 
+  test("runtime inventory entries must be well-shaped and bounded", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const good = { runId: "r", generation: 1, runtimeType: "codex", runtimeSessionId: "s", state: "running" }
+    for (const runtimes of [
+      [{ ...good, generation: "1" }],
+      [{ ...good, generation: 1.5 }],
+      [{ ...good, runtimeType: 1 }],
+      [{ ...good, runtimeSessionId: 1 }],
+      [{ ...good, state: 1 }],
+      [{ runId: "r", generation: 1, runtimeType: "codex" }],
+      "x",
+    ]) {
+      const response = await heartbeat(hub, node, { runtimes })
+      expect(response.status).toBe(400)
+      expect(response.body.error.code).toBe("invalid_input")
+    }
+    const tooMany = Array.from({ length: 1001 }, (_, index) => ({ ...good, runId: `r-${index}` }))
+    const capped = await heartbeat(hub, node, { runtimes: tooMany })
+    expect(capped.status).toBe(400)
+    expect(capped.body.error.code).toBe("invalid_input")
+  })
+
   test("machine routes reject missing or non-object JSON bodies", async () => {
     hub = startHub()
     const node = await enroll(hub)

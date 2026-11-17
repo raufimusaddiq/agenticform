@@ -211,13 +211,8 @@ describe("explicit recovery", () => {
     const notGit = await api(hub as Hub, "POST", `/v1/runs/${runId}/recover`)
     expect(notGit.body.error.message).toContain("GIT-backed")
 
-    // Pending approval.
-    ;(hub as Hub).db.query("UPDATE runs SET git_backed = 1, pending_approval = 1 WHERE id = ?").run(runId)
-    const approval = await api(hub as Hub, "POST", `/v1/runs/${runId}/recover`)
-    expect(approval.body.error.message).toContain("pending approval")
-
     // Node is not offline.
-    ;(hub as Hub).db.query("UPDATE runs SET pending_approval = 0 WHERE id = ?").run(runId)
+    ;(hub as Hub).db.query("UPDATE runs SET git_backed = 1 WHERE id = ?").run(runId)
     ;(hub as Hub).db.query("UPDATE nodes SET status = 'online' WHERE id = ?").run(node.nodeId)
     const online = await api(hub as Hub, "POST", `/v1/runs/${runId}/recover`)
     expect(online.body.error.message).toContain("not offline")
@@ -268,37 +263,54 @@ describe("explicit recovery", () => {
     expect(runRow?.status).toBe("queued")
   })
 
-  test("SSE replay crosses a recovery and ends at the terminal event", async () => {
-    const { runId } = await disconnectedRun()
-    const replacement = await enroll(hub as Hub, { name: "replacement" })
-    await heartbeat(hub as Hub, replacement)
-    const recovered = await api(hub as Hub, "POST", `/v1/runs/${runId}/recover`)
+  test("SSE replay crosses a recovery and keeps generation-scoped node keys", async () => {
+    hub = startHub({ nodeOfflineMs: 45_000, recoveryGraceMs: 120_000 })
+    const node = await enroll(hub)
+    await heartbeat(hub, node)
+    const run = await createRun(hub)
+    const runId = run.body.runId as string
+    const first = (await nextCommand(hub, node)).body
+    const before = await signedFetch(hub, node, "POST", `/v1/node/commands/${first.commandId}/events`, {
+      leaseId: first.leaseId,
+      events: [{ key: "c1:1", type: "message.delta", at: new Date().toISOString(), data: { text: "gen1" } }],
+    })
+    expect(before.status).toBe(200)
+    sweepHealth(hub.db, hub.config, Date.now() + 46_000)
+    hub.db.query("UPDATE runs SET disconnected_at = ? WHERE id = ?").run(Date.now() - 120_001, runId)
+
+    const replacement = await enroll(hub, { name: "replacement" })
+    await heartbeat(hub, replacement)
+    const recovered = await api(hub, "POST", `/v1/runs/${runId}/recover`)
     expect(recovered.status).toBe(200)
 
-    const command = (await nextCommand(hub as Hub, replacement)).body
-    await signedFetch(hub as Hub, replacement, "POST", `/v1/node/commands/${command.commandId}/events`, {
+    const command = (await nextCommand(hub, replacement)).body
+    const after = await signedFetch(hub, replacement, "POST", `/v1/node/commands/${command.commandId}/events`, {
       leaseId: command.leaseId,
-      events: [
-        { key: "c1:1", type: "message.delta", at: new Date().toISOString(), data: { text: "ok" } },
-      ],
+      events: [{ key: "c1:1", type: "message.delta", at: new Date().toISOString(), data: { text: "gen2" } }],
     })
-    const completed = await signedFetch(hub as Hub, replacement, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+    expect(after.status).toBe(200)
+    const completed = await signedFetch(hub, replacement, "POST", `/v1/node/commands/${command.commandId}/complete`, {
       leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "completed" },
-      eventsToSeq: 2,
+      eventsToSeq: 3,
     })
     expect(completed.status).toBe(200)
 
-    const response = await fetch(`${(hub as Hub).url}/v1/runs/${runId}/events?stream=sse&after=0`, {
-      headers: { authorization: `Bearer ${(hub as Hub).config.adminToken}` },
+    const replayed = await api(hub, "GET", `/v1/runs/${runId}/events?after=0`)
+    const sameKey = replayed.body.events.filter((event: { key: string }) => event.key.endsWith("c1:1"))
+    expect(sameKey).toHaveLength(2)
+    expect(new Set(sameKey.map((event: { seq: number }) => event.seq)).size).toBe(2)
+    expect(sameKey.map((event: { data: { text: string } }) => event.data.text)).toEqual(["gen1", "gen2"])
+
+    const response = await fetch(`${hub.url}/v1/runs/${runId}/events?stream=sse&after=0`, {
+      headers: { authorization: `Bearer ${hub.config.adminToken}` },
     })
     const text = await response.text()
     expect(text).toContain("run.disconnected")
-    expect(text).toContain("message.delta")
     expect(text).toContain("run.finished")
-    expect(text.indexOf("run.disconnected")).toBeLessThan(text.indexOf("message.delta"))
-    expect(text.indexOf("message.delta")).toBeLessThan(text.indexOf("run.finished"))
+    expect(text.indexOf("run.disconnected")).toBeLessThan(text.indexOf("run.finished"))
+    expect(text.match(/message\.delta/g)?.length).toBe(2)
   })
 
   test("a recovered run that disconnects again keeps both disconnected events", async () => {

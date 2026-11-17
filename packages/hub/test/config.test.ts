@@ -81,6 +81,16 @@ describe("hub config", () => {
     expect(statSync(dirname(file)).mode & 0o777).toBe(0o700)
   })
 
+  test("schema migrations set and enforce the version", () => {
+    const root = mkdtempSync(join(tmpdir(), "af-db-"))
+    const file = join(root, "hub.sqlite")
+    const db = openDatabase(file)
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 1 })
+    db.exec("PRAGMA user_version = 99")
+    db.close()
+    expect(() => openDatabase(file)).toThrow(/newer than supported/)
+  })
+
   test("the advertised URL uses AGENTICFORM_HUB_URL", () => {
     const hub = startHub({ publicUrl: "https://hub.example.com" })
     try {

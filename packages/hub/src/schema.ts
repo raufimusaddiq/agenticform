@@ -52,7 +52,6 @@ CREATE TABLE IF NOT EXISTS runs (
   workspace_id TEXT NOT NULL,
   result_json TEXT,
   error_json TEXT,
-  pending_approval INTEGER NOT NULL DEFAULT 0,
   disconnected_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -103,14 +102,37 @@ CREATE TABLE IF NOT EXISTS run_events (
 );
 `
 
+export const SCHEMA_VERSION = 1
+
+/** Ordered migrations. Append a new entry and bump SCHEMA_VERSION for each change. */
+export const MIGRATIONS: readonly { version: number; sql: string }[] = [
+  { version: 1, sql: SCHEMA },
+]
+
 export function openDatabase(file: string): Database {
   if (file !== ":memory:") mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
   const db = new Database(file, { create: true })
   db.exec("PRAGMA journal_mode = WAL")
   db.exec("PRAGMA foreign_keys = ON")
   db.exec("PRAGMA busy_timeout = 5000")
-  db.exec(SCHEMA)
+  migrate(db)
   return db
+}
+
+/** Refuse a database written by a newer hub, then apply pending migrations (T008). */
+export function migrate(db: Database): void {
+  const current = db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0
+  if (current > SCHEMA_VERSION) {
+    throw new Error(`database schema version ${current} is newer than supported ${SCHEMA_VERSION}`)
+  }
+  for (const migration of MIGRATIONS) {
+    if (migration.version <= current) continue
+    const apply = db.transaction((): void => {
+      db.exec(migration.sql)
+      db.exec(`PRAGMA user_version = ${migration.version}`)
+    })
+    apply()
+  }
 }
 
 export interface NodeRow {
@@ -147,7 +169,6 @@ export interface RunRow {
   workspace_id: string
   result_json: string | null
   error_json: string | null
-  pending_approval: number
   disconnected_at: number | null
   created_at: number
   updated_at: number

@@ -13,7 +13,6 @@ export type ErrorCode =
   | "idempotency_conflict"
   | "fence_stale"
   | "events_pending"
-  | "nonce_replayed"
   | "lease_not_held"
   | "ambiguous_replay"
   | "capability_missing"

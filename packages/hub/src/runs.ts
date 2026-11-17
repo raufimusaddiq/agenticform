@@ -53,6 +53,12 @@ function valid(request: RunRequest): void {
   if (request.gitBacked !== undefined && typeof request.gitBacked !== "boolean") {
     fail("invalid_input", "gitBacked must be a boolean")
   }
+  if (request.cwd !== undefined && typeof request.cwd !== "string") {
+    fail("invalid_input", "cwd must be a string")
+  }
+  if (request.nodeId !== undefined && typeof request.nodeId !== "string") {
+    fail("invalid_input", "nodeId must be a string")
+  }
 }
 
 export function createRun(
@@ -253,7 +259,6 @@ export function recoverRun(
     fail("recovery_precondition_failed", "recovery grace period has not elapsed")
   }
   if (run.git_backed !== 1) fail("recovery_precondition_failed", "workspace is not GIT-backed")
-  if (run.pending_approval !== 0) fail("recovery_precondition_failed", "a pending approval blocks recovery")
 
   const placement = pickNode(db, {
     harness: run.harness,

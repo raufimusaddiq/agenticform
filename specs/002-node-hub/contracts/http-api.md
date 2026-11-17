@@ -26,7 +26,6 @@ Machine authentication failures always use `401` with
 | `idempotency_conflict` | 409 |
 | `fence_stale` | 409 |
 | `events_pending` | 409 |
-| `nonce_replayed` | 409 |
 | `lease_not_held` | 409 |
 | `ambiguous_replay` | 409 |
 | `capability_missing` | 422 |
@@ -35,11 +34,11 @@ Machine authentication failures always use `401` with
 | `workspace_missing` | 422 |
 | `internal` | 500 |
 
-`nonce_replayed` is reserved and is not emitted on the wire: a replayed nonce is a
-machine authentication failure and returns the generic `401 unauthorized` above
-(see [node-protocol.md](node-protocol.md) and N8.4). `ambiguous_replay` is a
-node-side error: the node refuses a reused command id with a different
-fingerprint (FR-028), so the hub never emits it.
+A replayed nonce is a machine authentication failure and returns the generic
+`401 unauthorized` above (see [node-protocol.md](node-protocol.md) and N8.4), so
+there is no nonce-specific code. `ambiguous_replay` is a node-side error: the node
+refuses a reused command id with a different fingerprint (FR-028), so the hub
+never emits it.
 
 ## Machine endpoints
 
@@ -191,8 +190,10 @@ Run status: `queued`, `leased`, `running`, `completed`, `failed`, `cancelled`,
 
 Without `stream`: JSON `{ "events": [...], "lastSeq": 42 }`, replayable from
 `after`. With `stream=sse`: `text/event-stream`, `id:` is `seq`, reconnects with
-`Last-Event-ID`. The stream ends after the terminal event. Late consumers get the
-full sequence from `after=0`.
+`Last-Event-ID`. The stream ends after the terminal event. A `run.disconnected`
+event does **not** end the stream: the run may be recovered and continue, so the
+stream stays open (with keepalive comments) until a terminal status or the client
+aborts. Late consumers get the full sequence from `after=0`.
 
 ### `POST /v1/runs/{runId}/cancel`
 
@@ -205,7 +206,9 @@ or marked `cancelled` when the runtime cannot be reached.
 Explicit recovery. Every precondition in FR-034 must hold, or the response is
 `422 recovery_precondition_failed` naming the missing one. On success the run
 keeps its id, gets generation `N+1`, and starts on a new node with a new
-workspace. Never automatic on a `STARTED`/ambiguous ledger entry.
+workspace. Never automatic on a `STARTED`/ambiguous ledger entry. Pending
+approvals are not hub state (constitution I), so recovery has no approval
+precondition; the caller enforces any approval policy before asking.
 
 ### Nodes and tokens
 

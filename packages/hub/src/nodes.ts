@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite"
-import type { HeartbeatRequest, HeartbeatResponse, NodeView } from "@agenticform/protocol"
+import type { HeartbeatRequest, HeartbeatResponse, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
@@ -7,6 +7,43 @@ import { insertEvent, hubEventKey } from "./events.ts"
 import type { NodeRow, RunRow } from "./schema.ts"
 
 const ACTIVE_RUN = new Set(["queued", "leased", "running"])
+
+export interface RuntimeInventoryInput {
+  runId: unknown
+  generation: unknown
+  runtimeType: unknown
+  runtimeSessionId?: unknown
+  state: unknown
+}
+
+const MAX_INVENTORY = 1_000
+
+function validateInventory(runtimes: unknown): RuntimeInventoryEntry[] {
+  if (!Array.isArray(runtimes)) fail("invalid_input", "runtimes must be an array")
+  if (runtimes.length > MAX_INVENTORY) fail("invalid_input", "runtimes exceeds the maximum length")
+  return runtimes.map((entry) => {
+    const item = entry as Partial<RuntimeInventoryInput>
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      fail("invalid_input", "each runtime entry must be an object")
+    }
+    if (typeof item.runId !== "string" || !item.runId) fail("invalid_input", "runtime.runId must be a string")
+    if (!Number.isInteger(item.generation)) fail("invalid_input", "runtime.generation must be an integer")
+    if (typeof item.runtimeType !== "string" || !item.runtimeType) {
+      fail("invalid_input", "runtime.runtimeType must be a string")
+    }
+    if (item.runtimeSessionId !== undefined && item.runtimeSessionId !== null && typeof item.runtimeSessionId !== "string") {
+      fail("invalid_input", "runtime.runtimeSessionId must be a string")
+    }
+    if (typeof item.state !== "string" || !item.state) fail("invalid_input", "runtime.state must be a string")
+    return {
+      runId: item.runId,
+      generation: item.generation as number,
+      runtimeType: item.runtimeType,
+      runtimeSessionId: (item.runtimeSessionId as string | null | undefined) ?? null,
+      state: item.state,
+    } as RuntimeInventoryEntry
+  })
+}
 
 export function heartbeat(
   db: Database,
@@ -40,7 +77,7 @@ export function heartbeat(
       fail("invalid_input", "capacity.slots and capacity.inUse must be non-negative integers")
     }
   }
-  const inventory = Array.isArray(body.runtimes) ? body.runtimes : []
+  const inventory = body.runtimes === undefined ? [] : validateInventory(body.runtimes)
   const capabilities = Array.isArray(body.capabilities) ? body.capabilities : []
   const slots = body.capacity?.slots ?? node.capacity_slots
   const active = db

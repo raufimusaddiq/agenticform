@@ -39,6 +39,7 @@ export function appendEvents(
   now = Date.now(),
 ): EventBatchResponse {
   if (!Array.isArray(batch.events)) fail("invalid_input", "events must be an array")
+  if (batch.events.length > 1_000) fail("invalid_input", "events exceeds the maximum batch size")
   const command = db.query<CommandRow, [string]>("SELECT * FROM commands WHERE id = ?").get(commandId)
   if (!command || command.node_id !== nodeId) fail("fence_stale", "unknown command for this node")
   if (typeof batch.leaseId !== "string" || batch.leaseId !== command.lease_id) {
@@ -61,7 +62,10 @@ export function appendEvents(
   const write = db.transaction((): number => {
     let accepted = 0
     for (const event of batch.events) {
-      accepted += insertEvent(db, run.id, event) > 0 ? 1 : 0
+      // Node keys are namespaced by generation so a recovered generation can reuse
+      // a key like `c1:1` without colliding with the fenced-out generation.
+      const key = `g${command.generation}:${event.key}`
+      accepted += insertEvent(db, run.id, { ...event, key }) > 0 ? 1 : 0
     }
     if (command.status === "leased") {
       db.query("UPDATE commands SET status = 'running', updated_at = ? WHERE id = ?").run(now, command.id)
