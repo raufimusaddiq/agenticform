@@ -14,6 +14,7 @@ export interface HubConfig {
   leaseMs: number
   pollMs: number
   recoveryGraceMs: number
+  maxBodyBytes: number
 }
 
 const seconds = (value: string | undefined, fallback: number): number =>
@@ -38,6 +39,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     leaseMs: seconds(env.AGENTICFORM_LEASE_SECONDS, 900_000),
     pollMs: millis(env.AGENTICFORM_POLL_MS, 1_500),
     recoveryGraceMs: seconds(env.AGENTICFORM_RECOVERY_GRACE_SECONDS, 120_000),
+    maxBodyBytes: millis(env.AGENTICFORM_MAX_BODY_BYTES, 1_048_576),
   }
   validateConfig(config)
   return config
@@ -60,6 +62,7 @@ export function validateConfig(config: HubConfig): void {
     ["AGENTICFORM_LEASE_SECONDS", config.leaseMs],
     ["AGENTICFORM_POLL_MS", config.pollMs],
     ["AGENTICFORM_RECOVERY_GRACE_SECONDS", config.recoveryGraceMs],
+    ["AGENTICFORM_MAX_BODY_BYTES", config.maxBodyBytes],
   ]
   for (const [name, value] of numbers) {
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`)

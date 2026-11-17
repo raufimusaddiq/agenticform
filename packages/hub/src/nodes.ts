@@ -21,7 +21,14 @@ export function heartbeat(
   if (!SUPPORTED_PROTOCOL_VERSIONS.includes(body.protocolVersion)) {
     fail("version_unsupported", "protocol version is not supported")
   }
-  if (!Array.isArray(body.harnesses)) fail("invalid_input", "harnesses must be an array")
+  if (!Array.isArray(body.harnesses) || body.harnesses.some((h) => typeof h !== "string")) {
+    fail("invalid_input", "harnesses must be a string array")
+  }
+  if (body.capabilities !== undefined) {
+    if (!Array.isArray(body.capabilities) || body.capabilities.some((c) => typeof c !== "string")) {
+      fail("invalid_input", "capabilities must be a string array")
+    }
+  }
   if (body.capacity !== undefined) {
     if (
       body.capacity === null ||
@@ -36,19 +43,24 @@ export function heartbeat(
   const inventory = Array.isArray(body.runtimes) ? body.runtimes : []
   const capabilities = Array.isArray(body.capabilities) ? body.capabilities : []
   const slots = body.capacity?.slots ?? node.capacity_slots
-  const inUse = body.capacity?.inUse ?? node.capacity_in_use
+  const active = db
+    .query<{ n: number }, [string]>(
+      "SELECT COUNT(*) AS n FROM runs WHERE node_id = ? AND status IN ('queued','leased','running')",
+    )
+    .get(node.id)
+  const used = Math.min(active?.n ?? 0, slots)
 
   const write = db.transaction((): void => {
     db.query(
       `UPDATE nodes SET status = 'online', protocol_version = ?, harnesses = ?, capabilities = ?,
-         capacity_slots = ?, capacity_in_use = MAX(capacity_in_use, ?), inventory = ?, last_heartbeat_at = ?
+         capacity_slots = ?, capacity_in_use = ?, inventory = ?, last_heartbeat_at = ?
        WHERE id = ?`,
     ).run(
       body.protocolVersion,
       JSON.stringify(body.harnesses),
       JSON.stringify(capabilities),
       slots,
-      inUse,
+      used,
       JSON.stringify(inventory),
       now,
       node.id,

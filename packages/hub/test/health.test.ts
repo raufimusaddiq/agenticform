@@ -70,6 +70,26 @@ describe("node loss", () => {
   })
 })
 
+describe("capacity ledger", () => {
+  test("stale and oversized node reports cannot wedge the node", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node, { capacity: { slots: 2, inUse: 0 } })
+    const first = await createRun(hub)
+    expect(first.status).toBe(201)
+
+    await heartbeat(hub, node, { capacity: { slots: 2, inUse: 0 } })
+    await heartbeat(hub, node, { capacity: { slots: 2, inUse: 99 } })
+    const row = hub.db
+      .query<{ capacity_in_use: number }, [string]>("SELECT capacity_in_use FROM nodes WHERE id = ?")
+      .get(node.nodeId)
+    expect(row?.capacity_in_use).toBe(1)
+
+    const second = await createRun(hub)
+    expect(second.status).toBe(201)
+  })
+})
+
 describe("disable and revoke", () => {
   test("a revoked node is terminal", async () => {
     hub = startHub()

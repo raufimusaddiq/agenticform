@@ -6,6 +6,7 @@ export const SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [1]
 export type ErrorCode =
   | "invalid_input"
   | "unauthorized"
+  | "payload_too_large"
   | "forbidden"
   | "not_found"
   | "version_unsupported"

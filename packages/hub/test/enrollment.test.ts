@@ -71,6 +71,19 @@ describe("enrollment", () => {
     expect(late.body).toEqual({ error: { code: "unauthorized", message: "unauthorized" } })
   })
 
+  test("oversized enroll bodies are rejected before processing", async () => {
+    hub = startHub({ maxBodyBytes: 128 })
+    const response = await api(hub, "POST", "/v1/enroll", {
+      token: "x".repeat(500),
+      name: "n",
+      publicKey: "k",
+      protocolVersion: 1,
+      harnesses: [],
+    })
+    expect(response.status).toBe(413)
+    expect(response.body.error.code).toBe("payload_too_large")
+  })
+
   test("a non-Ed25519 public key is refused", async () => {
     hub = startHub()
     const issued = await api(hub, "POST", "/v1/enrollment-tokens")

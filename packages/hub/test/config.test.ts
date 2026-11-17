@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { createHub } from "../src/index.ts"
+import { mkdtempSync, statSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { createHub, openDatabase } from "../src/index.ts"
 import { loadConfig, validateConfig, type HubConfig } from "../src/config.ts"
 import { api, startHub, testConfig } from "./helpers.ts"
 
@@ -68,8 +71,15 @@ describe("hub config", () => {
     expect(config.leaseMs).toBe(60_000)
   })
 
-  test("createHub refuses to construct without a valid config", () => {
-    expect(() => createHub(testConfig({ adminToken: "" }))).toThrow()
+  test("a state directory is created with mode 0700", () => {
+    const root = mkdtempSync(join(tmpdir(), "af-db-"))
+    const file = join(root, "nested", "state", "hub.sqlite")
+    const db = openDatabase(file)
+    db.close()
+    expect(statSync(dirname(file)).mode & 0o777).toBe(0o700)
+  })
+
+  test("createHub refuses to construct without a valid config", () => {    expect(() => createHub(testConfig({ adminToken: "" }))).toThrow()
     expect(() => createHub(testConfig({ adminToken: "short" }))).toThrow()
     expect(() => createHub(testConfig({ clockSkewMs: Number.NaN }))).toThrow()
     expect(() => createHub(testConfig({ publicUrl: "http://example.com" }))).toThrow()

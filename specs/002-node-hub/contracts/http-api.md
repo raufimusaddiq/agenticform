@@ -19,6 +19,7 @@ Machine authentication failures always use `401` with
 |---|---|
 | `invalid_input` | 400 |
 | `unauthorized` | 401 |
+| `payload_too_large` | 413 |
 | `forbidden` | 403 |
 | `not_found` | 404 |
 | `version_unsupported` | 409 |

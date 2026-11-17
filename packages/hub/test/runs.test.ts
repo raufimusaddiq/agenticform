@@ -66,8 +66,11 @@ describe("placement", () => {
     hub = startHub()
     const busy = await enroll(hub, { name: "busy" })
     const idle = await enroll(hub, { name: "idle" })
-    await heartbeat(hub, busy, { capacity: { slots: 2, inUse: 2 } })
+    await heartbeat(hub, busy, { capacity: { slots: 2, inUse: 0 } })
     await heartbeat(hub, idle, { capacity: { slots: 2, inUse: 0 } })
+
+    const pinned = await createRun(hub, { nodeId: busy.nodeId })
+    expect(pinned.status).toBe(201)
     const response = await createRun(hub)
     expect(response.status).toBe(201)
     expect(response.body.nodeId).toBe(idle.nodeId)

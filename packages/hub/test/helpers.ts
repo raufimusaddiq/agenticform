@@ -21,6 +21,7 @@ export function testConfig(overrides: Partial<HubConfig> = {}): HubConfig {
     leaseMs: 900_000,
     pollMs: 1_500,
     recoveryGraceMs: 120_000,
+    maxBodyBytes: 1_048_576,
     ...overrides,
   }
 }

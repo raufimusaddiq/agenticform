@@ -67,6 +67,7 @@ The hub reads its configuration from the environment and refuses to start on uns
 | `AGENTICFORM_CLOCK_SKEW_SECONDS` | `120` | Allowed signed-request clock skew |
 | `AGENTICFORM_RECOVERY_GRACE_SECONDS` | `120` | Wait before a disconnected run may recover |
 | `AGENTICFORM_POLL_MS` | `1500` | Empty-poll backoff advertised to nodes |
+| `AGENTICFORM_MAX_BODY_BYTES` | `1048576` | Maximum request body size before `413 payload_too_large` |
 
 ## Documentation
 

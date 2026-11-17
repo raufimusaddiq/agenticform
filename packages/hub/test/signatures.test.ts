@@ -113,6 +113,16 @@ describe("heartbeat validation", () => {
     }
   })
 
+  test("harnesses and capabilities must be string arrays", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    for (const body of [{ harnesses: [1] }, { capabilities: [{}] }]) {
+      const response = await heartbeat(hub, node, body)
+      expect(response.status).toBe(400)
+      expect(response.body.error.code).toBe("invalid_input")
+    }
+  })
+
   test("machine routes reject missing or non-object JSON bodies", async () => {
     hub = startHub()
     const node = await enroll(hub)
@@ -123,6 +133,20 @@ describe("heartbeat validation", () => {
     }
     const missing = await signedFetch(hub, node, "POST", "/v1/node/heartbeat")
     expect(missing.status).toBe(400)
+  })
+
+  test("oversized machine bodies are rejected before auth", async () => {
+    hub = startHub({ maxBodyBytes: 2048 })
+    const node = await enroll(hub)
+    const response = await signedFetch(hub, node, "POST", "/v1/node/heartbeat", {
+      protocolVersion: 1,
+      harnesses: [],
+      pad: "x".repeat(4000),
+    })
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      error: { code: "payload_too_large", message: "request body is too large" },
+    })
   })
 })
 

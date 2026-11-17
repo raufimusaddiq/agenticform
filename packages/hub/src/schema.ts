@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
 
 const SCHEMA = `
@@ -102,6 +104,7 @@ CREATE TABLE IF NOT EXISTS run_events (
 `
 
 export function openDatabase(file: string): Database {
+  if (file !== ":memory:") mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
   const db = new Database(file, { create: true })
   db.exec("PRAGMA journal_mode = WAL")
   db.exec("PRAGMA foreign_keys = ON")

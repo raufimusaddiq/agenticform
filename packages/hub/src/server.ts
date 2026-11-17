@@ -32,8 +32,38 @@ const json = (body: unknown, status = 200): Response =>
 
 const empty = (status: number): Response => new Response(null, { status })
 
-async function readJson<T>(request: Request): Promise<T> {
-  const text = await request.text()
+async function readBodyBytes(request: Request, max: number): Promise<Uint8Array> {
+  const declared = request.headers.get("content-length")
+  if (declared !== null && Number(declared) > max) fail("payload_too_large", "request body is too large")
+  if (!request.body) return new Uint8Array()
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > max) {
+      try {
+        await reader.cancel()
+      } catch {
+        // The body may already be closed.
+      }
+      fail("payload_too_large", "request body is too large")
+    }
+    chunks.push(value)
+  }
+  const body = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return body
+}
+
+async function readJson<T>(request: Request, max: number): Promise<T> {
+  const text = new TextDecoder().decode(await readBodyBytes(request, max))
   if (!text) fail("invalid_input", "a JSON body is required")
   let value: unknown
   try {
@@ -83,10 +113,14 @@ export function createHub(config: HubConfig): Hub {
     const url = new URL(request.url)
     const path = url.pathname
     try {
+      const declared = request.headers.get("content-length")
+      if (declared !== null && Number(declared) > config.maxBodyBytes) {
+        fail("payload_too_large", "request body is too large")
+      }
       if (request.method === "GET" && path === "/health") return json({ status: "ok" })
 
       if (request.method === "POST" && path === "/v1/enroll") {
-        return json(enrollNode(db, config, await readJson<EnrollRequest>(request)), 201)
+        return json(enrollNode(db, config, await readJson<EnrollRequest>(request, config.maxBodyBytes)), 201)
       }
 
       if (path.startsWith("/v1/node/")) return await machine(request, url)
@@ -105,7 +139,7 @@ export function createHub(config: HubConfig): Hub {
         return json(setNodeStatus(db, nodeId as string, action === "disable" ? "disabled" : "revoked"))
       }
       if (request.method === "POST" && path === "/v1/runs") {
-        const result = createRun(db, await readJson<RunRequest>(request))
+        const result = createRun(db, await readJson<RunRequest>(request, config.maxBodyBytes))
         return json(runView(db, result.run), result.created ? 201 : 200)
       }
       const runAction = /^\/v1\/runs\/([^/]+)(?:\/(events|cancel|recover))?$/.exec(path)
@@ -143,7 +177,7 @@ export function createHub(config: HubConfig): Hub {
   }
 
   const machine = async (request: Request, url: URL): Promise<Response> => {
-    const raw = new Uint8Array(await request.arrayBuffer())
+    const raw = await readBodyBytes(request, config.maxBodyBytes)
     const node = authenticateMachine(db, config, {
       method: request.method,
       path: url.pathname + url.search,
