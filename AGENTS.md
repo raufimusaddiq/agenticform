@@ -2,32 +2,40 @@
 
 ## Project Structure & Module Organization
 
-- `server/` is the Java 21/Spring Boot control plane. Production code is under `server/src/main/java/com/agenticform/`, grouped by domain (`agent`, `policy`, `operation`, `node`); Flyway migrations live in `server/src/main/resources/db/migration/`.
-- `server/src/test/java/` contains JUnit tests mirroring production packages.
-- `web/` is the React 19 + TypeScript Vite UI. Keep views, API helpers, types, and CSS in `web/src/`.
-- `node/` contains the Go execution-node daemon, currently centered on `cmd/agenticform-node/`.
-- `docs/` holds architecture, operations, recovery, security, and UI specifications. Read the relevant document before changing cross-cutting behavior.
+- `packages/` is the current codebase: a Bun/TypeScript workspace. `packages/runtime/` holds the local run API, ACP driver and conformance suite.
+- `specs/` holds Spec Kit feature specs. `.specify/memory/constitution.md` holds project principles and overrides other guidance.
+- `docs/` holds current documentation. `docs/legacy/` describes the old stack.
+- `server/` (Java/Spring Boot), `web/` (React) and `node/` (Go) are the legacy stack. Treat them as a behaviour reference; do not add features there.
+
+## Workflow
+
+Non-trivial work follows Spec Kit: specify, plan, tasks, implement. Read the constitution first. Agenticform owns running work, not planning it, so keep task and project logic out of core packages.
 
 ## Build, Test, and Development Commands
 
 ```bash
-docker compose up -d postgres    # Start local PostgreSQL
-cd server && mvn spring-boot:run # Run API on :8080
-cd server && mvn test            # Run JUnit/Spring tests
-cd web && npm install && npm run dev # Run Vite UI on :5173
-cd web && npm run build          # Type-check and build UI
-cd node && go test ./...         # Run Go daemon tests
+bun install
+bun run typecheck
+bun test packages
+AGENTICFORM_CONFORMANCE_HARNESS=codex bun test packages # opt-in; may use paid inference
 ```
 
-Set `AGENTICFORM_ADMIN_TOKEN` to a random value of at least 32 characters before starting the backend. Local agents also require Codex App Server at the configured WebSocket endpoint.
+Legacy stack:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --wait postgres
+cd server && mvn test
+cd web && npm run build
+cd node && go test ./...
+```
 
 ## Coding Style & Naming Conventions
 
-Follow existing style: four-space Java indentation; tabs/standard `gofmt` formatting in Go; two-space TypeScript/CSS indentation. Use `PascalCase` for Java/React types and components, `camelCase` for methods and variables, and `snake_case` Flyway files such as `V12__describe_change.sql`. Keep Spring code in its owning domain package. Run `gofmt` on changed Go files; `npm run build` is the UI type check.
+TypeScript in `packages/` uses two spaces, double quotes and no semicolons. Legacy code keeps its style: four-space Java indentation; tabs/standard `gofmt` formatting in Go; two-space TypeScript/CSS indentation. Use `PascalCase` for Java/React types and components, `camelCase` for methods and variables, and `snake_case` Flyway files such as `V12__describe_change.sql`. Keep Spring code in its owning domain package. Run `gofmt` on changed Go files; `npm run build` is the UI type check.
 
 ## Testing Guidelines
 
-Add focused JUnit 5 tests beside the matching server package; name test classes `*Test` and methods by expected behavior, e.g. `invalidBearerTokenDoesNotAuthenticate`. Add Go tests as `*_test.go`. Exercise security, policy, and durable-workflow failure paths; do not weaken fail-closed behavior merely to simplify a test.
+Test contracts and failure boundaries, using real child processes where process behaviour matters. Conformance cases must work for every harness. For legacy code, add focused JUnit 5 tests beside the matching server package; name test classes `*Test` and methods by expected behavior, e.g. `invalidBearerTokenDoesNotAuthenticate`. Add Go tests as `*_test.go`. Exercise security, policy, and durable-workflow failure paths; do not weaken fail-closed behavior merely to simplify a test.
 
 ## Commit & Pull Request Guidelines
 
@@ -35,4 +43,4 @@ Use concise Conventional Commit-style subjects seen in history: `feat:`, `fix:`,
 
 ## Security & Configuration
 
-Never commit tokens, webhook secrets, private keys, or local state. Preserve admin authentication, HTTPS requirements, immutable node-image checks, and outbound-only node design. Document new environment variables in `README.md`.
+Never commit tokens, webhook secrets, private keys, or local state. Failure stays closed: deny unanswered permissions, treat unknown capabilities as absent, and never replay ambiguous effects. Keep harness credentials and stderr out of events. Remote work must preserve outbound-only nodes, fencing, nonces and idempotency. Document new environment variables in `README.md`.
