@@ -222,6 +222,27 @@ describe("explicit recovery", () => {
     expect(runRow?.status).toBe("queued")
   })
 
+  test("a recovered run that disconnects again keeps both disconnected events", async () => {
+    const { runId } = await disconnectedRun()
+    const replacement = await enroll(hub as Hub, { name: "replacement" })
+    await heartbeat(hub as Hub, replacement)
+    const recovered = await api(hub as Hub, "POST", `/v1/runs/${runId}/recover`)
+    expect(recovered.status).toBe(200)
+
+    sweepHealth((hub as Hub).db, (hub as Hub).config, Date.now() + 46_000)
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("disconnected")
+
+    const events = await api(hub as Hub, "GET", `/v1/runs/${runId}/events?after=0`)
+    const disconnected = events.body.events.filter((event: { type: string }) => event.type === "run.disconnected")
+    expect(disconnected).toHaveLength(2)
+    expect(new Set(disconnected.map((event: { seq: number }) => event.seq)).size).toBe(2)
+    expect(disconnected.map((event: { data: { generation: number } }) => event.data.generation)).toEqual([
+      recovered.body.generation - 1,
+      recovered.body.generation + 1,
+    ])
+  })
+
   test("the replacement node leases the new generation", async () => {
     const { runId, generation } = await disconnectedRun()
     const replacement = await enroll(hub as Hub, { name: "replacement" })

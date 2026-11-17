@@ -5,7 +5,7 @@ import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { enqueueCommand } from "./commands.ts"
 import { fail } from "./errors.ts"
-import { insertEvent, nextSeq } from "./events.ts"
+import { insertEvent, hubEventKey, nextSeq } from "./events.ts"
 import { pickNode } from "./placement.ts"
 import type { NodeRow, RunRow } from "./schema.ts"
 
@@ -165,9 +165,10 @@ export function cancelRun(
   // Disconnected, unreachable or still queued: finish at the hub. Bump the
   // generation so a late node completion can never apply (FR-023, FR-033).
   const write = db.transaction((): RunRow => {
+    const generation = run.generation + 1
     db.query(
-      "UPDATE runs SET status = 'cancelled', generation = generation + 1, updated_at = ? WHERE id = ?",
-    ).run(now, run.id)
+      "UPDATE runs SET status = 'cancelled', generation = ?, updated_at = ? WHERE id = ?",
+    ).run(generation, now, run.id)
     db.query(
       "UPDATE commands SET status = 'cancelled', updated_at = ? WHERE run_id = ? AND status IN ('queued','leased','running')",
     ).run(now, run.id)
@@ -175,7 +176,7 @@ export function cancelRun(
       "UPDATE runtime_assignments SET state = 'fenced', updated_at = ? WHERE run_id = ? AND generation = ?",
     ).run(now, run.id, run.generation)
     insertEvent(db, run.id, {
-      key: "hub:finished",
+      key: hubEventKey("finished", generation),
       type: "run.finished",
       at: new Date(now).toISOString(),
       data: { status: "cancelled" },

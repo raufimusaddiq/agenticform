@@ -10,7 +10,7 @@ import { commandFingerprint } from "@agenticform/protocol/canonical"
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
-import { insertEvent } from "./events.ts"
+import { insertEvent, hubEventKey } from "./events.ts"
 import type { CommandRow, NodeRow, RunRow } from "./schema.ts"
 
 const TERMINAL_RUN = new Set(["completed", "failed", "cancelled"])
@@ -215,7 +215,7 @@ export function completeCommand(
         "UPDATE runs SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ? AND generation = ?",
       ).run(runStatus, resultJson, errorJson, now, run.id, command.generation)
       insertEvent(db, run.id, {
-        key: "hub:finished",
+        key: hubEventKey("finished", command.generation),
         type: "run.finished",
         at: new Date(now).toISOString(),
         data: { status: runStatus, ...(resultJson === null ? {} : { result: JSON.parse(resultJson) }), ...(errorJson === null ? {} : { error: JSON.parse(errorJson) }) },

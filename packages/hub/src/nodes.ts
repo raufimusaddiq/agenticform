@@ -3,7 +3,7 @@ import type { HeartbeatRequest, HeartbeatResponse, NodeView } from "@agenticform
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
-import { insertEvent } from "./events.ts"
+import { insertEvent, hubEventKey } from "./events.ts"
 import type { NodeRow, RunRow } from "./schema.ts"
 
 const ACTIVE_RUN = new Set(["queued", "leased", "running"])
@@ -85,7 +85,7 @@ export function disconnectRuns(db: Database, nodeId: string, reason: string, now
       run.generation,
     )
     insertEvent(db, run.id, {
-      key: "hub:disconnected",
+      key: hubEventKey("disconnected", generation),
       type: "run.disconnected",
       at: new Date(now).toISOString(),
       data: { status: "disconnected", nodeId, reason, generation },

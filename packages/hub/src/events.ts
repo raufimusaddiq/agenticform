@@ -14,6 +14,11 @@ export function nextSeq(db: Database, runId: string): number {
   return (row?.seq ?? 0) + 1
 }
 
+/** Hub-generated event keys are generation-scoped so a recovered run can repeat a lifecycle event. */
+export function hubEventKey(type: "disconnected" | "finished", generation: number): string {
+  return `hub:${type}:${generation}`
+}
+
 export function insertEvent(
   db: Database,
   runId: string,
