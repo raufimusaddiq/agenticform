@@ -33,6 +33,10 @@ Machine authentication failures always use `401` with
 | `workspace_missing` | 422 |
 | `internal` | 500 |
 
+`nonce_replayed` is reserved and is not emitted on the wire: a replayed nonce is a
+machine authentication failure and returns the generic `401 unauthorized` above
+(see [node-protocol.md](node-protocol.md) and N8.4).
+
 ## Machine endpoints
 
 ### `POST /v1/enroll`

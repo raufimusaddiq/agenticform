@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { loadConfig, validateConfig, type HubConfig } from "../src/config.ts"
 import { testConfig } from "./helpers.ts"
 
-const base = (patch: Partial<HubConfig>): HubConfig => ({ ...testConfig(), ...patch })
+const base = (patch: Partial<HubConfig>): HubConfig => ({ ...testConfig(), port: 8787, ...patch })
 
 describe("hub config", () => {
   test("a missing or short admin token refuses to start", () => {
@@ -22,6 +22,17 @@ describe("hub config", () => {
     expect(() => validateConfig(base({ publicUrl: "https://user:pass@example.com" }))).toThrow()
     expect(() => validateConfig(base({ publicUrl: "https://example.com?x=1" }))).toThrow()
     expect(() => validateConfig(base({ publicUrl: "https://example.com#x" }))).toThrow()
+  })
+
+  test("numeric settings must be finite and positive", () => {
+    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_CLOCK_SKEW_SECONDS: "abc" })).toThrow()
+    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_NONCE_TTL_SECONDS: "0" })).toThrow()
+    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_LEASE_SECONDS: "-1" })).toThrow()
+    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_POLL_MS: "NaN" })).toThrow()
+    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_HUB_PORT: "abc" })).toThrow()
+    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_HUB_PORT: "70000" })).toThrow()
+    expect(() => validateConfig(base({ clockSkewMs: Number.NaN }))).toThrow()
+    expect(() => validateConfig(base({ leaseMs: 0 }))).toThrow()
   })
 
   test("loadConfig reads the documented environment variables", () => {
