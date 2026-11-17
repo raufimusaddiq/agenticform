@@ -1,0 +1,41 @@
+import { describe, expect, test } from "bun:test"
+import { loadConfig, validateConfig, type HubConfig } from "../src/config.ts"
+import { testConfig } from "./helpers.ts"
+
+const base = (patch: Partial<HubConfig>): HubConfig => ({ ...testConfig(), ...patch })
+
+describe("hub config", () => {
+  test("a missing or short admin token refuses to start", () => {
+    expect(() => validateConfig(base({ adminToken: "" }))).toThrow()
+    expect(() => validateConfig(base({ adminToken: "short" }))).toThrow()
+    expect(() => validateConfig(base({ adminToken: "x".repeat(32) }))).not.toThrow()
+  })
+
+  test("a non-local plain-HTTP public URL refuses to start", () => {
+    expect(() => validateConfig(base({ publicUrl: "http://example.com" }))).toThrow()
+    expect(() => validateConfig(base({ publicUrl: "https://example.com" }))).not.toThrow()
+    expect(() => validateConfig(base({ publicUrl: "http://127.0.0.1:8787" }))).not.toThrow()
+  })
+
+  test("the public URL must be a clean origin", () => {
+    expect(() => validateConfig(base({ publicUrl: "https://example.com/path" }))).toThrow()
+    expect(() => validateConfig(base({ publicUrl: "https://user:pass@example.com" }))).toThrow()
+    expect(() => validateConfig(base({ publicUrl: "https://example.com?x=1" }))).toThrow()
+    expect(() => validateConfig(base({ publicUrl: "https://example.com#x" }))).toThrow()
+  })
+
+  test("loadConfig reads the documented environment variables", () => {
+    const config = loadConfig({
+      AGENTICFORM_ADMIN_TOKEN: "y".repeat(32),
+      AGENTICFORM_HUB_URL: "https://hub.example.com",
+      AGENTICFORM_STATE_DIR: "/tmp/af-state",
+      AGENTICFORM_HEARTBEAT_SECONDS: "5",
+      AGENTICFORM_NODE_OFFLINE_SECONDS: "20",
+      AGENTICFORM_LEASE_SECONDS: "60",
+    })
+    expect(config.stateFile).toBe("/tmp/af-state/hub.sqlite")
+    expect(config.heartbeatIntervalMs).toBe(5_000)
+    expect(config.nodeOfflineMs).toBe(20_000)
+    expect(config.leaseMs).toBe(60_000)
+  })
+})
