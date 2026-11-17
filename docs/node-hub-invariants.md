@@ -261,7 +261,7 @@ into `node` or `hub`:
   `TaskDependencyService`).
 
 Also not carried over: memory baselines. Legacy `memoryMb` is reported as `nil`
-(`node/cmd/agenticform-node/main.go:363`), so no number is inherited; measure Bun
+(`node/cmd/agenticform-node/main.go:361`), so no number is inherited; measure Bun
 against the host once `node`/`hub` exist (host is 1 CPU / 2 GB).
 
 ## Non-goals
