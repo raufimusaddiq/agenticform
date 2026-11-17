@@ -14,7 +14,7 @@ in `docs/node-hub-invariants.md` gets a test task.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `packages/protocol`, `packages/hub` and `packages/node` to the workspace with package.json and tsconfig
+- [x] T001 Add `packages/protocol`, `packages/hub` and `packages/node` to the workspace with package.json and tsconfig
 - [x] T002 Add a `hub`/`node` CI job that runs typecheck and tests without credentials
 - [x] T003 Document `AGENTICFORM_HUB_URL`, `AGENTICFORM_ADMIN_TOKEN`, `AGENTICFORM_STATE_DIR` and node interval overrides in README
 
@@ -25,17 +25,17 @@ in `docs/node-hub-invariants.md` gets a test task.
 - [x] T006 Add canonical-string and fingerprint vectors in `packages/protocol/test/canonical.test.ts`
 - [x] T007 Add hub config with startup validation in `packages/hub/src/config.ts` (FR-015)
 - [x] T008 Add the SQLite schema, migrations and WAL setup in `packages/hub/src/schema.ts` (unique constraints from research)
-- [ ] T009 Add node config with the non-local HTTPS rule in `packages/node/src/config.ts` (FR-002)
-- [ ] T010 Add Ed25519 identity generate/load with mode `0600` in `packages/node/src/identity.ts` (FR-012)
+- [x] T009 Add node config with the non-local HTTPS rule in `packages/node/src/config.ts` (FR-002)
+- [x] T010 Add Ed25519 identity generate/load with mode `0600` in `packages/node/src/identity.ts` (FR-012)
 
 ## Phase 3: User Story 1 - Enroll without a port (P1)
 
 - [x] T011 [US1] Add `POST /v1/enroll` with token hashing and atomic consume in `packages/hub/src/enrollment.ts` (FR-011)
 - [x] T012 [US1] Add operator routes for enrollment tokens, disable and revoke in `packages/hub/src/enrollment.ts` and `nodes.ts`
-- [ ] T013 [US1] Add the node enrollment call and identity persistence in `packages/node/bin/node.ts`
+- [x] T013 [US1] Add the node enrollment call and identity persistence in `packages/node/bin/node.ts`
 - [x] T014 [US1] Test: one enrollment succeeds; reuse, expiry and race are rejected with generic errors (FR-011, FR-013)
-- [ ] T015 [US1] Test: a node started against a non-local `http://` URL refuses to start (FR-002)
-- [ ] T016 [US1] Test: an enrolled node opens no listening socket and completes enrollment by outbound call only (FR-001)
+- [x] T015 [US1] Test: a node started against a non-local `http://` URL refuses to start (FR-002)
+- [x] T016 [US1] Test: an enrolled node opens no listening socket and completes enrollment by outbound call only (FR-001)
 
 ## Phase 4: User Story 2 - Remote run (P1)
 

@@ -1,0 +1,18 @@
+{
+  "name": "@agenticform/node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "agenticform-node": "./bin/node.ts"
+  },
+  "scripts": {
+    "start": "bun run bin/node.ts"
+  },
+  "dependencies": {
+    "@agenticform/protocol": "workspace:*"
+  }
+}
