@@ -153,17 +153,27 @@ export function cancelRun(
   const node = run.node_id
     ? db.query<NodeRow, [string]>("SELECT * FROM nodes WHERE id = ?").get(run.node_id)
     : null
-  if (node && node.status === "online" && run.status !== "queued") {
+  const reachable =
+    run.status !== "disconnected" &&
+    (run.status === "leased" || run.status === "running") &&
+    node?.status === "online"
+  if (reachable) {
     enqueueCommand(db, run, "run.cancel", {}, now)
     return { run, queued: true }
   }
-  if (node && node.status === "online" && run.status === "queued") {
+
+  // Disconnected, unreachable or still queued: finish at the hub. Bump the
+  // generation so a late node completion can never apply (FR-023, FR-033).
+  const write = db.transaction((): RunRow => {
+    db.query(
+      "UPDATE runs SET status = 'cancelled', generation = generation + 1, updated_at = ? WHERE id = ?",
+    ).run(now, run.id)
     db.query(
       "UPDATE commands SET status = 'cancelled', updated_at = ? WHERE run_id = ? AND status IN ('queued','leased','running')",
     ).run(now, run.id)
-  }
-  const write = db.transaction((): RunRow => {
-    db.query("UPDATE runs SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now, run.id)
+    db.query(
+      "UPDATE runtime_assignments SET state = 'fenced', updated_at = ? WHERE run_id = ? AND generation = ?",
+    ).run(now, run.id, run.generation)
     insertEvent(db, run.id, {
       key: "hub:finished",
       type: "run.finished",
@@ -212,19 +222,20 @@ export function recoverRun(
   const generation = run.generation + 1
   const workspace = `run/${run.id}/g${generation}`
   const write = db.transaction((): RunRow => {
-    db.query(
+    const updated = db.query(
       `UPDATE runs SET status = 'queued', node_id = ?, generation = ?, workspace_id = ?,
          result_json = NULL, error_json = NULL, disconnected_at = NULL, updated_at = ?
-       WHERE id = ?`,
-    ).run(replacement.id, generation, workspace, now, run.id)
+       WHERE id = ? AND status = 'disconnected' AND generation = ?`,
+    ).run(replacement.id, generation, workspace, now, run.id, run.generation)
+    if (updated.changes !== 1) fail("recovery_precondition_failed", "run state changed during recovery")
     db.query(
       `INSERT INTO runtime_assignments (run_id, node_id, generation, runtime_type, runtime_session_id, state, updated_at)
        VALUES (?, ?, ?, ?, NULL, 'assigned', ?)`,
     ).run(run.id, replacement.id, generation, run.harness, now)
-    const updated = getRun(db, run.id)
+    const updatedRun = getRun(db, run.id)
     enqueueCommand(
       db,
-      updated,
+      updatedRun,
       "run.start",
       {
         harness: run.harness,
@@ -235,7 +246,7 @@ export function recoverRun(
       },
       now,
     )
-    return updated
+    return updatedRun
   })
   return write()
 }

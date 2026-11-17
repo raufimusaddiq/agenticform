@@ -202,15 +202,18 @@ export function completeCommand(
   }
 
   const write = db.transaction((): CommandRow => {
-    db.query(
-      "UPDATE commands SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ?",
-    ).run(target, resultJson, errorJson, now, command.id)
+    const updated = db
+      .query(
+        "UPDATE commands SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ? AND status IN ('leased','running')",
+      )
+      .run(target, resultJson, errorJson, now, command.id)
+    if (updated.changes !== 1) fail("lease_not_held", "command is not leased")
     // A node-reported cancel ends the run as `cancelled`. `run.inspect` never changes run status.
     if (command.type !== "run.inspect") {
       const runStatus = command.type === "run.cancel" ? "cancelled" : terminalStatus(body)
       db.query(
-        "UPDATE runs SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ?",
-      ).run(runStatus, resultJson, errorJson, now, run.id)
+        "UPDATE runs SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ? AND generation = ?",
+      ).run(runStatus, resultJson, errorJson, now, run.id, command.generation)
       insertEvent(db, run.id, {
         key: "hub:finished",
         type: "run.finished",

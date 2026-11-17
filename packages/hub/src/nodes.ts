@@ -45,7 +45,9 @@ export function heartbeat(
     for (const entry of inventory) {
       const run = db.query<RunRow, [string]>("SELECT * FROM runs WHERE id = ?").get(entry.runId)
       if (!run) continue
-      if (entry.generation < run.generation) {
+      const owned = run.node_id === node.id
+      const current = entry.generation === run.generation
+      if (!owned || !current || !ACTIVE_RUN.has(run.status)) {
         db.query("UPDATE nodes SET stale_observations = stale_observations + 1 WHERE id = ?").run(node.id)
         continue
       }

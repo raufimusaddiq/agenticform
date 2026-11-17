@@ -87,6 +87,69 @@ describe("disable and revoke", () => {
       expect(last.data.generation).toBe(2)
     })
   }
+  test("a disconnected run cancels at the hub without the node", async () => {
+    const { node, runId, command, generation } = await disconnectedRun()
+    // Simulate the node reconnecting: cancel must still finish locally.
+    hub?.db.query("UPDATE nodes SET status = 'online' WHERE id = ?").run(node.nodeId)
+    const response = await api(hub as Hub, "POST", `/v1/runs/${runId}/cancel`)
+    expect(response.status).toBe(200)
+    expect(response.body.status).toBe("cancelled")
+    const runRow = (hub as Hub).db
+      .query<{ status: string; generation: number }, [string]>("SELECT status, generation FROM runs WHERE id = ?")
+      .get(runId)
+    expect(runRow).toEqual({ status: "cancelled", generation: generation + 1 })
+
+    const events = await api(hub as Hub, "GET", `/v1/runs/${runId}/events?after=0`)
+    expect(events.body.events.at(-1).data.status).toBe("cancelled")
+
+    const stale = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(stale.status).toBe(409)
+    const still = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(still?.status).toBe("cancelled")
+  })
+
+  test("inventory writes stay on the authenticated node's own run", async () => {
+    hub = startHub()
+    const owner = await enroll(hub, { name: "owner" })
+    const other = await enroll(hub, { name: "other" })
+    await heartbeat(hub, owner)
+    await heartbeat(hub, other)
+    const run = await createRun(hub, { nodeId: owner.nodeId })
+    const command = (await nextCommand(hub, owner)).body
+
+    const entry = (generation: number, session: string) => ({
+      runId: run.body.runId,
+      generation,
+      runtimeType: "codex",
+      runtimeSessionId: session,
+      state: "running",
+    })
+
+    await heartbeat(hub, other, { runtimes: [entry(1, "stolen")] })
+    await heartbeat(hub, other, { runtimes: [entry(2, "future")] })
+    let assignment = hub.db
+      .query<{ node_id: string; runtime_session_id: string | null }, [string]>(
+        "SELECT node_id, runtime_session_id FROM runtime_assignments WHERE run_id = ? AND generation = 1",
+      )
+      .get(run.body.runId)
+    expect(assignment).toEqual({ node_id: owner.nodeId, runtime_session_id: null })
+    let stale = hub.db
+      .query<{ stale_observations: number }, [string]>("SELECT stale_observations FROM nodes WHERE id = ?")
+      .get(other.nodeId)
+    expect(stale?.stale_observations).toBe(2)
+
+    await heartbeat(hub, owner, { runtimes: [entry(1, "own")] })
+    assignment = hub.db
+      .query<{ node_id: string; runtime_session_id: string | null }, [string]>(
+        "SELECT node_id, runtime_session_id FROM runtime_assignments WHERE run_id = ? AND generation = 1",
+      )
+      .get(run.body.runId)
+    expect(assignment).toEqual({ node_id: owner.nodeId, runtime_session_id: "own" })
+    void command
+  })
 })
 
 describe("explicit recovery", () => {
