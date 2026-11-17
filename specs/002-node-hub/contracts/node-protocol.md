@@ -74,6 +74,7 @@ type Command = {
   generation: number
   idempotencyKey: string
   leasedUntil: string
+  leaseId: string
   payload: unknown
 }
 ```
@@ -116,10 +117,13 @@ so two hubs or two workers cannot both win.
   `409 idempotency_conflict`.
 - **Complete**: identical terminal result is a no-op returning the stored command.
   A differing result, a second failure with a different error, or a completion
-  for a non-leased command is `409`. If `eventsToSeq` exceeds the hub's last
-  stored `seq`, the hub refuses with `409 events_pending` and leaves the command
-  leased; the node flushes the remaining events and retries the completion, so
-  `run.finished` can never overtake an event the node already wrote.
+  for a non-leased command is `409`. The body carries the command's `leaseId`;
+  a completion from an earlier lease is rejected (`409 lease_not_held`), so a
+  stale execution cannot finish a re-leased command. If `eventsToSeq` exceeds
+  the hub's last stored `seq`, the hub refuses with `409 events_pending` and
+  leaves the command leased; the node flushes the remaining events and retries
+  the completion, so `run.finished` can never overtake an event the node already
+  wrote.
 - **Events**: `(run_id, key)` is unique. Re-sending a batch is a no-op for the
   events the hub already has.
 - **At-least-once execution**: command delivery may repeat. The node's ledger,

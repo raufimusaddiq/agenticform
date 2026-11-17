@@ -55,19 +55,6 @@ describe("node loss", () => {
     const nodeRow = hub.db.query<{ status: string }, [string]>("SELECT status FROM nodes WHERE id = ?").get(node.nodeId)
     expect(nodeRow?.status).toBe("online")
   })
-
-  test("SSE closes after the run disconnects", async () => {
-    hub = startHub()
-    const node = await enroll(hub)
-    await heartbeat(hub, node)
-    const run = await createRun(hub)
-    const response = await fetch(`${hub.url}/v1/runs/${run.body.runId}/events?stream=sse`, {
-      headers: { authorization: `Bearer ${hub.config.adminToken}` },
-    })
-    const text = response.text()
-    sweepHealth(hub.db, hub.config, Date.now() + 46_000)
-    expect(await text).toContain("run.disconnected")
-  })
 })
 
 describe("capacity ledger", () => {
@@ -149,6 +136,7 @@ describe("disable and revoke", () => {
     expect(events.body.events.at(-1).data.status).toBe("cancelled")
 
     const stale = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "completed" },
     })
@@ -257,15 +245,60 @@ describe("explicit recovery", () => {
       status: "queued",
       node_id: replacement.nodeId,
     })
+    const refreshed = (hub as Hub).db
+      .query<{ cwd: string; workspace_id: string }, [string]>("SELECT cwd, workspace_id FROM runs WHERE id = ?")
+      .get(runId)
+    expect(refreshed?.cwd).toBe(refreshed?.workspace_id)
+    const started = (hub as Hub).db
+      .query<{ payload_json: string }, [string, number]>(
+        "SELECT payload_json FROM commands WHERE run_id = ? AND generation = ?",
+      )
+      .get(runId, generation + 1)
+    const payload = JSON.parse(started?.payload_json ?? "{}") as { cwd?: string }
+    expect(payload.cwd).toBe(refreshed?.workspace_id)
 
     // The old node cannot mutate the recovered run.
     const stale = await signedFetch(hub as Hub, replacement, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "completed" },
     })
     expect(stale.status).toBe(409)
     const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
     expect(runRow?.status).toBe("queued")
+  })
+
+  test("SSE replay crosses a recovery and ends at the terminal event", async () => {
+    const { runId } = await disconnectedRun()
+    const replacement = await enroll(hub as Hub, { name: "replacement" })
+    await heartbeat(hub as Hub, replacement)
+    const recovered = await api(hub as Hub, "POST", `/v1/runs/${runId}/recover`)
+    expect(recovered.status).toBe(200)
+
+    const command = (await nextCommand(hub as Hub, replacement)).body
+    await signedFetch(hub as Hub, replacement, "POST", `/v1/node/commands/${command.commandId}/events`, {
+      leaseId: command.leaseId,
+      events: [
+        { key: "c1:1", type: "message.delta", at: new Date().toISOString(), data: { text: "ok" } },
+      ],
+    })
+    const completed = await signedFetch(hub as Hub, replacement, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
+      status: "succeeded",
+      result: { status: "completed" },
+      eventsToSeq: 2,
+    })
+    expect(completed.status).toBe(200)
+
+    const response = await fetch(`${(hub as Hub).url}/v1/runs/${runId}/events?stream=sse&after=0`, {
+      headers: { authorization: `Bearer ${(hub as Hub).config.adminToken}` },
+    })
+    const text = await response.text()
+    expect(text).toContain("run.disconnected")
+    expect(text).toContain("message.delta")
+    expect(text).toContain("run.finished")
+    expect(text.indexOf("run.disconnected")).toBeLessThan(text.indexOf("message.delta"))
+    expect(text.indexOf("message.delta")).toBeLessThan(text.indexOf("run.finished"))
   })
 
   test("a recovered run that disconnects again keeps both disconnected events", async () => {

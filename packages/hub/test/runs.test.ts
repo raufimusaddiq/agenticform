@@ -93,6 +93,16 @@ describe("idempotency key", () => {
     expect(conflict.status).toBe(409)
     expect(conflict.body.error.code).toBe("idempotency_conflict")
   })
+  test("run request field types are validated", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node)
+    for (const patch of [{ labels: { a: 1 } }, { mcpServers: "x" }, { gitBacked: "yes" }, { requires: [1] }]) {
+      const response = await createRun(hub, patch)
+      expect(response.status).toBe(400)
+      expect(response.body.error.code).toBe("invalid_input")
+    }
+  })
 })
 
 describe("end to end through a fake node", () => {
@@ -118,6 +128,7 @@ describe("end to end through a fake node", () => {
     expect(me.body.status).toBe("leased")
 
     const batch = {
+      leaseId: command.leaseId,
       events: [
         { key: "c1:1", type: "run.started", at: new Date().toISOString(), data: { harness: "codex" } },
         { key: "c1:2", type: "message.delta", at: new Date().toISOString(), data: { text: "ok" } },
@@ -131,6 +142,7 @@ describe("end to end through a fake node", () => {
     expect(await duplicate.json()).toEqual({ accepted: 0, lastSeq: 2 })
 
     const completed = await signedFetch(hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "completed", text: "ok" },
     })
@@ -163,6 +175,7 @@ describe("end to end through a fake node", () => {
     const run = await createRun(hub)
     const command = await lease(node)
     await signedFetch(hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "failed",
       error: { code: "process_exited", message: "boom" },
     })

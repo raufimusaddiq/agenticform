@@ -41,6 +41,9 @@ export function appendEvents(
   if (!Array.isArray(batch.events)) fail("invalid_input", "events must be an array")
   const command = db.query<CommandRow, [string]>("SELECT * FROM commands WHERE id = ?").get(commandId)
   if (!command || command.node_id !== nodeId) fail("fence_stale", "unknown command for this node")
+  if (typeof batch.leaseId !== "string" || batch.leaseId !== command.lease_id) {
+    fail("fence_stale", "lease not held")
+  }
   if (command.status !== "leased" && command.status !== "running") {
     fail("fence_stale", "command is not leased")
   }

@@ -34,6 +34,25 @@ function valid(request: RunRequest): void {
   if (request.requires !== undefined && !Array.isArray(request.requires)) {
     fail("invalid_input", "requires must be an array")
   }
+  if (request.requires !== undefined && request.requires.some((item) => typeof item !== "string")) {
+    fail("invalid_input", "requires must be a string array")
+  }
+  if (request.labels !== undefined) {
+    if (
+      request.labels === null ||
+      typeof request.labels !== "object" ||
+      Array.isArray(request.labels) ||
+      Object.values(request.labels).some((value) => typeof value !== "string")
+    ) {
+      fail("invalid_input", "labels must be a flat string map")
+    }
+  }
+  if (request.mcpServers !== undefined && !Array.isArray(request.mcpServers)) {
+    fail("invalid_input", "mcpServers must be an array")
+  }
+  if (request.gitBacked !== undefined && typeof request.gitBacked !== "boolean") {
+    fail("invalid_input", "gitBacked must be a boolean")
+  }
 }
 
 export function createRun(
@@ -230,10 +249,10 @@ export function recoverRun(
   const workspace = `run/${run.id}/g${generation}`
   const write = db.transaction((): RunRow => {
     const updated = db.query(
-      `UPDATE runs SET status = 'queued', node_id = ?, generation = ?, workspace_id = ?,
+      `UPDATE runs SET status = 'queued', node_id = ?, generation = ?, workspace_id = ?, cwd = ?,
          result_json = NULL, error_json = NULL, disconnected_at = NULL, updated_at = ?
        WHERE id = ? AND status = 'disconnected' AND generation = ?`,
-    ).run(replacement.id, generation, workspace, now, run.id, run.generation)
+    ).run(replacement.id, generation, workspace, workspace, now, run.id, run.generation)
     if (updated.changes !== 1) fail("recovery_precondition_failed", "run state changed during recovery")
     const reserved = db
       .query("UPDATE nodes SET capacity_in_use = capacity_in_use + 1 WHERE id = ? AND capacity_in_use < capacity_slots")

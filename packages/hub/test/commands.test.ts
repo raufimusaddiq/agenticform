@@ -42,6 +42,7 @@ describe("fencing", () => {
 
     hub.db.query("UPDATE runs SET generation = 2 WHERE id = ?").run(run.body.runId)
     const response = await signedFetch(hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "completed" },
     })
@@ -82,6 +83,7 @@ describe("terminal status mapping", () => {
   test("a node-reported cancellation ends the run as cancelled", async () => {
     const { node, runId, command } = await setup()
     const response = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "failed",
       error: { code: "cancelled", message: "agent cancelled" },
     })
@@ -95,6 +97,7 @@ describe("terminal status mapping", () => {
   test("a succeeded result that reports cancellation ends the run as cancelled", async () => {
     const { node, runId, command } = await setup()
     await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "cancelled", text: "" },
     })
@@ -109,6 +112,7 @@ describe("terminal status mapping", () => {
     const cancelCommand = (await nextCommand(hub as Hub, node)).body
     expect(cancelCommand.type).toBe("run.cancel")
     await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${cancelCommand.commandId}/complete`, {
+      leaseId: cancelCommand.leaseId,
       status: "succeeded",
       result: { status: "completed" },
     })
@@ -126,6 +130,7 @@ describe("terminal status mapping", () => {
       )
       .run(runId, node.nodeId, now + 60_000, now, now)
     const response = await signedFetch(hub as Hub, node, "POST", "/v1/node/commands/inspect-1/complete", {
+      leaseId: "lease-1",
       status: "succeeded",
       result: { status: "completed" },
     })
@@ -159,10 +164,54 @@ describe("leases", () => {
     expect(again.status).toBe(200)
     expect(again.body.commandId).toBe(command.commandId)
     const completed = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${again.body.commandId}/complete`, {
+      leaseId: again.body.leaseId,
       status: "succeeded",
       result: { status: "completed" },
     })
     expect(completed.status).toBe(200)
+  })
+
+  test("an earlier lease cannot complete a re-leased command", async () => {
+    const { node, command } = await setup()
+    ;(hub as Hub).db.query("UPDATE commands SET leased_until = ? WHERE id = ?").run(Date.now() - 1, command.commandId)
+    const again = await nextCommand(hub as Hub, node)
+    expect(again.status).toBe(200)
+    expect(again.body.leaseId).not.toBe(command.leaseId)
+
+    const stale = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(stale.status).toBe(409)
+    expect(await errorCode(stale)).toBe("lease_not_held")
+
+    const fresh = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: again.body.leaseId,
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(fresh.status).toBe(200)
+  })
+
+  test("an earlier lease cannot append events to a re-leased command", async () => {
+    const { node, command } = await setup()
+    ;(hub as Hub).db.query("UPDATE commands SET leased_until = ? WHERE id = ?").run(Date.now() - 1, command.commandId)
+    const again = await nextCommand(hub as Hub, node)
+    expect(again.status).toBe(200)
+
+    const stale = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/events`, {
+      leaseId: command.leaseId,
+      events: [{ key: "c1:1", type: "message.delta", at: new Date().toISOString(), data: {} }],
+    })
+    expect(stale.status).toBe(409)
+    expect(await errorCode(stale)).toBe("fence_stale")
+
+    const fresh = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/events`, {
+      leaseId: again.body.leaseId,
+      events: [{ key: "c1:1", type: "message.delta", at: new Date().toISOString(), data: {} }],
+    })
+    expect(fresh.status).toBe(200)
   })
 
   test("a completion for a non-leased command is refused", async () => {
@@ -185,7 +234,7 @@ describe("leases", () => {
 describe("completion idempotency", () => {
   test("identical completion is a no-op and a conflicting one is rejected", async () => {
     const { node, command } = await setup()
-    const body = { status: "succeeded", result: { status: "completed", text: "ok" } }
+    const body = { leaseId: command.leaseId, status: "succeeded", result: { status: "completed", text: "ok" } }
     const first = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, body)
     expect(first.status).toBe(200)
     const again = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, body)
@@ -193,6 +242,7 @@ describe("completion idempotency", () => {
     expect(await again.json()).toEqual(await first.clone().json())
 
     const conflict = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "failed",
       error: { code: "boom", message: "different" },
     })
@@ -204,6 +254,7 @@ describe("completion idempotency", () => {
     const { node, runId, command } = await setup()
     ;(hub as Hub).db.query("UPDATE runs SET status = 'cancelled' WHERE id = ?").run(runId)
     const response = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "completed" },
     })
@@ -221,6 +272,7 @@ describe("completion idempotency", () => {
     const { node, runId, command } = await setup()
     ;(hub as Hub).db.query("UPDATE commands SET leased_until = ? WHERE id = ?").run(Date.now() - 1, command.commandId)
     const response = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "completed" },
     })
@@ -236,7 +288,7 @@ describe("completion idempotency", () => {
 
   test("completion is refused while eventsToSeq is ahead of stored events", async () => {
     const { node, runId, command } = await setup()
-    const body = { status: "succeeded", result: { status: "completed" }, eventsToSeq: 2 }
+    const body = { leaseId: command.leaseId, status: "succeeded", result: { status: "completed" }, eventsToSeq: 2 }
     const early = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, body)
     expect(early.status).toBe(409)
     expect(await errorCode(early)).toBe("events_pending")
@@ -248,6 +300,7 @@ describe("completion idempotency", () => {
     expect(runRow?.status).toBe("leased")
 
     await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/events`, {
+      leaseId: command.leaseId,
       events: [
         { key: "c1:1", type: "run.started", at: new Date().toISOString(), data: {} },
         { key: "c1:2", type: "message.delta", at: new Date().toISOString(), data: { text: "ok" } },
@@ -263,6 +316,7 @@ describe("completion idempotency", () => {
     const { node, command } = await setup()
     sweepHealth((hub as Hub).db, (hub as Hub).config, Date.now() + 46_000)
     const response = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "succeeded",
       result: { status: "completed" },
     })
@@ -300,6 +354,7 @@ describe("completion idempotency", () => {
     expect(queued).toEqual({ type: "run.cancel", generation: 1 })
 
     await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      leaseId: command.leaseId,
       status: "failed",
       error: { code: "cancelled", message: "cancelled" },
     })

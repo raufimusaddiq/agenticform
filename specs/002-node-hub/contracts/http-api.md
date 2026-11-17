@@ -91,6 +91,7 @@ ignored.
   "generation": 3,
   "idempotencyKey": "run:uuid:3",
   "leasedUntil": "2026-11-18T12:15:00.000Z",
+  "leaseId": "uuid",
   "payload": {
     "fingerprint": "sha256:...",
     "harness": "codex",
@@ -117,6 +118,7 @@ duplicate.
 
 ```json
 {
+  "leaseId": "uuid",
   "events": [
     { "key": "c1:7", "type": "message.delta", "at": "2026-11-18T12:00:01.000Z", "data": { "text": "ok" } }
   ]
@@ -130,6 +132,7 @@ Unknown or missing run/lease returns `409 fence_stale`.
 
 ```json
 {
+  "leaseId": "uuid",
   "status": "succeeded",
   "result": { "status": "completed", "output": "..." },
   "eventsToSeq": 47

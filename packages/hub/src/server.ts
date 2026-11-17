@@ -99,7 +99,8 @@ function requireBody(body: unknown): Record<string, unknown> {
 function authenticateBearer(config: HubConfig, headers: Headers): void {
   if (config.adminToken.length < 32) fail("unauthorized", "unauthorized")
   const header = headers.get("authorization") ?? ""
-  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : ""
+  const match = /^Bearer\s+(.+)$/i.exec(header)
+  const token = match?.[1] ?? ""
   const given = createHash("sha256").update(token).digest()
   const expected = createHash("sha256").update(config.adminToken).digest()
   if (!timingSafeEqual(given, expected)) fail("unauthorized", "unauthorized")
@@ -217,7 +218,7 @@ export function createHub(config: HubConfig): Hub {
     server,
     db,
     config,
-    url: `http://127.0.0.1:${server.port}`,
+    url: config.publicUrl ?? `http://127.0.0.1:${server.port}`,
     stop() {
       clearInterval(nonceTimer)
       clearInterval(healthTimer)
@@ -249,10 +250,10 @@ function sse(db: Database, runId: string, after: number, signal: AbortSignal): R
             if (signal.aborted) return close()
             cursor = event.seq
             controller.enqueue(encoder.encode(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`))
-            if (event.type === "run.finished" || event.type === "run.disconnected") return close()
+            if (event.type === "run.finished") return close()
           }
           const run = getRun(db, runId)
-          if (["completed", "failed", "cancelled", "disconnected"].includes(run.status) && events.length === 0) {
+          if (["completed", "failed", "cancelled"].includes(run.status) && events.length === 0) {
             return close()
           }
           idle += 1

@@ -21,6 +21,7 @@ export function toEnvelope(row: CommandRow): CommandEnvelope {
     generation: row.generation,
     idempotencyKey: row.idempotency_key,
     leasedUntil: new Date(row.leased_until ?? 0).toISOString(),
+    leaseId: row.lease_id ?? "",
     payload: JSON.parse(row.payload_json) as CommandPayload,
   }
 }
@@ -167,6 +168,9 @@ export function completeCommand(
   const command = db.query<CommandRow, [string]>("SELECT * FROM commands WHERE id = ?").get(commandId)
   if (!command || command.node_id !== node.id) fail("lease_not_held", "lease not held")
 
+  if (typeof body.leaseId !== "string" || body.leaseId !== command.lease_id) {
+    fail("lease_not_held", "lease not held")
+  }
   const resultJson = body.result === undefined ? null : JSON.stringify(body.result)
   const errorJson = body.error === undefined ? null : JSON.stringify(body.error)
   const target = body.status === "succeeded" ? "succeeded" : "failed"

@@ -83,6 +83,7 @@ export interface CommandEnvelope {
   generation: number
   idempotencyKey: string
   leasedUntil: string
+  leaseId: string
   payload: CommandPayload
 }
 
@@ -94,6 +95,7 @@ export interface RunEventInput {
 }
 
 export interface EventBatch {
+  leaseId: string
   events: RunEventInput[]
 }
 
@@ -103,6 +105,7 @@ export interface EventBatchResponse {
 }
 
 export interface CompletionRequest {
+  leaseId: string
   status: "succeeded" | "failed"
   result?: unknown
   error?: { code: string; message: string }

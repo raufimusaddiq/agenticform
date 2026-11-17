@@ -28,7 +28,8 @@ describe("hub config", () => {
     expect(() => validateConfig(base({ publicUrl: "https://example.com#x" }))).toThrow()
   })
 
-  test("numeric settings must be finite and positive", () => {    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_CLOCK_SKEW_SECONDS: "abc" })).toThrow()
+  test("numeric settings must be finite and positive", () => {
+    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_CLOCK_SKEW_SECONDS: "abc" })).toThrow()
     expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_NONCE_TTL_SECONDS: "0" })).toThrow()
     expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_LEASE_SECONDS: "-1" })).toThrow()
     expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_POLL_MS: "NaN" })).toThrow()
@@ -57,7 +58,8 @@ describe("hub config", () => {
     expect(config.stateFile).toBe("/tmp/af-custom-home/.agenticform-hub/hub.sqlite")
   })
 
-  test("loadConfig reads the documented environment variables", () => {    const config = loadConfig({
+  test("loadConfig reads the documented environment variables", () => {
+    const config = loadConfig({
       AGENTICFORM_ADMIN_TOKEN: "y".repeat(32),
       AGENTICFORM_HUB_URL: "https://hub.example.com",
       AGENTICFORM_STATE_DIR: "/tmp/af-state",
@@ -79,7 +81,17 @@ describe("hub config", () => {
     expect(statSync(dirname(file)).mode & 0o777).toBe(0o700)
   })
 
-  test("createHub refuses to construct without a valid config", () => {    expect(() => createHub(testConfig({ adminToken: "" }))).toThrow()
+  test("the advertised URL uses AGENTICFORM_HUB_URL", () => {
+    const hub = startHub({ publicUrl: "https://hub.example.com" })
+    try {
+      expect(hub.url).toBe("https://hub.example.com")
+    } finally {
+      hub.stop()
+    }
+  })
+
+  test("createHub refuses to construct without a valid config", () => {
+    expect(() => createHub(testConfig({ adminToken: "" }))).toThrow()
     expect(() => createHub(testConfig({ adminToken: "short" }))).toThrow()
     expect(() => createHub(testConfig({ clockSkewMs: Number.NaN }))).toThrow()
     expect(() => createHub(testConfig({ publicUrl: "http://example.com" }))).toThrow()
@@ -94,6 +106,10 @@ describe("hub config", () => {
       expect(empty.status).toBe(401)
       const wrong = await api(hub, "GET", "/v1/nodes", undefined, "x".repeat(32))
       expect(wrong.status).toBe(401)
+      const lower = await fetch(`${hub.url}/v1/nodes`, {
+        headers: { authorization: `bearer ${hub.config.adminToken}` },
+      })
+      expect(lower.status).toBe(200)
     } finally {
       hub.stop()
     }
