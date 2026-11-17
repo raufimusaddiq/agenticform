@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite"
 import type { HeartbeatRequest, HeartbeatResponse, NodeView } from "@agenticform/protocol"
+import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
 import { insertEvent } from "./events.ts"
@@ -14,8 +15,11 @@ export function heartbeat(
   body: HeartbeatRequest,
   now = Date.now(),
 ): HeartbeatResponse {
-  if (!Number.isInteger(body.protocolVersion) || body.protocolVersion < 1) {
-    fail("invalid_input", "protocolVersion must be a positive integer")
+  if (!Number.isInteger(body.protocolVersion)) {
+    fail("invalid_input", "protocolVersion must be an integer")
+  }
+  if (!SUPPORTED_PROTOCOL_VERSIONS.includes(body.protocolVersion)) {
+    fail("version_unsupported", "protocol version is not supported")
   }
   if (!Array.isArray(body.harnesses)) fail("invalid_input", "harnesses must be an array")
   const inventory = Array.isArray(body.runtimes) ? body.runtimes : []

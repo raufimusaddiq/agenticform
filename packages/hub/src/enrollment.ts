@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import type { Database } from "bun:sqlite"
 import type { EnrollRequest, EnrollResponse } from "@agenticform/protocol"
+import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import { sha256Hex } from "@agenticform/protocol/canonical"
 import type { HubConfig } from "./config.ts"
 import { fail, unauthorized } from "./errors.ts"
@@ -33,8 +34,11 @@ export function enrollNode(
   if (typeof body.token !== "string" || typeof body.name !== "string" || !body.name.trim()) {
     fail("invalid_input", "token and name are required")
   }
-  if (!Number.isInteger(body.protocolVersion) || body.protocolVersion < 1) {
-    fail("invalid_input", "protocolVersion must be a positive integer")
+  if (!Number.isInteger(body.protocolVersion)) {
+    fail("invalid_input", "protocolVersion must be an integer")
+  }
+  if (!SUPPORTED_PROTOCOL_VERSIONS.includes(body.protocolVersion)) {
+    fail("version_unsupported", "protocol version is not supported")
   }
   if (!Array.isArray(body.harnesses) || body.harnesses.some((h) => typeof h !== "string")) {
     fail("invalid_input", "harnesses must be a string array")

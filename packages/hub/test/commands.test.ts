@@ -78,6 +78,67 @@ describe("fencing", () => {
   })
 })
 
+describe("terminal status mapping", () => {
+  test("a node-reported cancellation ends the run as cancelled", async () => {
+    const { node, runId, command } = await setup()
+    const response = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      status: "failed",
+      error: { code: "cancelled", message: "agent cancelled" },
+    })
+    expect(response.status).toBe(200)
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("cancelled")
+    const events = await api(hub as Hub, "GET", `/v1/runs/${runId}/events?after=0`)
+    expect(events.body.events.at(-1).data.status).toBe("cancelled")
+  })
+
+  test("a succeeded result that reports cancellation ends the run as cancelled", async () => {
+    const { node, runId, command } = await setup()
+    await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      status: "succeeded",
+      result: { status: "cancelled", text: "" },
+    })
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("cancelled")
+  })
+
+  test("a completed run.cancel command cancels the run", async () => {
+    const { node, runId } = await setup()
+    const queued = await api(hub as Hub, "POST", `/v1/runs/${runId}/cancel`)
+    expect(queued.status).toBe(202)
+    const cancelCommand = (await nextCommand(hub as Hub, node)).body
+    expect(cancelCommand.type).toBe("run.cancel")
+    await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${cancelCommand.commandId}/complete`, {
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("cancelled")
+  })
+
+  test("run.inspect never changes run status", async () => {
+    const { node, runId } = await setup()
+    const now = Date.now()
+    ;(hub as Hub).db
+      .query(
+        `INSERT INTO commands (id, run_id, node_id, type, idempotency_key, generation, payload_json, fingerprint, status, lease_id, leased_until, created_at, updated_at)
+         VALUES ('inspect-1', ?, ?, 'run.inspect', 'inspect', 1, '{}', 'sha256:x', 'leased', 'lease-1', ?, ?, ?)`,
+      )
+      .run(runId, node.nodeId, now + 60_000, now, now)
+    const response = await signedFetch(hub as Hub, node, "POST", "/v1/node/commands/inspect-1/complete", {
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(response.status).toBe(200)
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("leased")
+    const terminal = (hub as Hub).db
+      .query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM run_events WHERE run_id = ? AND type = 'run.finished'")
+      .get(runId)
+    expect(terminal).toEqual({ n: 0 })
+  })
+})
+
 describe("leases", () => {
   test("renew extends a held lease and refuses an expired one", async () => {
     const { node, command } = await setup()
@@ -89,6 +150,19 @@ describe("leases", () => {
     const expired = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/renew`, {})
     expect(expired.status).toBe(409)
     expect(await errorCode(expired)).toBe("lease_not_held")
+  })
+
+  test("an expired lease returns the command to the queue and can be re-leased", async () => {
+    const { node, command } = await setup()
+    ;(hub as Hub).db.query("UPDATE commands SET leased_until = ? WHERE id = ?").run(Date.now() - 1, command.commandId)
+    const again = await nextCommand(hub as Hub, node)
+    expect(again.status).toBe(200)
+    expect(again.body.commandId).toBe(command.commandId)
+    const completed = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${again.body.commandId}/complete`, {
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(completed.status).toBe(200)
   })
 
   test("a completion for a non-leased command is refused", async () => {

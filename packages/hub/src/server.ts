@@ -42,6 +42,14 @@ async function readJson<T>(request: Request): Promise<T> {
   }
 }
 
+function parseBody(raw: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(raw))
+  } catch {
+    fail("invalid_input", "body is not valid JSON")
+  }
+}
+
 /** Constant-time bearer compare with no anonymous fallback (N8.1). */
 function authenticateBearer(config: HubConfig, headers: Headers): void {
   if (config.adminToken.length < 32) fail("unauthorized", "unauthorized")
@@ -126,7 +134,7 @@ export function createHub(config: HubConfig): Hub {
       headers: request.headers,
       body: raw,
     })
-    const body = raw.length ? (JSON.parse(new TextDecoder().decode(raw)) as unknown) : undefined
+    const body = raw.length ? parseBody(raw) : undefined
 
     if (request.method === "POST" && url.pathname === "/v1/node/heartbeat") {
       return json(heartbeat(db, config, node, body as HeartbeatRequest))

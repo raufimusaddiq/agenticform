@@ -83,6 +83,13 @@ export function leaseNext(
     fail("version_unsupported", "node protocol version is not supported")
   }
   db.query(
+    `UPDATE commands SET status = 'queued', lease_id = NULL, leased_until = NULL, updated_at = ?
+     WHERE node_id = ? AND status IN ('leased','running') AND leased_until IS NOT NULL AND leased_until <= ?
+       AND generation = (SELECT generation FROM runs WHERE runs.id = commands.run_id)
+       AND (SELECT status FROM runs WHERE runs.id = commands.run_id) IN ('queued','leased','running')`,
+  ).run(now, node.id, now)
+
+  db.query(
     `UPDATE commands SET status = 'cancelled', updated_at = ?
      WHERE node_id = ? AND status = 'queued'
        AND (generation != (SELECT generation FROM runs WHERE runs.id = commands.run_id)
@@ -109,10 +116,9 @@ export function leaseNext(
     .run(leaseId, leasedUntil, now, row.id, row.generation)
   if (leased.changes !== 1) return null
 
-  db.query("UPDATE runs SET status = 'leased', updated_at = ? WHERE id = ? AND status = 'queued'").run(
-    now,
-    row.run_id,
-  )
+  db.query(
+    "UPDATE runs SET status = 'leased', updated_at = ? WHERE id = ? AND status IN ('queued','running')",
+  ).run(now, row.run_id)
   return toEnvelope({ ...row, status: "leased", lease_id: leaseId, leased_until: leasedUntil })
 }
 
@@ -136,6 +142,17 @@ export function renewLease(
     .run(leasedUntil, now, command.id, node.id, command.lease_id, now)
   if (renewed.changes !== 1) fail("lease_not_held", "lease expired or command cancelled")
   return { leasedUntil: new Date(leasedUntil).toISOString() }
+}
+
+/** Map a node completion to the run's terminal status (spec: Terminal states). */
+function terminalStatus(body: CompletionRequest): "completed" | "failed" | "cancelled" {
+  if (body.status === "failed") {
+    return body.error?.code === "cancelled" ? "cancelled" : "failed"
+  }
+  const result = body.result as { status?: unknown } | undefined
+  return result !== null && typeof result === "object" && result.status === "cancelled"
+    ? "cancelled"
+    : "completed"
 }
 
 /** Completion is idempotent for an identical result and rejects conflicts (N5.2). */
@@ -183,16 +200,19 @@ export function completeCommand(
     db.query(
       "UPDATE commands SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ?",
     ).run(target, resultJson, errorJson, now, command.id)
-    const runStatus = target === "succeeded" ? "completed" : "failed"
-    db.query(
-      "UPDATE runs SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ?",
-    ).run(runStatus, resultJson, errorJson, now, run.id)
-    insertEvent(db, run.id, {
-      key: "hub:finished",
-      type: "run.finished",
-      at: new Date(now).toISOString(),
-      data: { status: runStatus, ...(resultJson === null ? {} : { result: JSON.parse(resultJson) }), ...(errorJson === null ? {} : { error: JSON.parse(errorJson) }) },
-    })
+    // A node-reported cancel ends the run as `cancelled`. `run.inspect` never changes run status.
+    if (command.type !== "run.inspect") {
+      const runStatus = command.type === "run.cancel" ? "cancelled" : terminalStatus(body)
+      db.query(
+        "UPDATE runs SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ?",
+      ).run(runStatus, resultJson, errorJson, now, run.id)
+      insertEvent(db, run.id, {
+        key: "hub:finished",
+        type: "run.finished",
+        at: new Date(now).toISOString(),
+        data: { status: runStatus, ...(resultJson === null ? {} : { result: JSON.parse(resultJson) }), ...(errorJson === null ? {} : { error: JSON.parse(errorJson) }) },
+      })
+    }
     return db.query<CommandRow, [string]>("SELECT * FROM commands WHERE id = ?").get(command.id) as CommandRow
   })
 

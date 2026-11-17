@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { randomBytes } from "node:crypto"
+import { generateKeyPairSync, randomBytes } from "node:crypto"
 import { cleanupNonces } from "../src/index.ts"
 import type { Hub } from "../src/index.ts"
 import { api, enroll, heartbeat, signedFetch, startHub } from "./helpers.ts"
@@ -89,27 +89,38 @@ describe("nonce cleanup", () => {
 })
 
 describe("protocol version", () => {
-  test("an unsupported version is stored but never leased a command", async () => {
+  test("enrollment refuses an unsupported version", async () => {
     hub = startHub()
-    const node = await enroll(hub, { protocolVersion: 2 })
-    await heartbeat(hub, node, { protocolVersion: 2 })
-    const run = await api(hub, "POST", "/v1/runs", {
-      idempotencyKey: "v2-run",
-      harness: "codex",
-      prompt: "go",
+    const issued = await api(hub, "POST", "/v1/enrollment-tokens")
+    const { publicKey } = generateKeyPairSync("ed25519")
+    const response = await api(hub, "POST", "/v1/enroll", {
+      token: issued.body.token,
+      name: "v2",
+      publicKey: publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+      protocolVersion: 2,
+      harnesses: ["codex"],
     })
-    expect(run.status).toBe(422)
-    expect(run.body.error.code).toBe("no_eligible_node")
+    expect(response.status).toBe(409)
+    expect(response.body.error.code).toBe("version_unsupported")
+    expect(hub.db.query("SELECT COUNT(*) AS n FROM nodes").get()).toEqual({ n: 0 })
+  })
 
-    const pinned = await api(hub, "POST", "/v1/runs", {
-      idempotencyKey: "v2-pinned",
-      harness: "codex",
-      prompt: "go",
-      nodeId: node.nodeId,
+  test("heartbeat refuses an unsupported version", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, { protocolVersion: 2 })
+    expect(response.status).toBe(409)
+    expect(response.body.error).toEqual({
+      code: "version_unsupported",
+      message: "protocol version is not supported",
     })
-    expect(pinned.status).toBe(409)
-    expect(pinned.body.error.code).toBe("version_unsupported")
+  })
 
+  test("an unsupported stored version is never leased a command", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node)
+    hub.db.query("UPDATE nodes SET protocol_version = 2 WHERE id = ?").run(node.nodeId)
     hub.db
       .query(
         "INSERT INTO commands (id, run_id, node_id, type, idempotency_key, generation, payload_json, fingerprint, status, created_at, updated_at) VALUES ('c1','r1',?,'run.start','k',1,'{}','sha256:x','queued',0,0)",
