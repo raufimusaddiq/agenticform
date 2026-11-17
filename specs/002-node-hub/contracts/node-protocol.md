@@ -8,10 +8,13 @@ contract consumes `docs/node-hub-invariants.md` sections 2-6.
 Every post-enrollment node request carries:
 
 ```text
+X-AF-Node-Id: 6f1c2a9e-...
 X-AF-Timestamp: 1763553600000
 X-AF-Nonce: 9f2c1a7be4d80612
 X-AF-Signature: <base64 Ed25519 signature>
 ```
+
+- `nodeId` is the hub-issued id the signature covers; it is sent in `X-AF-Node-Id`.
 
 - `timestamp` is Unix milliseconds.
 - `nonce` matches `[A-Za-z0-9._:-]{16,128}`, generated from 128 random bits.
@@ -48,8 +51,8 @@ wrong.
   `$HOME/.agenticform-node/identity/device.pem`, mode `0600`.
 - Public key: SPKI DER, base64 in requests and at rest.
 - Only Ed25519 is accepted. Any other algorithm or a malformed encoding fails
-  enrollment, and a stored key that cannot decode fails verification with a
-  named internal error, never a bypass.
+  enrollment, and a stored key that cannot decode fails verification with the
+  same generic `401 unauthorized`, never a bypass.
 - A node id is a hub-issued UUID and is permanent until revoked.
 
 ## 3. Version negotiation
@@ -71,6 +74,7 @@ type Command = {
   generation: number
   idempotencyKey: string
   leasedUntil: string
+  leaseId: string
   payload: unknown
 }
 ```
@@ -78,13 +82,14 @@ type Command = {
 The node computes:
 
 ```text
-fingerprint = "sha256:" + hex(SHA-256(commandType + idempotencyKey + generation + JSON.stringify(payload)))
+fingerprint = "sha256:" + hex(SHA-256(framed(type) + framed(idempotencyKey) + framed(generation) + framed(payloadJson)))
+framed(part)  = decimal(UTF-8 byte length of part) + ":" + part
 ```
 
-`JSON.stringify` uses the exact bytes received, before any parsing round-trip, so
-the hub must send the fingerprint of the body it transmitted. A reused
-`commandId` with a different fingerprint is refused (`409 ambiguous_replay`), with
-no side effect.
+Length-prefixing keeps concatenation unambiguous. `JSON.stringify` uses the exact
+bytes received, before any parsing round-trip, so the hub must send the fingerprint
+of the body it transmitted. A reused `commandId` with a different fingerprint is
+refused (`409 ambiguous_replay`), with no side effect.
 
 ## 5. Generation fencing
 
@@ -112,7 +117,13 @@ so two hubs or two workers cannot both win.
   `409 idempotency_conflict`.
 - **Complete**: identical terminal result is a no-op returning the stored command.
   A differing result, a second failure with a different error, or a completion
-  for a non-leased command is `409`.
+  for a non-leased command is `409`. The body carries the command's `leaseId`;
+  a completion from an earlier lease is rejected (`409 lease_not_held`), so a
+  stale execution cannot finish a re-leased command. If `eventsToSeq` exceeds
+  the hub's last stored `seq`, the hub refuses with `409 events_pending` and
+  leaves the command leased; the node flushes the remaining events and retries
+  the completion, so `run.finished` can never overtake an event the node already
+  wrote.
 - **Events**: `(run_id, key)` is unique. Re-sending a batch is a no-op for the
   events the hub already has.
 - **At-least-once execution**: command delivery may repeat. The node's ledger,

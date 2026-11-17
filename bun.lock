@@ -17,11 +17,26 @@
         "@agentclientprotocol/sdk": "2.4.0",
       },
     },
+    "packages/protocol": {
+      "name": "@agenticform/protocol",
+      "version": "0.1.0",
+    },
+    "packages/hub": {
+      "name": "@agenticform/hub",
+      "version": "0.1.0",
+      "dependencies": {
+        "@agenticform/protocol": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@2.4.0", "", { "peerDependencies": { "@modelcontextprotocol/server": "^2.4.0", "zod": "^3.25.76 || ^4.0.0" }, "optionalPeers": ["@modelcontextprotocol/server"] }, "sha512-7qJ8nnyj7WesC5ve185ioTpB2/svQoeGV4HA4nLEhgDUrcmBe54/08VcXc/oL4p14tDbxxECZzdYmUYQ+4l+Wg=="],
 
     "@agenticform/runtime": ["@agenticform/runtime@workspace:packages/runtime"],
+
+    "@agenticform/protocol": ["@agenticform/protocol@workspace:packages/protocol"],
+
+    "@agenticform/hub": ["@agenticform/hub@workspace:packages/hub"],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

@@ -47,6 +47,28 @@ bun packages/runtime/examples/run.ts codex . "Summarise this repository"
 | `client` | TypeScript SDK for the HTTP API | Planned |
 | CLI, MCP | Thin clients of the HTTP API | Planned |
 
+## Hub configuration
+
+The hub reads its configuration from the environment and refuses to start on unsafe values: the admin token must be at least 32 characters, and a non-local public URL must be HTTPS and a clean origin.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AGENTICFORM_ADMIN_TOKEN` | none (required) | Bearer token for caller and operator routes |
+| `AGENTICFORM_HUB_URL` | none | Public origin; non-local values must be HTTPS |
+| `AGENTICFORM_STATE_DIR` | `$HOME/.agenticform-hub` | Directory for the SQLite database |
+| `AGENTICFORM_HUB_DB` | `$AGENTICFORM_STATE_DIR/hub.sqlite` | Explicit database path |
+| `AGENTICFORM_HUB_PORT` | `8787` | Listen port |
+| `AGENTICFORM_HEARTBEAT_SECONDS` | `15` | Heartbeat interval advertised to nodes |
+| `AGENTICFORM_NODE_OFFLINE_SECONDS` | `45` | Silence before a node is `OFFLINE` |
+| `AGENTICFORM_ENROLLMENT_TTL_SECONDS` | `600` | Enrollment token lifetime |
+| `AGENTICFORM_NONCE_TTL_SECONDS` | `600` | Signed-request nonce lifetime |
+| `AGENTICFORM_NONCE_CLEANUP_SECONDS` | `600` | Nonce cleanup interval |
+| `AGENTICFORM_LEASE_SECONDS` | `900` | Command lease length |
+| `AGENTICFORM_CLOCK_SKEW_SECONDS` | `120` | Allowed signed-request clock skew |
+| `AGENTICFORM_RECOVERY_GRACE_SECONDS` | `120` | Wait before a disconnected run may recover |
+| `AGENTICFORM_POLL_MS` | `1500` | Empty-poll backoff advertised to nodes |
+| `AGENTICFORM_MAX_BODY_BYTES` | `1048576` | Maximum request body size before `413 payload_too_large` |
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)

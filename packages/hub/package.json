@@ -1,0 +1,18 @@
+{
+  "name": "@agenticform/hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "agenticform-hub": "./bin/hub.ts"
+  },
+  "scripts": {
+    "start": "bun run bin/hub.ts"
+  },
+  "dependencies": {
+    "@agenticform/protocol": "workspace:*"
+  }
+}
