@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agenticform hub</title>
+    <link rel="stylesheet" href="/ui/app.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Agenticform hub</h1>
+      <form id="token-form" hidden>
+        <label for="token">Admin token</label>
+        <input id="token" type="password" autocomplete="off" required />
+        <button type="submit">Connect</button>
+      </form>
+      <button id="sign-out" type="button" hidden>Sign out</button>
+    </header>
+
+    <main>
+      <nav>
+        <button type="button" data-view="machines">Machines</button>
+        <button type="button" data-view="runs">Runs</button>
+      </nav>
+
+      <p id="error" role="alert" hidden></p>
+
+      <section id="view-machines" hidden>
+        <h2>Machines</h2>
+        <button id="refresh-machines" type="button">Refresh</button>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Harnesses</th>
+              <th>Capacity</th>
+              <th>Last heartbeat</th>
+            </tr>
+          </thead>
+          <tbody id="machines-body"></tbody>
+        </table>
+      </section>
+
+      <section id="view-runs" hidden>
+        <h2>Runs</h2>
+        <form id="run-form">
+          <label>Harness <input name="harness" value="codex" required /></label>
+          <label>Prompt <textarea name="prompt" rows="3" required></textarea></label>
+          <button type="submit">Create run</button>
+        </form>
+        <form id="open-form">
+          <label>Run id <input name="runId" required /></label>
+          <button type="submit">Open</button>
+        </form>
+        <ul id="runs-list"></ul>
+      </section>
+
+      <section id="view-run" hidden>
+        <h2>Run <span id="run-id"></span></h2>
+        <p>Status: <strong id="run-status"></strong></p>
+        <p id="run-result"></p>
+        <button id="cancel-run" type="button">Cancel</button>
+        <button id="back-runs" type="button">Back</button>
+        <ol id="events"></ol>
+      </section>
+    </main>
+
+    <script src="/ui/app.js" type="module"></script>
+  </body>
+</html>

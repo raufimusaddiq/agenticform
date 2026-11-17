@@ -17,6 +17,7 @@ import { cleanupNonces } from "./nonces.ts"
 import { cancelRun, createRun, getRun, recoverRun, runView } from "./runs.ts"
 import { openDatabase } from "./schema.ts"
 import { authenticateMachine } from "./signatures.ts"
+import { uiAsset } from "./ui.ts"
 import { validateConfig } from "./config.ts"
 
 export interface Hub {
@@ -119,6 +120,11 @@ export function createHub(config: HubConfig): Hub {
         fail("payload_too_large", "request body is too large")
       }
       if (request.method === "GET" && path === "/health") return json({ status: "ok" })
+
+      if (request.method === "GET") {
+        const asset = uiAsset(path)
+        if (asset) return asset
+      }
 
       if (request.method === "POST" && path === "/v1/enroll") {
         return json(enrollNode(db, config, await readJson<EnrollRequest>(request, config.maxBodyBytes)), 201)
