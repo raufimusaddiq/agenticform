@@ -218,11 +218,12 @@ describe("thin clients over the hub HTTP API", () => {
 
   test("SSE follows from after and resumes with Last-Event-ID", async () => {
     const client = new HubClient({ url, token: TOKEN })
+    const nodeId = await enrollOnlineNode()
     const run = await client.createRun({
-      idempotencyKey: "parity-sse", harness: "codex", prompt: "fix tests", nodeId: await (async () => {
-        const nodes = await client.listNodes()
-        return nodes[0]?.nodeId as string
-      })(),
+      idempotencyKey: "parity-sse",
+      harness: "codex",
+      prompt: "fix tests",
+      nodeId,
     })
     await client.cancelRun(run.runId)
 

@@ -1,9 +1,35 @@
 import type {
+  ErrorCode,
   NodeView,
   RunEventWire,
   RunRequest,
+  RunStatus,
   RunView,
 } from "@agenticform/protocol"
+
+export type { ErrorCode, NodeView, RunEventWire, RunRequest, RunStatus, RunView } from "@agenticform/protocol"
+
+/**
+ * Terminal run statuses (contracts/http-api.md, "Terminal states"). A
+ * `run.disconnected` event does NOT end the SSE stream: the run may be
+ * recovered and continue, so disconnected is deliberately absent.
+ */
+export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+])
+
+/** Fallback error code for a non-JSON or unknown-status error response. */
+const STATUS_CODES: Readonly<Record<number, ErrorCode>> = {
+  400: "invalid_input",
+  401: "unauthorized",
+  403: "forbidden",
+  404: "not_found",
+  409: "idempotency_conflict",
+  413: "payload_too_large",
+  422: "invalid_input",
+}
 
 /** A hub error response, surfaced as-is. Thin clients add no policy. */
 export class HubApiError extends Error {
@@ -23,6 +49,32 @@ export interface ClientOptions {
   token: string
   fetch?: typeof fetch
 }
+
+/** Validate a resume cursor: events start at seq 1, so `after` is a non-negative integer. */
+export function normalizeAfter(value: unknown): number {
+  const after =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN
+  if (!Number.isInteger(after) || after < 0) throw new Error("after must be a non-negative integer")
+  return after
+}
+
+export const MAX_FOLLOW_RETRIES = 5
+
+/**
+ * Wait before reconnecting a follow stream that made no progress. Bounded:
+ * 100ms doubling to 5s, and it gives up after `MAX_FOLLOW_RETRIES`.
+ */
+export async function reconnectDelay(attempt: number): Promise<void> {
+  if (attempt > MAX_FOLLOW_RETRIES) {
+    throw new Error(`event stream did not advance after ${MAX_FOLLOW_RETRIES} retries`)
+  }
+  await new Promise((resolve) => setTimeout(resolve, Math.min(100 * 2 ** attempt, 5_000)))
+}
+
 
 /** Thin transport over the hub HTTP API. No placement, retry or state logic. */
 export class HubClient {
@@ -51,12 +103,18 @@ export class HubClient {
   private async read<T>(response: Response): Promise<T | undefined> {
     if (response.status === 204) return undefined
     const text = await response.text()
-    const value = text ? (JSON.parse(text) as unknown) : undefined
+    let value: unknown
+    try {
+      value = text ? (JSON.parse(text) as unknown) : undefined
+    } catch {
+      value = undefined
+    }
     if (!response.ok) {
       const error = (value as { error?: { code?: string; message?: string } } | undefined)?.error
+      const message = error?.message ?? (response.statusText || text || `hub responded with ${response.status}`)
       throw new HubApiError(
-        error?.code ?? "internal",
-        error?.message ?? `hub responded with ${response.status}`,
+        error?.code ?? STATUS_CODES[response.status] ?? "internal",
+        message,
         response.status,
       )
     }
@@ -80,10 +138,14 @@ export class HubClient {
     return this.request<RunView>("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`)
   }
 
-  async getEvents(runId: string, after = 0): Promise<{ events: RunEventWire[]; lastSeq: number }> {
+  async getEvents(
+    runId: string,
+    after: number = 0,
+  ): Promise<{ events: RunEventWire[]; lastSeq: number }> {
+    const cursor = normalizeAfter(after)
     return this.request<{ events: RunEventWire[]; lastSeq: number }>(
       "GET",
-      `/v1/runs/${encodeURIComponent(runId)}/events?after=${after}`,
+      `/v1/runs/${encodeURIComponent(runId)}/events?after=${cursor}`,
     )
   }
 
@@ -98,25 +160,26 @@ export class HubClient {
     onEvent: (event: RunEventWire) => void,
     signal?: AbortSignal,
   ): Promise<number> {
+    const cursor = normalizeAfter(after)
     const response = await this.fetchImpl(
-      `${this.url}/v1/runs/${encodeURIComponent(runId)}/events?after=${after}&stream=sse`,
+      `${this.url}/v1/runs/${encodeURIComponent(runId)}/events?after=${cursor}&stream=sse`,
       {
         headers: {
           authorization: `Bearer ${this.token}`,
           accept: "text/event-stream",
-          "last-event-id": String(after),
+          "last-event-id": String(cursor),
         },
         ...(signal ? { signal } : {}),
       },
     )
     if (!response.ok) {
       await this.read<never>(response)
-      return after
+      return cursor
     }
-    if (!response.body) return after
+    if (!response.body) return cursor
     const decoder = new TextDecoder()
     let buffer = ""
-    let cursor = after
+    let last = cursor
     for await (const chunk of response.body) {
       buffer += decoder.decode(chunk, { stream: true })
       let split: number
@@ -130,10 +193,11 @@ export class HubClient {
           .join("\n")
         if (!data) continue
         const event = JSON.parse(data) as RunEventWire
-        cursor = event.seq
+        last = event.seq
         onEvent(event)
+        if (signal?.aborted) return last
       }
     }
-    return cursor
+    return last
   }
 }

@@ -1,6 +1,12 @@
 #!/usr/bin/env bun
 import type { RunRequest } from "@agenticform/protocol"
-import { HubApiError, HubClient } from "@agenticform/client"
+import {
+  HubApiError,
+  HubClient,
+  TERMINAL_RUN_STATUSES,
+  normalizeAfter,
+  reconnectDelay,
+} from "@agenticform/client"
 
 const USAGE = `usage: af <command>
   af nodes
@@ -22,13 +28,19 @@ function client(): HubClient {
 
 function flag(args: string[], name: string): string | undefined {
   const index = args.indexOf(`--${name}`)
-  return index === -1 ? undefined : args[index + 1]
+  if (index === -1) return undefined
+  const value = args[index + 1]
+  if (value === undefined || value.startsWith("--")) throw new Error(`--${name} requires a value`)
+  return value
 }
 
 function flags(args: string[], name: string): string[] {
   const values: string[] = []
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === `--${name}` && args[i + 1] !== undefined) values.push(args[i + 1] as string)
+    if (args[i] !== `--${name}`) continue
+    const value = args[i + 1]
+    if (value === undefined || value.startsWith("--")) throw new Error(`--${name} requires a value`)
+    values.push(value)
   }
   return values
 }
@@ -45,12 +57,6 @@ export function parseLabels(values: string[]): Record<string, string> {
 
 function print(value: unknown): void {
   console.log(JSON.stringify(value, null, 2))
-}
-
-/** Bounded exponential backoff for a follow stream that stopped advancing. */
-export async function reconnectDelay(attempt: number): Promise<void> {
-  if (attempt > 5) throw new Error("event stream did not advance after 5 retries")
-  await Bun.sleep(Math.min(100 * 2 ** attempt, 5_000))
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -83,17 +89,28 @@ async function main(argv: string[]): Promise<void> {
   if (group === "run" && action === "cancel" && id) return print(await hub.cancelRun(id))
 
   if (group === "run" && action === "events" && id) {
-    let after = Number(flag(rest, "after") ?? 0)
+    let after = normalizeAfter(flag(rest, "after") ?? 0)
     if (!rest.includes("--follow")) {
       const page = await hub.getEvents(id, after)
       return print(page)
     }
+    let lastSeen = after
     let attempt = 0
     while (true) {
       const before = after
-      after = await hub.followEvents(id, after, (event) => print(event))
+      try {
+        lastSeen = await hub.followEvents(id, after, (event) => {
+          lastSeen = event.seq
+          print(event)
+        })
+        after = lastSeen
+      } catch (error) {
+        // A dropped connection is no progress: back off, then resume from the last seq seen.
+        if (error instanceof HubApiError) throw error
+        after = lastSeen
+      }
       const run = await hub.getRun(id)
-      if (["completed", "failed", "cancelled"].includes(run.status)) return
+      if (TERMINAL_RUN_STATUSES.has(run.status)) return
       attempt = after > before ? 0 : attempt + 1
       await reconnectDelay(attempt)
     }

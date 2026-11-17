@@ -10,7 +10,6 @@
     "start": "bun run bin/mcp.ts"
   },
   "dependencies": {
-    "@agenticform/client": "workspace:*",
-    "@agenticform/protocol": "workspace:*"
+    "@agenticform/client": "workspace:*"
   }
 }
