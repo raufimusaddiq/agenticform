@@ -180,8 +180,28 @@ export function cancelRun(
     (run.status === "leased" || run.status === "running") &&
     node?.status === "online"
   if (reachable) {
-    enqueueCommand(db, run, "run.cancel", {}, now)
-    return { run, queued: true }
+    const pending = db
+      .query<{ id: string }, [string]>(
+        "SELECT id FROM commands WHERE run_id = ? AND type = 'run.cancel' AND status IN ('queued','leased','running') LIMIT 1",
+      )
+      .get(run.id)
+    if (pending) return { run, queued: true }
+
+    // Bump the generation so an in-flight run.start completion or event batch
+    // is fence_stale, then queue the cancel at the new generation (FR-022/023).
+    const write = db.transaction((): RunRow => {
+      const generation = run.generation + 1
+      db.query("UPDATE runs SET generation = ?, updated_at = ? WHERE id = ? AND generation = ?").run(
+        generation,
+        now,
+        run.id,
+        run.generation,
+      )
+      const updated = getRun(db, run.id)
+      enqueueCommand(db, updated, "run.cancel", {}, now)
+      return updated
+    })
+    return { run: write(), queued: true }
   }
 
   // Disconnected, unreachable or still queued: finish at the hub. Bump the

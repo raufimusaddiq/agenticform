@@ -256,6 +256,7 @@ function sse(db: Database, runId: string, after: number, signal: AbortSignal): R
           if (["completed", "failed", "cancelled"].includes(run.status) && events.length === 0) {
             return close()
           }
+          if (events.length > 0) idle = 0
           idle += 1
           if (idle % 20 === 0) controller.enqueue(encoder.encode(": keepalive\n\n"))
           await Bun.sleep(250)

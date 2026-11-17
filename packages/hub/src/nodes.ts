@@ -96,9 +96,20 @@ export function disconnectRuns(db: Database, nodeId: string, reason: string, now
     .filter((run) => ACTIVE_RUN.has(run.status))
   for (const run of runs) {
     const generation = run.generation + 1
-    db.query(
-      "UPDATE runs SET status = 'disconnected', generation = ?, disconnected_at = ?, updated_at = ? WHERE id = ?",
-    ).run(generation, now, now, run.id)
+    const pendingCancel = db
+      .query<{ id: string }, [string]>(
+        "SELECT id FROM commands WHERE run_id = ? AND type = 'run.cancel' AND status IN ('queued','leased','running') LIMIT 1",
+      )
+      .get(run.id)
+    if (pendingCancel) {
+      db.query(
+        "UPDATE runs SET status = 'cancelled', generation = ?, disconnected_at = NULL, updated_at = ? WHERE id = ?",
+      ).run(generation, now, run.id)
+    } else {
+      db.query(
+        "UPDATE runs SET status = 'disconnected', generation = ?, disconnected_at = ?, updated_at = ? WHERE id = ?",
+      ).run(generation, now, now, run.id)
+    }
     db.query(
       "UPDATE commands SET status = 'cancelled', updated_at = ? WHERE run_id = ? AND status IN ('queued','leased','running')",
     ).run(now, run.id)
@@ -109,10 +120,12 @@ export function disconnectRuns(db: Database, nodeId: string, reason: string, now
     )
     db.query("UPDATE nodes SET capacity_in_use = MAX(capacity_in_use - 1, 0) WHERE id = ?").run(nodeId)
     insertEvent(db, run.id, {
-      key: hubEventKey("disconnected", generation),
-      type: "run.disconnected",
+      key: pendingCancel ? hubEventKey("finished", generation) : hubEventKey("disconnected", generation),
+      type: pendingCancel ? "run.finished" : "run.disconnected",
       at: new Date(now).toISOString(),
-      data: { status: "disconnected", nodeId, reason, generation },
+      data: pendingCancel
+        ? { status: "cancelled", nodeId, reason }
+        : { status: "disconnected", nodeId, reason, generation },
     })
   }
   return runs.length

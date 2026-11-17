@@ -37,7 +37,9 @@ Machine authentication failures always use `401` with
 
 `nonce_replayed` is reserved and is not emitted on the wire: a replayed nonce is a
 machine authentication failure and returns the generic `401 unauthorized` above
-(see [node-protocol.md](node-protocol.md) and N8.4).
+(see [node-protocol.md](node-protocol.md) and N8.4). `ambiguous_replay` is a
+node-side error: the node refuses a reused command id with a different
+fingerprint (FR-028), so the hub never emits it.
 
 ## Machine endpoints
 

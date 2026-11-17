@@ -342,21 +342,66 @@ describe("completion idempotency", () => {
     expect(command?.status).toBe("cancelled")
   })
 
-  test("cancel of a running run queues a fenced command", async () => {
+  test("cancel of a running run bumps the generation and queues a fenced command", async () => {
     const { node, runId, command } = await setup()
     const cancelled = await api(hub as Hub, "POST", `/v1/runs/${runId}/cancel`)
     expect(cancelled.status).toBe(202)
+    expect(cancelled.body.generation).toBe(2)
     const queued = (hub as Hub).db
       .query<{ type: string; generation: number }, [string]>(
         "SELECT type, generation FROM commands WHERE run_id = ? AND type = 'run.cancel'",
       )
       .get(runId)
-    expect(queued).toEqual({ type: "run.cancel", generation: 1 })
+    expect(queued).toEqual({ type: "run.cancel", generation: 2 })
 
-    await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+    const late = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
       leaseId: command.leaseId,
       status: "failed",
       error: { code: "cancelled", message: "cancelled" },
     })
+    expect(late.status).toBe(409)
+    expect(await errorCode(late)).toBe("fence_stale")
+  })
+
+  test("a second cancel does not bump the generation again", async () => {
+    const { runId } = await setup()
+    await api(hub as Hub, "POST", `/v1/runs/${runId}/cancel`)
+    const again = await api(hub as Hub, "POST", `/v1/runs/${runId}/cancel`)
+    expect(again.status).toBe(202)
+    expect(again.body.generation).toBe(2)
+    const count = (hub as Hub).db
+      .query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM commands WHERE run_id = ? AND type = 'run.cancel'")
+      .get(runId)
+    expect(count?.n).toBe(1)
+  })
+
+  test("a queued cancel still ends cancelled when the node acknowledges", async () => {
+    const { node, runId } = await setup()
+    await api(hub as Hub, "POST", `/v1/runs/${runId}/cancel`)
+    const cancelCommand = (await nextCommand(hub as Hub, node)).body
+    expect(cancelCommand.type).toBe("run.cancel")
+    expect(cancelCommand.generation).toBe(2)
+    const ack = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${cancelCommand.commandId}/complete`, {
+      leaseId: cancelCommand.leaseId,
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(ack.status).toBe(200)
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("cancelled")
+    const events = await api(hub as Hub, "GET", `/v1/runs/${runId}/events?after=0`)
+    expect(events.body.events.at(-1).type).toBe("run.finished")
+    expect(events.body.events.at(-1).data.status).toBe("cancelled")
+  })
+
+  test("a queued cancel still ends cancelled when the node disconnects", async () => {
+    const { runId } = await setup()
+    await api(hub as Hub, "POST", `/v1/runs/${runId}/cancel`)
+    sweepHealth((hub as Hub).db, (hub as Hub).config, Date.now() + 46_000)
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("cancelled")
+    const events = await api(hub as Hub, "GET", `/v1/runs/${runId}/events?after=0`)
+    expect(events.body.events.at(-1).type).toBe("run.finished")
+    expect(events.body.events.at(-1).data.status).toBe("cancelled")
   })
 })
