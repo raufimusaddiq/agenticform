@@ -174,6 +174,7 @@ describe("thin clients over the hub HTTP API", () => {
 
     const started = await cli([
       "run", "start", "--key", "parity-1", "--harness", "codex", "--prompt", "fix tests", "--node", nodeId,
+      
     ])
     if (started.code !== 0) throw new Error(`cli failed: ${started.out}`)
     expect(parse(started.out).runId).toBe(viaHttp.runId)

@@ -87,10 +87,15 @@ async function call(name: string, args: Record<string, unknown>): Promise<unknow
       if (!args.follow) return hub.getEvents(runId, after)
       const events: unknown[] = []
       let cursor = after
+      let attempt = 0
       while (true) {
+        const before = cursor
         cursor = await hub.followEvents(runId, cursor, (event) => events.push(event))
         const run = await hub.getRun(runId)
         if (["completed", "failed", "cancelled"].includes(run.status)) return events
+        attempt = cursor > before ? 0 : attempt + 1
+        if (attempt > 5) throw new Error("event stream did not advance after 5 retries")
+        await Bun.sleep(Math.min(100 * 2 ** attempt, 5_000))
       }
     }
     default:

@@ -33,8 +33,24 @@ function flags(args: string[], name: string): string[] {
   return values
 }
 
+export function parseLabels(values: string[]): Record<string, string> {
+  const labels: Record<string, string> = {}
+  for (const raw of values) {
+    const equals = raw.indexOf("=")
+    if (equals <= 0) throw new Error(`invalid --label "${raw}": expected key=value`)
+    labels[raw.slice(0, equals)] = raw.slice(equals + 1)
+  }
+  return labels
+}
+
 function print(value: unknown): void {
   console.log(JSON.stringify(value, null, 2))
+}
+
+/** Bounded exponential backoff for a follow stream that stopped advancing. */
+export async function reconnectDelay(attempt: number): Promise<void> {
+  if (attempt > 5) throw new Error("event stream did not advance after 5 retries")
+  await Bun.sleep(Math.min(100 * 2 ** attempt, 5_000))
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -50,11 +66,7 @@ async function main(argv: string[]): Promise<void> {
     const idempotencyKey = flag(rest, "key")
     if (!harness || !prompt || !idempotencyKey) throw new Error("--harness, --prompt and --key are required")
     const requires = flag(rest, "requires")
-    const labels: Record<string, string> = {}
-    for (const label of flags(rest, "label")) {
-      const [key, value] = label.split("=")
-      if (key && value !== undefined) labels[key] = value
-    }
+    const labels = parseLabels(flags(rest, "label"))
     const request: RunRequest = {
       idempotencyKey,
       harness,
@@ -76,23 +88,29 @@ async function main(argv: string[]): Promise<void> {
       const page = await hub.getEvents(id, after)
       return print(page)
     }
+    let attempt = 0
     while (true) {
+      const before = after
       after = await hub.followEvents(id, after, (event) => print(event))
       const run = await hub.getRun(id)
       if (["completed", "failed", "cancelled"].includes(run.status)) return
+      attempt = after > before ? 0 : attempt + 1
+      await reconnectDelay(attempt)
     }
   }
 
   throw new Error(USAGE)
 }
 
-try {
-  await main(process.argv.slice(2))
-} catch (error) {
-  if (error instanceof HubApiError) {
-    console.error(`${error.code}: ${error.message}`)
+if (import.meta.main) {
+  try {
+    await main(process.argv.slice(2))
+  } catch (error) {
+    if (error instanceof HubApiError) {
+      console.error(`${error.code}: ${error.message}`)
+      process.exit(1)
+    }
+    console.error(error instanceof Error ? error.message : String(error))
     process.exit(1)
   }
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exit(1)
 }
