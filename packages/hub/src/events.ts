@@ -5,7 +5,7 @@ import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
 import type { CommandRow, EventRow, RunRow } from "./schema.ts"
 
-const TERMINAL = new Set(["completed", "failed", "cancelled"])
+const TERMINAL = new Set(["completed", "failed", "cancelled", "disconnected"])
 
 export function nextSeq(db: Database, runId: string): number {
   const row = db

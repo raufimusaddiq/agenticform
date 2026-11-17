@@ -67,6 +67,14 @@ export function validateConfig(config: HubConfig): void {
   if (!Number.isInteger(config.port) || config.port < 0 || config.port > 65_535) {
     throw new Error("AGENTICFORM_HUB_PORT must be an integer between 0 and 65535")
   }
+  if (config.nonceTtlMs < 2 * config.clockSkewMs + 60_000) {
+    throw new Error(
+      "AGENTICFORM_NONCE_TTL_SECONDS must be at least twice AGENTICFORM_CLOCK_SKEW_SECONDS plus 60",
+    )
+  }
+  if (config.nodeOfflineMs <= config.heartbeatIntervalMs) {
+    throw new Error("AGENTICFORM_NODE_OFFLINE_SECONDS must exceed AGENTICFORM_HEARTBEAT_SECONDS")
+  }
   if (config.publicUrl === null) return
   let url: URL
   try {

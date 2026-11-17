@@ -63,6 +63,35 @@ export function heartbeat(
   return { status: "online", commandsPollMs: config.pollMs }
 }
 
+/** Fence and disconnect every active run on a node. Caller supplies the transaction. */
+export function disconnectRuns(db: Database, nodeId: string, reason: string, now: number): number {
+  const runs = db
+    .query<RunRow, [string]>("SELECT * FROM runs WHERE node_id = ?")
+    .all(nodeId)
+    .filter((run) => ACTIVE_RUN.has(run.status))
+  for (const run of runs) {
+    const generation = run.generation + 1
+    db.query(
+      "UPDATE runs SET status = 'disconnected', generation = ?, disconnected_at = ?, updated_at = ? WHERE id = ?",
+    ).run(generation, now, now, run.id)
+    db.query(
+      "UPDATE commands SET status = 'cancelled', updated_at = ? WHERE run_id = ? AND status IN ('queued','leased','running')",
+    ).run(now, run.id)
+    db.query("UPDATE runtime_assignments SET state = 'fenced', updated_at = ? WHERE run_id = ? AND generation = ?").run(
+      now,
+      run.id,
+      run.generation,
+    )
+    insertEvent(db, run.id, {
+      key: "hub:disconnected",
+      type: "run.disconnected",
+      at: new Date(now).toISOString(),
+      data: { status: "disconnected", nodeId, reason, generation },
+    })
+  }
+  return runs.length
+}
+
 /** Mark silent nodes OFFLINE and disconnect their active runs (N7.1, FR-033). */
 export function sweepHealth(db: Database, config: HubConfig, now = Date.now()): number {
   const cutoff = now - config.nodeOfflineMs
@@ -74,34 +103,27 @@ export function sweepHealth(db: Database, config: HubConfig, now = Date.now()): 
   for (const node of stale) {
     const write = db.transaction((): void => {
       db.query("UPDATE nodes SET status = 'offline' WHERE id = ?").run(node.id)
-      const runs = db
-        .query<RunRow, [string]>("SELECT * FROM runs WHERE node_id = ?").all(node.id)
-        .filter((run) => ACTIVE_RUN.has(run.status))
-      for (const run of runs) {
-        db.query(
-          "UPDATE runs SET status = 'disconnected', disconnected_at = ?, updated_at = ? WHERE id = ?",
-        ).run(now, now, run.id)
-        db.query(
-          "UPDATE commands SET status = 'cancelled', updated_at = ? WHERE run_id = ? AND status IN ('queued','leased','running')",
-        ).run(now, run.id)
-        insertEvent(db, run.id, {
-          key: "hub:disconnected",
-          type: "run.disconnected",
-          at: new Date(now).toISOString(),
-          data: { status: "disconnected", nodeId: node.id },
-        })
-      }
+      disconnectRuns(db, node.id, "node_offline", now)
     })
     write()
   }
   return stale.length
 }
 
-export function setNodeStatus(db: Database, nodeId: string, status: "disabled" | "revoked"): NodeView {
+export function setNodeStatus(
+  db: Database,
+  nodeId: string,
+  status: "disabled" | "revoked",
+  now = Date.now(),
+): NodeView {
   const node = db.query<NodeRow, [string]>("SELECT * FROM nodes WHERE id = ?").get(nodeId)
   if (!node) fail("not_found", "node not found")
-  db.query("UPDATE nodes SET status = ? WHERE id = ?").run(status, nodeId)
-  return toNodeView({ ...node, status })
+  const write = db.transaction((): NodeView => {
+    db.query("UPDATE nodes SET status = ? WHERE id = ?").run(status, nodeId)
+    disconnectRuns(db, nodeId, status === "disabled" ? "node_disabled" : "node_revoked", now)
+    return toNodeView({ ...node, status })
+  })
+  return write()
 }
 
 export function listNodes(db: Database): NodeView[] {

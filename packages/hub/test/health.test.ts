@@ -17,7 +17,16 @@ const disconnectedRun = async () => {
   const offlineAt = Date.now() + 60_000
   sweepHealth(hub.db, hub.config, offlineAt)
   hub.db.query("UPDATE runs SET disconnected_at = ? WHERE id = ?").run(Date.now() - 120_001, run.body.runId)
-  return { node, runId: run.body.runId as string, command, offlineAt }
+  const disconnected = hub.db
+    .query<{ generation: number }, [string]>("SELECT generation FROM runs WHERE id = ?")
+    .get(run.body.runId)
+  return {
+    node,
+    runId: run.body.runId as string,
+    command,
+    offlineAt,
+    generation: disconnected?.generation ?? 0,
+  }
 }
 
 describe("node loss", () => {
@@ -46,6 +55,38 @@ describe("node loss", () => {
     const nodeRow = hub.db.query<{ status: string }, [string]>("SELECT status FROM nodes WHERE id = ?").get(node.nodeId)
     expect(nodeRow?.status).toBe("online")
   })
+})
+
+describe("disable and revoke", () => {
+  for (const action of ["disable", "revoke"] as const) {
+    test(`${action} disconnects and fences active runs`, async () => {
+      hub = startHub()
+      const node = await enroll(hub)
+      await heartbeat(hub, node)
+      const run = await createRun(hub)
+      const command = (await nextCommand(hub, node)).body
+
+      const response = await api(hub, "POST", `/v1/nodes/${node.nodeId}/${action}`)
+      expect(response.status).toBe(200)
+      expect(response.body.status).toBe(action === "disable" ? "disabled" : "revoked")
+
+      const runRow = hub.db
+        .query<{ status: string; generation: number }, [string]>("SELECT status, generation FROM runs WHERE id = ?")
+        .get(run.body.runId)
+      expect(runRow).toEqual({ status: "disconnected", generation: 2 })
+
+      const commandRow = hub.db
+        .query<{ status: string }, [string]>("SELECT status FROM commands WHERE id = ?")
+        .get(command.commandId)
+      expect(commandRow?.status).toBe("cancelled")
+
+      const events = await api(hub, "GET", `/v1/runs/${run.body.runId}/events?after=0`)
+      const last = events.body.events.at(-1)
+      expect(last.type).toBe("run.disconnected")
+      expect(last.data.reason).toBe(action === "disable" ? "node_disabled" : "node_revoked")
+      expect(last.data.generation).toBe(2)
+    })
+  }
 })
 
 describe("explicit recovery", () => {
@@ -86,22 +127,27 @@ describe("explicit recovery", () => {
   })
 
   test("recovery issues generation N+1 on a new node and does not dispatch before it exists", async () => {
-    const { runId, command } = await disconnectedRun()
+    const { runId, command, generation } = await disconnectedRun()
     const replacement = await enroll(hub as Hub, { name: "replacement" })
     await heartbeat(hub as Hub, replacement)
 
     const recovered = await api(hub as Hub, "POST", `/v1/runs/${runId}/recover`)
     expect(recovered.status).toBe(200)
-    expect(recovered.body.generation).toBe(2)
+    expect(recovered.body.generation).toBe(generation + 1)
     expect(recovered.body.nodeId).toBe(replacement.nodeId)
     expect(recovered.body.status).toBe("queued")
 
     const queued = (hub as Hub).db
-      .query<{ type: string; generation: number; status: string; node_id: string }, [string]>(
-        "SELECT type, generation, status, node_id FROM commands WHERE run_id = ? AND generation = 2",
+      .query<{ type: string; generation: number; status: string; node_id: string }, [string, number]>(
+        "SELECT type, generation, status, node_id FROM commands WHERE run_id = ? AND generation = ?",
       )
-      .get(runId)
-    expect(queued).toEqual({ type: "run.start", generation: 2, status: "queued", node_id: replacement.nodeId })
+      .get(runId, generation + 1)
+    expect(queued).toEqual({
+      type: "run.start",
+      generation: generation + 1,
+      status: "queued",
+      node_id: replacement.nodeId,
+    })
 
     // The old node cannot mutate the recovered run.
     const stale = await signedFetch(hub as Hub, replacement, "POST", `/v1/node/commands/${command.commandId}/complete`, {
@@ -114,13 +160,13 @@ describe("explicit recovery", () => {
   })
 
   test("the replacement node leases the new generation", async () => {
-    const { runId } = await disconnectedRun()
+    const { runId, generation } = await disconnectedRun()
     const replacement = await enroll(hub as Hub, { name: "replacement" })
     await heartbeat(hub as Hub, replacement)
     await api(hub as Hub, "POST", `/v1/runs/${runId}/recover`)
 
     const command = (await nextCommand(hub as Hub, replacement)).body
     expect(command.runId).toBe(runId)
-    expect(command.generation).toBe(2)
+    expect(command.generation).toBe(generation + 1)
   })
 })

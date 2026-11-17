@@ -188,8 +188,13 @@ export function completeCommand(
   if (command.leased_until === null || command.leased_until <= now) {
     fail("lease_not_held", "lease expired")
   }
-  if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
-    fail("fence_stale", "run is terminal")
+  if (
+    run.status === "cancelled" ||
+    run.status === "completed" ||
+    run.status === "failed" ||
+    run.status === "disconnected"
+  ) {
+    fail("fence_stale", "run is no longer active")
   }
   if (command.generation !== run.generation) {
     db.query("UPDATE commands SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now, command.id)

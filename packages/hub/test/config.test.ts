@@ -25,8 +25,7 @@ describe("hub config", () => {
     expect(() => validateConfig(base({ publicUrl: "https://example.com#x" }))).toThrow()
   })
 
-  test("numeric settings must be finite and positive", () => {
-    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_CLOCK_SKEW_SECONDS: "abc" })).toThrow()
+  test("numeric settings must be finite and positive", () => {    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_CLOCK_SKEW_SECONDS: "abc" })).toThrow()
     expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_NONCE_TTL_SECONDS: "0" })).toThrow()
     expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_LEASE_SECONDS: "-1" })).toThrow()
     expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_POLL_MS: "NaN" })).toThrow()
@@ -34,6 +33,17 @@ describe("hub config", () => {
     expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_HUB_PORT: "70000" })).toThrow()
     expect(() => validateConfig(base({ clockSkewMs: Number.NaN }))).toThrow()
     expect(() => validateConfig(base({ leaseMs: 0 }))).toThrow()
+  })
+
+  test("the nonce TTL must outlive the clock-skew replay window", () => {
+    expect(() => validateConfig(base({ clockSkewMs: 120_000, nonceTtlMs: 300_000 }))).not.toThrow()
+    expect(() => validateConfig(base({ clockSkewMs: 120_000, nonceTtlMs: 299_999 }))).toThrow()
+    expect(() => loadConfig({ AGENTICFORM_ADMIN_TOKEN: "y".repeat(32), AGENTICFORM_CLOCK_SKEW_SECONDS: "120", AGENTICFORM_NONCE_TTL_SECONDS: "299" })).toThrow()
+  })
+
+  test("the offline window must exceed the heartbeat interval", () => {
+    expect(() => validateConfig(base({ heartbeatIntervalMs: 15_000, nodeOfflineMs: 15_001 }))).not.toThrow()
+    expect(() => validateConfig(base({ heartbeatIntervalMs: 15_000, nodeOfflineMs: 15_000 }))).toThrow()
   })
 
   test("loadConfig reads the documented environment variables", () => {    const config = loadConfig({
