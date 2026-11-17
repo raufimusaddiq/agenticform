@@ -51,7 +51,6 @@ export function validateConfig(config: HubConfig): void {
     throw new Error("AGENTICFORM_ADMIN_TOKEN must be at least 32 characters")
   }
   const numbers: [string, number][] = [
-    ["AGENTICFORM_HUB_PORT", config.port],
     ["AGENTICFORM_CLOCK_SKEW_SECONDS", config.clockSkewMs],
     ["AGENTICFORM_HEARTBEAT_SECONDS", config.heartbeatIntervalMs],
     ["AGENTICFORM_NODE_OFFLINE_SECONDS", config.nodeOfflineMs],
@@ -65,8 +64,8 @@ export function validateConfig(config: HubConfig): void {
   for (const [name, value] of numbers) {
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`)
   }
-  if (!Number.isInteger(config.port) || config.port > 65_535) {
-    throw new Error("AGENTICFORM_HUB_PORT must be an integer between 1 and 65535")
+  if (!Number.isInteger(config.port) || config.port < 0 || config.port > 65_535) {
+    throw new Error("AGENTICFORM_HUB_PORT must be an integer between 0 and 65535")
   }
   if (config.publicUrl === null) return
   let url: URL

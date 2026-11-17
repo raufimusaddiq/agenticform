@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { createHub } from "../src/index.ts"
 import { loadConfig, validateConfig, type HubConfig } from "../src/config.ts"
-import { testConfig } from "./helpers.ts"
+import { api, startHub, testConfig } from "./helpers.ts"
 
 const base = (patch: Partial<HubConfig>): HubConfig => ({ ...testConfig(), port: 8787, ...patch })
 
@@ -35,8 +36,7 @@ describe("hub config", () => {
     expect(() => validateConfig(base({ leaseMs: 0 }))).toThrow()
   })
 
-  test("loadConfig reads the documented environment variables", () => {
-    const config = loadConfig({
+  test("loadConfig reads the documented environment variables", () => {    const config = loadConfig({
       AGENTICFORM_ADMIN_TOKEN: "y".repeat(32),
       AGENTICFORM_HUB_URL: "https://hub.example.com",
       AGENTICFORM_STATE_DIR: "/tmp/af-state",
@@ -48,5 +48,26 @@ describe("hub config", () => {
     expect(config.heartbeatIntervalMs).toBe(5_000)
     expect(config.nodeOfflineMs).toBe(20_000)
     expect(config.leaseMs).toBe(60_000)
+  })
+
+  test("createHub refuses to construct without a valid config", () => {
+    expect(() => createHub(testConfig({ adminToken: "" }))).toThrow()
+    expect(() => createHub(testConfig({ adminToken: "short" }))).toThrow()
+    expect(() => createHub(testConfig({ clockSkewMs: Number.NaN }))).toThrow()
+    expect(() => createHub(testConfig({ publicUrl: "http://example.com" }))).toThrow()
+  })
+
+  test("an empty bearer never authenticates", async () => {
+    const hub = startHub()
+    try {
+      const missing = await fetch(`${hub.url}/v1/nodes`)
+      expect(missing.status).toBe(401)
+      const empty = await api(hub, "GET", "/v1/nodes", undefined, "")
+      expect(empty.status).toBe(401)
+      const wrong = await api(hub, "GET", "/v1/nodes", undefined, "x".repeat(32))
+      expect(wrong.status).toBe(401)
+    } finally {
+      hub.stop()
+    }
   })
 })

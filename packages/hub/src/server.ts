@@ -17,6 +17,7 @@ import { cleanupNonces } from "./nonces.ts"
 import { cancelRun, createRun, getRun, recoverRun, runView } from "./runs.ts"
 import { openDatabase } from "./schema.ts"
 import { authenticateMachine } from "./signatures.ts"
+import { validateConfig } from "./config.ts"
 
 export interface Hub {
   server: ReturnType<typeof Bun.serve>
@@ -43,6 +44,7 @@ async function readJson<T>(request: Request): Promise<T> {
 
 /** Constant-time bearer compare with no anonymous fallback (N8.1). */
 function authenticateBearer(config: HubConfig, headers: Headers): void {
+  if (config.adminToken.length < 32) fail("unauthorized", "unauthorized")
   const header = headers.get("authorization") ?? ""
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : ""
   const given = createHash("sha256").update(token).digest()
@@ -51,6 +53,7 @@ function authenticateBearer(config: HubConfig, headers: Headers): void {
 }
 
 export function createHub(config: HubConfig): Hub {
+  validateConfig(config)
   const db = openDatabase(config.stateFile)
 
   const handle = async (request: Request): Promise<Response> => {
