@@ -1,0 +1,16 @@
+{
+  "name": "@agenticform/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agenticform-mcp": "./bin/mcp.ts"
+  },
+  "scripts": {
+    "start": "bun run bin/mcp.ts"
+  },
+  "dependencies": {
+    "@agenticform/client": "workspace:*",
+    "@agenticform/protocol": "workspace:*"
+  }
+}

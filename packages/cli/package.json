@@ -1,0 +1,16 @@
+{
+  "name": "@agenticform/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "af": "./bin/af.ts"
+  },
+  "scripts": {
+    "start": "bun run bin/af.ts"
+  },
+  "dependencies": {
+    "@agenticform/client": "workspace:*",
+    "@agenticform/protocol": "workspace:*"
+  }
+}
