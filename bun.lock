@@ -24,6 +24,19 @@
     "packages/hub": {
       "name": "@agenticform/hub",
       "version": "0.1.0",
+      "bin": {
+        "agenticform-hub": "./bin/hub.ts",
+      },
+      "dependencies": {
+        "@agenticform/protocol": "workspace:*",
+      },
+    },
+    "packages/node": {
+      "name": "@agenticform/node",
+      "version": "0.1.0",
+      "bin": {
+        "agenticform-node": "./bin/node.ts",
+      },
       "dependencies": {
         "@agenticform/protocol": "workspace:*",
       },
@@ -37,6 +50,8 @@
     "@agenticform/protocol": ["@agenticform/protocol@workspace:packages/protocol"],
 
     "@agenticform/hub": ["@agenticform/hub@workspace:packages/hub"],
+
+    "@agenticform/node": ["@agenticform/node@workspace:packages/node"],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
