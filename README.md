@@ -51,6 +51,8 @@ bun packages/runtime/examples/run.ts codex . "Summarise this repository"
 
 The hub reads its configuration from the environment and refuses to start on unsafe values: the admin token must be at least 32 characters, and a non-local public URL must be HTTPS and a clean origin.
 
+The hub also serves a small operator UI at `/` from the same origin. It asks for the admin token in the browser, keeps it in `sessionStorage`, and sends it only in the `Authorization` header; the token never appears in a URL, the page, or a log.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `AGENTICFORM_ADMIN_TOKEN` | none (required) | Bearer token for caller and operator routes |
