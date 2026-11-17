@@ -168,6 +168,12 @@ export function completeCommand(
 
   const run = db.query<RunRow, [string]>("SELECT * FROM runs WHERE id = ?").get(command.run_id)
   if (!run) fail("not_found", "run not found")
+  if (command.leased_until === null || command.leased_until <= now) {
+    fail("lease_not_held", "lease expired")
+  }
+  if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
+    fail("fence_stale", "run is terminal")
+  }
   if (command.generation !== run.generation) {
     db.query("UPDATE commands SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now, command.id)
     fail("fence_stale", "generation advanced before completion")

@@ -126,6 +126,40 @@ describe("completion idempotency", () => {
     expect(await errorCode(conflict)).toBe("idempotency_conflict")
   })
 
+  test("a completion after the run is cancelled is refused", async () => {
+    const { node, runId, command } = await setup()
+    ;(hub as Hub).db.query("UPDATE runs SET status = 'cancelled' WHERE id = ?").run(runId)
+    const response = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(response.status).toBe(409)
+    expect(await errorCode(response)).toBe("fence_stale")
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("cancelled")
+    const commandRow = (hub as Hub).db
+      .query<{ status: string }, [string]>("SELECT status FROM commands WHERE id = ?")
+      .get(command.commandId)
+    expect(commandRow?.status).toBe("leased")
+  })
+
+  test("an expired lease cannot complete", async () => {
+    const { node, runId, command } = await setup()
+    ;(hub as Hub).db.query("UPDATE commands SET leased_until = ? WHERE id = ?").run(Date.now() - 1, command.commandId)
+    const response = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(response.status).toBe(409)
+    expect(await errorCode(response)).toBe("lease_not_held")
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("leased")
+    const commandRow = (hub as Hub).db
+      .query<{ status: string }, [string]>("SELECT status FROM commands WHERE id = ?")
+      .get(command.commandId)
+    expect(commandRow?.status).toBe("leased")
+  })
+
   test("cancel of a queued run finishes it locally", async () => {
     hub = startHub()
     const node = await enroll(hub)
