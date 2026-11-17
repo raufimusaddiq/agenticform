@@ -52,7 +52,8 @@ bun packages/runtime/examples/run.ts codex . "Summarise this repository"
 - [Architecture](docs/architecture.md)
 - [Supported harnesses](docs/harnesses.md)
 - [Constitution](.specify/memory/constitution.md)
-- [Current spec](specs/001-runtime-foundation/spec.md)
+- [Runtime spec](specs/001-runtime-foundation/spec.md)
+- [Node and hub spec](specs/002-node-hub/spec.md)
 - [Legacy documentation](docs/legacy/README.md)
 
 ## Development

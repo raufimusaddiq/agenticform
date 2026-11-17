@@ -4,7 +4,8 @@ Behaviour reference only. Source: legacy Java control plane (`server/`) and Go n
 (`node/`), pinned at commit `14a146450af4d497d310d6aedb602ae9942db960`.
 
 This file records the security and durability rules the future `node` and `hub`
-packages must keep. It is an input to the Spec Kit *specify* step, not a design.
+packages must keep. It is an input to the Spec Kit *specify* step, not a design;
+the resulting spec is [`specs/002-node-hub`](../specs/002-node-hub/spec.md).
 Each rule names the legacy code that implements it and the focused test it implies
 for the new packages. Tests target the contract or failure boundary, per
 constitution VI; names are proposed, not required.
