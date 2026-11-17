@@ -22,6 +22,17 @@ export function heartbeat(
     fail("version_unsupported", "protocol version is not supported")
   }
   if (!Array.isArray(body.harnesses)) fail("invalid_input", "harnesses must be an array")
+  if (body.capacity !== undefined) {
+    if (
+      body.capacity === null ||
+      !Number.isInteger(body.capacity.slots) ||
+      body.capacity.slots < 0 ||
+      !Number.isInteger(body.capacity.inUse) ||
+      body.capacity.inUse < 0
+    ) {
+      fail("invalid_input", "capacity.slots and capacity.inUse must be non-negative integers")
+    }
+  }
   const inventory = Array.isArray(body.runtimes) ? body.runtimes : []
   const capabilities = Array.isArray(body.capabilities) ? body.capabilities : []
   const slots = body.capacity?.slots ?? node.capacity_slots
@@ -30,7 +41,7 @@ export function heartbeat(
   const write = db.transaction((): void => {
     db.query(
       `UPDATE nodes SET status = 'online', protocol_version = ?, harnesses = ?, capabilities = ?,
-         capacity_slots = ?, capacity_in_use = ?, inventory = ?, last_heartbeat_at = ?
+         capacity_slots = ?, capacity_in_use = MAX(capacity_in_use, ?), inventory = ?, last_heartbeat_at = ?
        WHERE id = ?`,
     ).run(
       body.protocolVersion,
@@ -84,6 +95,7 @@ export function disconnectRuns(db: Database, nodeId: string, reason: string, now
       run.id,
       run.generation,
     )
+    db.query("UPDATE nodes SET capacity_in_use = MAX(capacity_in_use - 1, 0) WHERE id = ?").run(nodeId)
     insertEvent(db, run.id, {
       key: hubEventKey("disconnected", generation),
       type: "run.disconnected",

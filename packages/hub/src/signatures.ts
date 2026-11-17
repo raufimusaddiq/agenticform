@@ -67,7 +67,6 @@ export function authenticateMachine(
   if (!verifyEd25519(node.public_key, canonical, signature)) unauthorized()
 
   const expiresAt = now + config.nonceTtlMs
-  if (expiresAt <= now) unauthorized()
   const inserted = db
     .query("INSERT INTO request_nonces (node_id, nonce, expires_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
     .run(node.id, nonce, expiresAt)

@@ -46,6 +46,14 @@ describe("hub config", () => {
     expect(() => validateConfig(base({ heartbeatIntervalMs: 15_000, nodeOfflineMs: 15_000 }))).toThrow()
   })
 
+  test("the state directory uses the HOME from the provided env", () => {
+    const config = loadConfig({
+      AGENTICFORM_ADMIN_TOKEN: "y".repeat(32),
+      HOME: "/tmp/af-custom-home",
+    })
+    expect(config.stateFile).toBe("/tmp/af-custom-home/.agenticform-hub/hub.sqlite")
+  })
+
   test("loadConfig reads the documented environment variables", () => {    const config = loadConfig({
       AGENTICFORM_ADMIN_TOKEN: "y".repeat(32),
       AGENTICFORM_HUB_URL: "https://hub.example.com",

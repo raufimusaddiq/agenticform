@@ -93,4 +93,31 @@ describe("enrollment", () => {
     expect(response.body.nodes).toHaveLength(1)
     expect(response.body.nodes[0].nodeId).toBe(node.nodeId)
   })
+
+  test("labels must be a flat string map", async () => {
+    hub = startHub()
+    const issued = await api(hub, "POST", "/v1/enrollment-tokens")
+    const { publicKey } = generateKeyPairSync("ed25519")
+    const publicKeyB64 = publicKey.export({ format: "der", type: "spki" }).toString("base64")
+    for (const labels of [{ a: 1 }, ["x"], "x"]) {
+      const response = await api(hub, "POST", "/v1/enroll", {
+        token: issued.body.token,
+        name: "n",
+        publicKey: publicKeyB64,
+        protocolVersion: 1,
+        harnesses: ["codex"],
+        labels,
+      })
+      expect(response.status).toBe(400)
+      expect(response.body.error.code).toBe("invalid_input")
+    }
+  })
+
+  test("the schema indexes runs by node", () => {
+    hub = startHub()
+    const index = hub.db
+      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'runs_node'")
+      .get()
+    expect(index?.name).toBe("runs_node")
+  })
 })

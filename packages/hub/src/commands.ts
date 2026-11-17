@@ -13,8 +13,6 @@ import { fail } from "./errors.ts"
 import { insertEvent, hubEventKey } from "./events.ts"
 import type { CommandRow, NodeRow, RunRow } from "./schema.ts"
 
-const TERMINAL_RUN = new Set(["completed", "failed", "cancelled"])
-
 export function toEnvelope(row: CommandRow): CommandEnvelope {
   return {
     commandId: row.id,
@@ -173,7 +171,8 @@ export function completeCommand(
   const errorJson = body.error === undefined ? null : JSON.stringify(body.error)
   const target = body.status === "succeeded" ? "succeeded" : "failed"
 
-  if (command.status === "succeeded" || command.status === "failed" || command.status === "cancelled") {
+  if (command.status === "cancelled") fail("fence_stale", "command was cancelled")
+  if (command.status === "succeeded" || command.status === "failed") {
     const same =
       command.status === target && command.result_json === resultJson && command.error_json === errorJson
     if (!same) fail("idempotency_conflict", "a different terminal result already exists")
@@ -220,24 +219,12 @@ export function completeCommand(
         at: new Date(now).toISOString(),
         data: { status: runStatus, ...(resultJson === null ? {} : { result: JSON.parse(resultJson) }), ...(errorJson === null ? {} : { error: JSON.parse(errorJson) }) },
       })
+      if (run.node_id) {
+        db.query("UPDATE nodes SET capacity_in_use = MAX(capacity_in_use - 1, 0) WHERE id = ?").run(run.node_id)
+      }
     }
     return db.query<CommandRow, [string]>("SELECT * FROM commands WHERE id = ?").get(command.id) as CommandRow
   })
 
   return write()
-}
-
-export function cancelCommand(
-  db: Database,
-  run: RunRow,
-  now = Date.now(),
-): void {
-  db.query(
-    `UPDATE commands SET status = 'cancelled', updated_at = ?
-     WHERE run_id = ? AND status IN ('queued','leased','running')`,
-  ).run(now, run.id)
-}
-
-export function terminalRun(run: RunRow): boolean {
-  return TERMINAL_RUN.has(run.status)
 }

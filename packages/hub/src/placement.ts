@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite"
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
-import type { HubConfig } from "./config.ts"
 import type { NodeRow } from "./schema.ts"
 
 export interface PlacementFilter {
@@ -10,7 +9,7 @@ export interface PlacementFilter {
   labels?: Readonly<Record<string, string>>
 }
 
-export function nodeSupports(node: NodeRow, filter: PlacementFilter, config: HubConfig): boolean {
+export function nodeSupports(node: NodeRow, filter: PlacementFilter): boolean {
   if (node.status !== "online") return false
   if (!SUPPORTED_PROTOCOL_VERSIONS.includes(node.protocol_version)) return false
   const harnesses = JSON.parse(node.harnesses) as string[]
@@ -22,18 +21,17 @@ export function nodeSupports(node: NodeRow, filter: PlacementFilter, config: Hub
     if (labels[key] !== value) return false
   }
   if (node.capacity_in_use >= node.capacity_slots) return false
-  return config.nodeOfflineMs > 0
+  return true
 }
 
 /** Filter, then least-loaded, then oldest heartbeat. No scoring, no affinity (plan: Placement). */
 export function pickNode(
   db: Database,
-  config: HubConfig,
   filter: PlacementFilter,
 ): { node: NodeRow | null; capabilityMissing: boolean } {
   const all = db.query<NodeRow, []>("SELECT * FROM nodes WHERE status = 'online'").all()
   const candidates = all.filter((node) => (filter.nodeId ? node.id === filter.nodeId : true))
-  const eligible = candidates.filter((node) => nodeSupports(node, filter, config))
+  const eligible = candidates.filter((node) => nodeSupports(node, filter))
   if (eligible.length === 0) {
     const capabilityMissing =
       candidates.length > 0 &&

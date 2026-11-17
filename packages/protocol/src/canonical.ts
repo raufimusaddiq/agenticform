@@ -30,8 +30,9 @@ export function canonicalString(input: CanonicalInput): string {
 }
 
 /**
- * Command fingerprint (N5.3). `payloadJson` is the exact payload bytes without the
- * `fingerprint` field, so the value is not self-referential.
+ * Command fingerprint (N5.3). Each field is length-prefixed so concatenation is
+ * unambiguous, and `payloadJson` is the exact payload bytes without the
+ * `fingerprint` field.
  */
 export function commandFingerprint(
   type: string,
@@ -39,5 +40,8 @@ export function commandFingerprint(
   generation: number,
   payloadJson: string,
 ): string {
-  return "sha256:" + sha256Hex(type + idempotencyKey + String(generation) + payloadJson)
+  const framed = [type, idempotencyKey, String(generation), payloadJson]
+    .map((part) => `${Buffer.byteLength(part)}:${part}`)
+    .join("")
+  return "sha256:" + sha256Hex(framed)
 }

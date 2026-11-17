@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import type { Hub } from "../src/index.ts"
+import { sweepHealth, type Hub } from "../src/index.ts"
 import { api, createRun, enroll, errorCode, heartbeat, nextCommand, signedFetch, startHub } from "./helpers.ts"
 
 let hub: Hub | undefined
@@ -232,6 +232,17 @@ describe("completion idempotency", () => {
       .query<{ status: string }, [string]>("SELECT status FROM commands WHERE id = ?")
       .get(command.commandId)
     expect(commandRow?.status).toBe("leased")
+  })
+
+  test("a command cancelled by node loss returns fence_stale", async () => {
+    const { node, command } = await setup()
+    sweepHealth((hub as Hub).db, (hub as Hub).config, Date.now() + 46_000)
+    const response = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, {
+      status: "succeeded",
+      result: { status: "completed" },
+    })
+    expect(response.status).toBe(409)
+    expect(await errorCode(response)).toBe("fence_stale")
   })
 
   test("cancel of a queued run finishes it locally", async () => {

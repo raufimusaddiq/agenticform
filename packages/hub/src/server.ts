@@ -35,19 +35,34 @@ const empty = (status: number): Response => new Response(null, { status })
 async function readJson<T>(request: Request): Promise<T> {
   const text = await request.text()
   if (!text) fail("invalid_input", "a JSON body is required")
+  let value: unknown
   try {
-    return JSON.parse(text) as T
+    value = JSON.parse(text)
   } catch {
     fail("invalid_input", "body is not valid JSON")
   }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail("invalid_input", "body must be a JSON object")
+  }
+  return value as T
 }
 
-function parseBody(raw: Uint8Array): unknown {
+function parseBody(raw: Uint8Array): Record<string, unknown> {
+  let value: unknown
   try {
-    return JSON.parse(new TextDecoder().decode(raw))
+    value = JSON.parse(new TextDecoder().decode(raw))
   } catch {
     fail("invalid_input", "body is not valid JSON")
   }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail("invalid_input", "body must be a JSON object")
+  }
+  return value as Record<string, unknown>
+}
+
+function requireBody(body: unknown): Record<string, unknown> {
+  if (body === undefined) fail("invalid_input", "a JSON body is required")
+  return body as Record<string, unknown>
 }
 
 /** Constant-time bearer compare with no anonymous fallback (N8.1). */
@@ -90,7 +105,7 @@ export function createHub(config: HubConfig): Hub {
         return json(setNodeStatus(db, nodeId as string, action === "disable" ? "disabled" : "revoked"))
       }
       if (request.method === "POST" && path === "/v1/runs") {
-        const result = createRun(db, config, await readJson<RunRequest>(request))
+        const result = createRun(db, await readJson<RunRequest>(request))
         return json(runView(db, result.run), result.created ? 201 : 200)
       }
       const runAction = /^\/v1\/runs\/([^/]+)(?:\/(events|cancel|recover))?$/.exec(path)
@@ -122,6 +137,7 @@ export function createHub(config: HubConfig): Hub {
       if (error instanceof HubError) {
         return json({ error: { code: error.code, message: error.message } }, error.status)
       }
+      console.error("hub internal error:", error instanceof Error ? error.message : "unknown")
       return json({ error: { code: "internal", message: "internal" } }, 500)
     }
   }
@@ -137,7 +153,7 @@ export function createHub(config: HubConfig): Hub {
     const body = raw.length ? parseBody(raw) : undefined
 
     if (request.method === "POST" && url.pathname === "/v1/node/heartbeat") {
-      return json(heartbeat(db, config, node, body as HeartbeatRequest))
+      return json(heartbeat(db, config, node, requireBody(body) as unknown as HeartbeatRequest))
     }
     if (request.method === "GET" && url.pathname === "/v1/node/commands/next") {
       const command = leaseNext(db, config, node)
@@ -148,9 +164,9 @@ export function createHub(config: HubConfig): Hub {
       const commandId = action[1] as string
       if (action[2] === "renew") return json(renewLease(db, config, node, commandId))
       if (action[2] === "events") {
-        return json(appendEvents(db, config, node.id, commandId, body as EventBatch))
+        return json(appendEvents(db, node.id, commandId, requireBody(body) as unknown as EventBatch))
       }
-      return json(completeCommand(db, node, commandId, body as CompletionRequest))
+      return json(completeCommand(db, node, commandId, requireBody(body) as unknown as CompletionRequest))
     }
     fail("not_found", "route not found")
   }
@@ -183,29 +199,38 @@ function sse(db: Database, runId: string, after: number, signal: AbortSignal): R
   const stream = new ReadableStream({
     async start(controller) {
       let cursor = after
+      let idle = 0
+      const close = () => {
+        try {
+          controller.close()
+        } catch {
+          // The client may already have cancelled the stream.
+        }
+      }
       try {
+        controller.enqueue(encoder.encode(": connected\n\n"))
         while (!signal.aborted) {
           const events = listEvents(db, runId, cursor)
           for (const event of events) {
+            if (signal.aborted) return close()
             cursor = event.seq
             controller.enqueue(encoder.encode(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`))
-            if (event.type === "run.finished") {
-              controller.close()
-              return
-            }
+            if (event.type === "run.finished") return close()
           }
           const run = getRun(db, runId)
           if (["completed", "failed", "cancelled"].includes(run.status) && events.length === 0) {
-            controller.close()
-            return
+            return close()
           }
-          await Bun.sleep(50)
+          idle += 1
+          if (idle % 20 === 0) controller.enqueue(encoder.encode(": keepalive\n\n"))
+          await Bun.sleep(250)
         }
-        controller.close()
+        close()
       } catch {
-        controller.close()
+        close()
       }
     },
+    cancel() {},
   })
   return new Response(stream, {
     headers: {

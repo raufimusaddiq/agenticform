@@ -88,6 +88,35 @@ describe("nonce cleanup", () => {
   })
 })
 
+describe("heartbeat validation", () => {
+  test("capacity must be non-negative integers", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    for (const capacity of [
+      { slots: -1, inUse: 0 },
+      { slots: 1, inUse: -1 },
+      { slots: 1.5, inUse: 0 },
+      { slots: "1", inUse: 0 },
+    ]) {
+      const response = await heartbeat(hub, node, { capacity })
+      expect(response.status).toBe(400)
+      expect(response.body.error.code).toBe("invalid_input")
+    }
+  })
+
+  test("machine routes reject missing or non-object JSON bodies", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    for (const body of [null, [], "x", 3]) {
+      const response = await signedFetch(hub, node, "POST", "/v1/node/heartbeat", body)
+      expect(response.status).toBe(400)
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe("invalid_input")
+    }
+    const missing = await signedFetch(hub, node, "POST", "/v1/node/heartbeat")
+    expect(missing.status).toBe(400)
+  })
+})
+
 describe("protocol version", () => {
   test("enrollment refuses an unsupported version", async () => {
     hub = startHub()

@@ -81,13 +81,14 @@ type Command = {
 The node computes:
 
 ```text
-fingerprint = "sha256:" + hex(SHA-256(commandType + idempotencyKey + generation + JSON.stringify(payload)))
+fingerprint = "sha256:" + hex(SHA-256(framed(type) + framed(idempotencyKey) + framed(generation) + framed(payloadJson)))
+framed(part)  = decimal(UTF-8 byte length of part) + ":" + part
 ```
 
-`JSON.stringify` uses the exact bytes received, before any parsing round-trip, so
-the hub must send the fingerprint of the body it transmitted. A reused
-`commandId` with a different fingerprint is refused (`409 ambiguous_replay`), with
-no side effect.
+Length-prefixing keeps concatenation unambiguous. `JSON.stringify` uses the exact
+bytes received, before any parsing round-trip, so the hub must send the fingerprint
+of the body it transmitted. A reused `commandId` with a different fingerprint is
+refused (`409 ambiguous_replay`), with no side effect.
 
 ## 5. Generation fencing
 

@@ -23,7 +23,7 @@ const millis = (value: string | undefined, fallback: number): number =>
   value === undefined ? fallback : Number(value)
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): HubConfig {
-  const stateDir = env.AGENTICFORM_STATE_DIR ?? join(process.env.HOME ?? ".", ".agenticform-hub")
+  const stateDir = env.AGENTICFORM_STATE_DIR ?? join(env.HOME ?? ".", ".agenticform-hub")
   const config: HubConfig = {
     adminToken: env.AGENTICFORM_ADMIN_TOKEN ?? "",
     publicUrl: env.AGENTICFORM_HUB_URL ?? null,

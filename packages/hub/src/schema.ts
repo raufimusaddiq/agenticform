@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS runs (
   updated_at INTEGER NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS runs_node ON runs(node_id);
+
 CREATE TABLE IF NOT EXISTS runtime_assignments (
   run_id TEXT NOT NULL,
   node_id TEXT NOT NULL,

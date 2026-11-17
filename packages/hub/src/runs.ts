@@ -38,7 +38,6 @@ function valid(request: RunRequest): void {
 
 export function createRun(
   db: Database,
-  config: HubConfig,
   request: RunRequest,
   now = Date.now(),
 ): { run: RunRow; created: boolean } {
@@ -59,7 +58,7 @@ export function createRun(
     }
   }
 
-  const placement = pickNode(db, config, {
+  const placement = pickNode(db, {
     harness: request.harness,
     ...(request.requires === undefined ? {} : { requires: request.requires }),
     ...(request.nodeId === undefined ? {} : { nodeId: request.nodeId }),
@@ -78,6 +77,10 @@ export function createRun(
   const cwd = request.cwd ?? `run/${id}`
   const workspace = `run/${id}`
   const write = db.transaction((): RunRow => {
+    const reserved = db
+      .query("UPDATE nodes SET capacity_in_use = capacity_in_use + 1 WHERE id = ? AND capacity_in_use < capacity_slots")
+      .run(node.id)
+    if (reserved.changes !== 1) fail("no_eligible_node", "node capacity was filled by another run")
     db.query(
       `INSERT INTO runs
          (id, idempotency_key, request_json, harness, prompt, cwd, requires_json, mcp_json, labels_json,
@@ -175,6 +178,9 @@ export function cancelRun(
     db.query(
       "UPDATE runtime_assignments SET state = 'fenced', updated_at = ? WHERE run_id = ? AND generation = ?",
     ).run(now, run.id, run.generation)
+    if (["queued", "leased", "running"].includes(run.status) && run.node_id) {
+      db.query("UPDATE nodes SET capacity_in_use = MAX(capacity_in_use - 1, 0) WHERE id = ?").run(run.node_id)
+    }
     insertEvent(db, run.id, {
       key: hubEventKey("finished", generation),
       type: "run.finished",
@@ -210,7 +216,7 @@ export function recoverRun(
   if (run.git_backed !== 1) fail("recovery_precondition_failed", "workspace is not GIT-backed")
   if (run.pending_approval !== 0) fail("recovery_precondition_failed", "a pending approval blocks recovery")
 
-  const placement = pickNode(db, config, {
+  const placement = pickNode(db, {
     harness: run.harness,
     requires: JSON.parse(run.requires_json) as string[],
     ...(Object.keys(JSON.parse(run.labels_json) as Record<string, string>).length
@@ -229,6 +235,10 @@ export function recoverRun(
        WHERE id = ? AND status = 'disconnected' AND generation = ?`,
     ).run(replacement.id, generation, workspace, now, run.id, run.generation)
     if (updated.changes !== 1) fail("recovery_precondition_failed", "run state changed during recovery")
+    const reserved = db
+      .query("UPDATE nodes SET capacity_in_use = capacity_in_use + 1 WHERE id = ? AND capacity_in_use < capacity_slots")
+      .run(replacement.id)
+    if (reserved.changes !== 1) fail("recovery_precondition_failed", "replacement node has no capacity")
     db.query(
       `INSERT INTO runtime_assignments (run_id, node_id, generation, runtime_type, runtime_session_id, state, updated_at)
        VALUES (?, ?, ?, ?, NULL, 'assigned', ?)`,

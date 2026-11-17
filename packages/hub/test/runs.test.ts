@@ -44,6 +44,24 @@ describe("placement", () => {
     expect(response.body.error.code).toBe("no_eligible_node")
   })
 
+  test("capacity reservations spread a burst across nodes", async () => {
+    hub = startHub()
+    const first = await enroll(hub, { name: "first" })
+    const second = await enroll(hub, { name: "second" })
+    await heartbeat(hub, first, { capacity: { slots: 1, inUse: 0 } })
+    await heartbeat(hub, second, { capacity: { slots: 1, inUse: 0 } })
+
+    const one = await createRun(hub)
+    const two = await createRun(hub)
+    expect(one.status).toBe(201)
+    expect(two.status).toBe(201)
+    expect(new Set([one.body.nodeId, two.body.nodeId]).size).toBe(2)
+
+    const three = await createRun(hub)
+    expect(three.status).toBe(422)
+    expect(three.body.error.code).toBe("no_eligible_node")
+  })
+
   test("least-loaded node wins", async () => {
     hub = startHub()
     const busy = await enroll(hub, { name: "busy" })
@@ -150,5 +168,21 @@ describe("end to end through a fake node", () => {
     expect(events.body.events[0].type).toBe("run.finished")
     expect(events.body.events[0].data.status).toBe("failed")
     expect(events.body.lastSeq).toBe(1)
+  })
+
+  test("aborting an SSE stream mid-flight does not reject", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node)
+    const run = await createRun(hub)
+    const controller = new AbortController()
+    const response = await fetch(`${hub.url}/v1/runs/${run.body.runId}/events?stream=sse`, {
+      headers: { authorization: `Bearer ${hub.config.adminToken}` },
+      signal: controller.signal,
+    })
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    await Bun.sleep(300)
+    controller.abort()
+    await Bun.sleep(300)
   })
 })

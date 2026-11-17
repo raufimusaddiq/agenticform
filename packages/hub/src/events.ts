@@ -1,7 +1,5 @@
-import { randomUUID } from "node:crypto"
 import type { Database } from "bun:sqlite"
 import type { EventBatch, EventBatchResponse, RunEventWire } from "@agenticform/protocol"
-import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
 import type { CommandRow, EventRow, RunRow } from "./schema.ts"
 
@@ -35,7 +33,6 @@ export function insertEvent(
 
 export function appendEvents(
   db: Database,
-  config: HubConfig,
   nodeId: string,
   commandId: string,
   batch: EventBatch,
@@ -90,9 +87,3 @@ export function listEvents(db: Database, runId: string, after = 0): RunEventWire
     data: JSON.parse(row.data_json) as unknown,
   }))
 }
-
-export function runTerminal(run: RunRow): boolean {
-  return TERMINAL.has(run.status)
-}
-
-export const eventId = (): string => randomUUID()

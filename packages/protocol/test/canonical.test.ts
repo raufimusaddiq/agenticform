@@ -50,7 +50,11 @@ describe("command fingerprint", () => {
   test("matches the fixed vector", () => {
     expect(
       commandFingerprint("run.start", "run:abc:1", 1, JSON.stringify({ generation: 1, harness: "codex", prompt: "go" })),
-    ).toBe("sha256:10470f642e3232e78298a1fdfd7ec613d02c5449888b2cdf339598ac96940184")
+    ).toBe("sha256:9c62e6e00dfee86548e48d84d7bf3890b48df225bb4b31bd6117c216dee3c494")
+  })
+
+  test("field framing prevents concatenation collisions", () => {
+    expect(commandFingerprint("ab", "c", 1, "{}")).not.toBe(commandFingerprint("a", "bc", 1, "{}"))
   })
 
   test("changes with type, key, generation and payload", () => {

@@ -43,6 +43,16 @@ export function enrollNode(
   if (!Array.isArray(body.harnesses) || body.harnesses.some((h) => typeof h !== "string")) {
     fail("invalid_input", "harnesses must be a string array")
   }
+  if (body.labels !== undefined) {
+    if (
+      body.labels === null ||
+      typeof body.labels !== "object" ||
+      Array.isArray(body.labels) ||
+      Object.values(body.labels).some((value) => typeof value !== "string")
+    ) {
+      fail("invalid_input", "labels must be a flat string map")
+    }
+  }
   if (typeof body.publicKey !== "string" || !isEd25519Spki(body.publicKey)) {
     fail("invalid_input", "publicKey must be an Ed25519 SPKI key")
   }
