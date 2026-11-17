@@ -8,10 +8,13 @@ contract consumes `docs/node-hub-invariants.md` sections 2-6.
 Every post-enrollment node request carries:
 
 ```text
+X-AF-Node-Id: 6f1c2a9e-...
 X-AF-Timestamp: 1763553600000
 X-AF-Nonce: 9f2c1a7be4d80612
 X-AF-Signature: <base64 Ed25519 signature>
 ```
+
+- `nodeId` is the hub-issued id the signature covers; it is sent in `X-AF-Node-Id`.
 
 - `timestamp` is Unix milliseconds.
 - `nonce` matches `[A-Za-z0-9._:-]{16,128}`, generated from 128 random bits.
