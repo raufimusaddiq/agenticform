@@ -55,9 +55,35 @@ describe("node loss", () => {
     const nodeRow = hub.db.query<{ status: string }, [string]>("SELECT status FROM nodes WHERE id = ?").get(node.nodeId)
     expect(nodeRow?.status).toBe("online")
   })
+
+  test("SSE closes after the run disconnects", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node)
+    const run = await createRun(hub)
+    const response = await fetch(`${hub.url}/v1/runs/${run.body.runId}/events?stream=sse`, {
+      headers: { authorization: `Bearer ${hub.config.adminToken}` },
+    })
+    const text = response.text()
+    sweepHealth(hub.db, hub.config, Date.now() + 46_000)
+    expect(await text).toContain("run.disconnected")
+  })
 })
 
 describe("disable and revoke", () => {
+  test("a revoked node is terminal", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const revoked = await api(hub, "POST", `/v1/nodes/${node.nodeId}/revoke`)
+    expect(revoked.status).toBe(200)
+    const disable = await api(hub, "POST", `/v1/nodes/${node.nodeId}/disable`)
+    expect(disable.status).toBe(403)
+    expect(disable.body.error.code).toBe("forbidden")
+    const again = await api(hub, "POST", `/v1/nodes/${node.nodeId}/revoke`)
+    expect(again.status).toBe(200)
+    expect(again.body.status).toBe("revoked")
+  })
+
   for (const action of ["disable", "revoke"] as const) {
     test(`${action} disconnects and fences active runs`, async () => {
       hub = startHub()

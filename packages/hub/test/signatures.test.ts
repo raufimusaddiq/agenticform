@@ -70,6 +70,15 @@ describe("signed requests", () => {
     })
     expect(response.status).toBe(401)
   })
+
+  test("an undecodable stored key fails closed with the generic error", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    hub.db.query("UPDATE nodes SET public_key = 'not-a-key' WHERE id = ?").run(node.nodeId)
+    const response = await signedFetch(hub, node, "POST", "/v1/node/heartbeat", { protocolVersion: 1, harnesses: [] })
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: { code: "unauthorized", message: "unauthorized" } })
+  })
 })
 
 describe("nonce cleanup", () => {

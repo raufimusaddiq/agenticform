@@ -116,9 +116,9 @@ export function createHub(config: HubConfig): Hub {
           return json(runView(db, getRun(db, runId)))
         }
         if (request.method === "GET" && action === "events") {
+          getRun(db, runId)
           const after = Number(url.searchParams.get("after") ?? request.headers.get("last-event-id") ?? 0)
           if (url.searchParams.get("stream") === "sse") {
-            getRun(db, runId)
             return sse(db, runId, Number.isFinite(after) ? after : 0, request.signal)
           }
           const events = listEvents(db, runId, Number.isFinite(after) ? after : 0)
@@ -215,10 +215,10 @@ function sse(db: Database, runId: string, after: number, signal: AbortSignal): R
             if (signal.aborted) return close()
             cursor = event.seq
             controller.enqueue(encoder.encode(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`))
-            if (event.type === "run.finished") return close()
+            if (event.type === "run.finished" || event.type === "run.disconnected") return close()
           }
           const run = getRun(db, runId)
-          if (["completed", "failed", "cancelled"].includes(run.status) && events.length === 0) {
+          if (["completed", "failed", "cancelled", "disconnected"].includes(run.status) && events.length === 0) {
             return close()
           }
           idle += 1

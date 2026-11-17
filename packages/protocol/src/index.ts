@@ -11,6 +11,7 @@ export type ErrorCode =
   | "version_unsupported"
   | "idempotency_conflict"
   | "fence_stale"
+  | "events_pending"
   | "nonce_replayed"
   | "lease_not_held"
   | "ambiguous_replay"

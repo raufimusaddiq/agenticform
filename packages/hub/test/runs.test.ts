@@ -170,6 +170,13 @@ describe("end to end through a fake node", () => {
     expect(events.body.lastSeq).toBe(1)
   })
 
+  test("an unknown run's events return 404 without streaming", async () => {
+    hub = startHub()
+    const response = await api(hub, "GET", "/v1/runs/does-not-exist/events?after=0")
+    expect(response.status).toBe(404)
+    expect(response.body.error.code).toBe("not_found")
+  })
+
   test("aborting an SSE stream mid-flight does not reject", async () => {
     hub = startHub()
     const node = await enroll(hub)

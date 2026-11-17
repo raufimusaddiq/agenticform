@@ -8,6 +8,7 @@ const STATUS: Record<ErrorCode, number> = {
   version_unsupported: 409,
   idempotency_conflict: 409,
   fence_stale: 409,
+  events_pending: 409,
   nonce_replayed: 409,
   lease_not_held: 409,
   ambiguous_replay: 409,

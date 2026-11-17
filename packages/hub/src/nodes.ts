@@ -132,6 +132,9 @@ export function setNodeStatus(
 ): NodeView {
   const node = db.query<NodeRow, [string]>("SELECT * FROM nodes WHERE id = ?").get(nodeId)
   if (!node) fail("not_found", "node not found")
+  if (node.status === "revoked" && status !== "revoked") {
+    fail("forbidden", "a revoked node is terminal")
+  }
   const write = db.transaction((): NodeView => {
     db.query("UPDATE nodes SET status = ? WHERE id = ?").run(status, nodeId)
     disconnectRuns(db, nodeId, status === "disabled" ? "node_disabled" : "node_revoked", now)

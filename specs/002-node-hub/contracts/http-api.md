@@ -24,6 +24,7 @@ Machine authentication failures always use `401` with
 | `version_unsupported` | 409 |
 | `idempotency_conflict` | 409 |
 | `fence_stale` | 409 |
+| `events_pending` | 409 |
 | `nonce_replayed` | 409 |
 | `lease_not_held` | 409 |
 | `ambiguous_replay` | 409 |
@@ -137,7 +138,9 @@ Unknown or missing run/lease returns `409 fence_stale`.
 or `{ "status": "failed", "error": { "code": "process_exited", "message": "..." } }`.
 
 `200` → stored command. Duplicate identical result → `200`, no state change.
-Differing duplicate or completion for a non-leased command → `409`.
+Differing duplicate or completion for a non-leased command → `409`. If
+`eventsToSeq` is greater than the hub's last stored `seq`, completion is refused
+with `409 events_pending`; flush the remaining events and retry.
 Hub writes the terminal `run.finished` event in the same transaction.
 
 ## Caller and operator endpoints

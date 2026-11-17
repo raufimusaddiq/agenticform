@@ -10,7 +10,7 @@ import { commandFingerprint } from "@agenticform/protocol/canonical"
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
-import { insertEvent, hubEventKey } from "./events.ts"
+import { insertEvent, hubEventKey, nextSeq } from "./events.ts"
 import type { CommandRow, NodeRow, RunRow } from "./schema.ts"
 
 export function toEnvelope(row: CommandRow): CommandEnvelope {
@@ -198,6 +198,16 @@ export function completeCommand(
   if (command.generation !== run.generation) {
     db.query("UPDATE commands SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now, command.id)
     fail("fence_stale", "generation advanced before completion")
+  }
+
+  if (body.eventsToSeq !== undefined) {
+    if (!Number.isInteger(body.eventsToSeq) || body.eventsToSeq < 0) {
+      fail("invalid_input", "eventsToSeq must be a non-negative integer")
+    }
+    const lastSeq = nextSeq(db, run.id) - 1
+    if (body.eventsToSeq > lastSeq) {
+      fail("events_pending", "events are not persisted yet; flush and retry")
+    }
   }
 
   const write = db.transaction((): CommandRow => {

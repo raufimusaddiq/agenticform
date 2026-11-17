@@ -51,8 +51,8 @@ wrong.
   `$HOME/.agenticform-node/identity/device.pem`, mode `0600`.
 - Public key: SPKI DER, base64 in requests and at rest.
 - Only Ed25519 is accepted. Any other algorithm or a malformed encoding fails
-  enrollment, and a stored key that cannot decode fails verification with a
-  named internal error, never a bypass.
+  enrollment, and a stored key that cannot decode fails verification with the
+  same generic `401 unauthorized`, never a bypass.
 - A node id is a hub-issued UUID and is permanent until revoked.
 
 ## 3. Version negotiation
@@ -116,7 +116,10 @@ so two hubs or two workers cannot both win.
   `409 idempotency_conflict`.
 - **Complete**: identical terminal result is a no-op returning the stored command.
   A differing result, a second failure with a different error, or a completion
-  for a non-leased command is `409`.
+  for a non-leased command is `409`. If `eventsToSeq` exceeds the hub's last
+  stored `seq`, the hub refuses with `409 events_pending` and leaves the command
+  leased; the node flushes the remaining events and retries the completion, so
+  `run.finished` can never overtake an event the node already wrote.
 - **Events**: `(run_id, key)` is unique. Re-sending a batch is a no-op for the
   events the hub already has.
 - **At-least-once execution**: command delivery may repeat. The node's ledger,

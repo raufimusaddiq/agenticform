@@ -234,6 +234,31 @@ describe("completion idempotency", () => {
     expect(commandRow?.status).toBe("leased")
   })
 
+  test("completion is refused while eventsToSeq is ahead of stored events", async () => {
+    const { node, runId, command } = await setup()
+    const body = { status: "succeeded", result: { status: "completed" }, eventsToSeq: 2 }
+    const early = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, body)
+    expect(early.status).toBe(409)
+    expect(await errorCode(early)).toBe("events_pending")
+    const leased = (hub as Hub).db
+      .query<{ status: string }, [string]>("SELECT status FROM commands WHERE id = ?")
+      .get(command.commandId)
+    expect(leased?.status).toBe("leased")
+    const runRow = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(runRow?.status).toBe("leased")
+
+    await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/events`, {
+      events: [
+        { key: "c1:1", type: "run.started", at: new Date().toISOString(), data: {} },
+        { key: "c1:2", type: "message.delta", at: new Date().toISOString(), data: { text: "ok" } },
+      ],
+    })
+    const retry = await signedFetch(hub as Hub, node, "POST", `/v1/node/commands/${command.commandId}/complete`, body)
+    expect(retry.status).toBe(200)
+    const finished = (hub as Hub).db.query<{ status: string }, [string]>("SELECT status FROM runs WHERE id = ?").get(runId)
+    expect(finished?.status).toBe("completed")
+  })
+
   test("a command cancelled by node loss returns fence_stale", async () => {
     const { node, command } = await setup()
     sweepHealth((hub as Hub).db, (hub as Hub).config, Date.now() + 46_000)
