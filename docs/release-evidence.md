@@ -27,9 +27,11 @@ is what is measured. It restarts the node three times, samples `VmRSS` every
 and counts runs without a terminal state.
 
 It writes `soak-result.json` and exits non-zero on an orphaned process group, a
-non-terminal run, or a final RSS over 120% of the baseline (the first sample
-after warm-up, capped at one hour). A 2-minute smoke mode runs in
-`packages/node/test/soak-smoke.test.ts`:
+non-terminal run, or a final RSS over 120% of the baseline. For `--hours` runs
+the baseline is the sample at about 60 minutes (SC-005); a `--minutes` smoke run
+uses a short warm-up instead. The result records which sample was the baseline.
+
+A 2-minute smoke mode runs in `packages/node/test/soak-smoke.test.ts`:
 
 ```bash
 bun run scripts/soak.ts --minutes 2 --restarts 1
