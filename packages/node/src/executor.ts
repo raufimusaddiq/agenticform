@@ -44,6 +44,10 @@ export interface ExecutorOptions {
   harnessFailed?: (id: string) => void
   /** Bound on the pre-run probe wait. Default 30 s. */
   probeWaitMs?: number
+  /** Home used to resolve the entry point; must match the prober's. */
+  home?: string
+  /** Environment used to resolve the entry point; must match the prober's. */
+  env?: Record<string, string | undefined>
 }
 
 interface ActiveRun {
@@ -108,6 +112,8 @@ export class Executor {
   private readonly harnessEntry: ((id: string) => ResolvedHarness | undefined) | undefined
   private readonly harnessFailed: ((id: string) => void) | undefined
   private readonly probeWaitMs: number
+  private readonly home: string | undefined
+  private readonly env: Record<string, string | undefined> | undefined
   private staleCount = 0
 
   constructor(options: ExecutorOptions = {}) {
@@ -122,6 +128,8 @@ export class Executor {
     this.harnessEntry = options.harnessEntry
     this.harnessFailed = options.harnessFailed
     this.probeWaitMs = options.probeWaitMs ?? 30_000
+    this.home = options.home
+    this.env = options.env
   }
 
   get activeCount(): number {
@@ -313,8 +321,12 @@ export class Executor {
     }
     // T031: re-resolve the entry at each run start (cheap, no network). The
     // ready cache is long, but the entry may have moved (a new version dir); a
-    // changed entry invalidates the cache and re-probes before the run.
-    const fresh = resolveHarness(definition)
+    // changed entry invalidates the cache and re-probes before the run. Use the
+    // same home and PATH as the prober, or a custom home would look changed.
+    const fresh = resolveHarness(definition, {
+      ...(this.home === undefined ? {} : { home: this.home }),
+      ...(this.env?.PATH === undefined ? {} : { path: this.env.PATH }),
+    })
     const cached = this.harnessEntry?.(payload.harness)
     const changed = cached !== undefined && (!fresh.ok || !sameEntry(cached, fresh.resolved))
     if (changed) {

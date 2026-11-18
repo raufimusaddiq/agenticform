@@ -615,6 +615,57 @@ describe("non-ready runs", () => {
     expect(captured?.args).toContain(dir)
   })
 
+  test("a run resolves with the prober's home and PATH, so it does not re-probe", async () => {
+    const home = temp("af-home-")
+    const bin = join(home, ".local", "bin")
+    mkdirSync(bin, { recursive: true })
+    const entry = join(bin, "agent")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const env = { PATH: bin }
+    const resolution = resolveHarness({ id: "fake", profile: "coding", command: "agent" }, { home, path: bin })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    let probes = 0
+    let captured: HarnessDefinition | undefined
+    const driver: RuntimeDriver = {
+      async connect(input): Promise<DriverConnection> {
+        captured = input.harness
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            return { stopReason: "end_turn" }
+          },
+          async cancel() {},
+          async close() {},
+          stderrTail() {
+            return ""
+          },
+        }
+      },
+    }
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver,
+        harnesses: { fake: { id: "fake", profile: "coding", command: "agent" } },
+      }),
+      harnessStatus: () => "ready",
+      harnessEntry: () => resolution.resolved,
+      harnessProbe: async () => {
+        probes += 1
+        return "ready"
+      },
+      home,
+      env,
+    })
+    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.status).toBe("succeeded")
+    expect(probes).toBe(0)
+    expect(captured?.args).toContain(bin)
+  })
+
   test("a changed entry invalidates the ready cache and re-probes", async () => {
     const root = temp("af-ver-")
     const v1 = join(root, "v1")

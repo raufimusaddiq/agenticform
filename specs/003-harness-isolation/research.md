@@ -140,6 +140,8 @@ because it may hold config (for example `~/.npm-global/.npmrc`):
 | `~/.opencode` | OpenCode's install root; the binary is in `bin`. |
 
 The lists are data next to the profile table; a new install root is a table edit.
+A bound bin dir is read-only, but every file in it is readable by the harness;
+keep secrets out of bin dirs and put credentials in a declared state dir.
 
 ## Presence probe
 

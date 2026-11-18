@@ -17,6 +17,10 @@ export interface NodeOptions {
   stopTimeoutMs?: number
   fetch?: typeof fetch
   onError?: (error: unknown) => void
+  /** Home used to resolve harness entry points; defaults to the process home. */
+  home?: string
+  /** Environment used to resolve harness entry points; defaults to the process env. */
+  env?: Record<string, string | undefined>
 }
 
 export interface Node {
@@ -52,6 +56,8 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
     ttlMs: config.harnessProbeTtlMs,
     readyTtlMs: config.harnessProbeReadyTtlMs,
     timeoutMs: config.harnessProbeTimeoutMs,
+    ...(options.home === undefined ? {} : { home: options.home }),
+    ...(options.env === undefined ? {} : { env: options.env }),
   })
   const executor = new Executor({
     runtime,
@@ -62,6 +68,8 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
     harnessEntry: (id) => prober.resolved(id),
     harnessFailed: (id) => prober.invalidate(id),
     probeWaitMs: config.harnessProbeTimeoutMs + 5_000,
+    ...(options.home === undefined ? {} : { home: options.home }),
+    ...(options.env === undefined ? {} : { env: options.env }),
   })
   const capabilities = options.capabilities ?? []
   const slots = options.slots ?? 1

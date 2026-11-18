@@ -81,6 +81,8 @@ Rules:
     `/`, the home root, an ancestor of HOME or a state path, a temp root or a
     workspace ancestor; those bind only the entry and interpreter files.
   Only directories that exist inside the sandbox are put on `PATH`.
+- A bound bin dir is read-only, but every file in it is readable by the harness.
+  Keep secrets out of bin dirs; a credential belongs in a declared state dir.
 - The root is remounted read-only after the binds, so a path next to the
   workspace (created for the bind) cannot be written. The workspace, `/tmp`, the
   home, the state binds and the entry-point binds are separate mounts and keep
