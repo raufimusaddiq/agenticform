@@ -103,13 +103,6 @@ describe("node state", () => {
     expect(state.currentGeneration("run-1")).toBe(2)
   })
 
-  test("admits a command once, replays it, then conflicts on a changed payload", () => {
-    const state = new NodeState()
-    expect(state.admit(command())).toBe("new")
-    expect(state.admit(command())).toBe("replay")
-    expect(state.admit(command({ payload: { ...command().payload, prompt: "other" } }))).toBe("conflict")
-  })
-
   test("fingerprint covers type, idempotency key, generation and payload", () => {
     const base = fingerprintOf(command())
     expect(fingerprintOf(command({ type: "run.inspect" }))).not.toBe(base)

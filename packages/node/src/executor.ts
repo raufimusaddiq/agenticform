@@ -9,6 +9,7 @@ import {
 } from "@agenticform/runtime"
 import type { CommandEnvelope } from "@agenticform/protocol"
 import { normaliseEvent } from "./events.ts"
+import { CommandLedger } from "./ledger.ts"
 import { NodeState, fingerprintError, payloadGenerationError } from "./state.ts"
 
 export interface ExecutionContext {
@@ -24,6 +25,10 @@ export interface ExecutionOutcome {
 
 export interface ExecutorOptions {
   runtime?: Runtime
+  /** Ledger directory; omitted keeps receipts in memory. */
+  ledgerDir?: string
+  /** Retention window for terminal receipts. */
+  ledgerRetentionMs?: number
 }
 
 interface ActiveRun {
@@ -51,16 +56,21 @@ function outcomeOf(result: RunResult): ExecutionOutcome {
 /**
  * Executes hub commands through `runtime` (FR-019). The node owns no harness
  * logic: it maps a command to a runtime input and a runtime result to a
- * completion. Ledger durability is layered on top by a later task.
+ * completion. Receipts are durable when a ledger directory is configured.
  */
 export class Executor {
   private readonly runtime: Runtime
+  private readonly ledger: CommandLedger
   private readonly active = new Map<string, ActiveRun>()
   private readonly state = new NodeState()
   private staleCount = 0
 
   constructor(options: ExecutorOptions = {}) {
     this.runtime = options.runtime ?? createRuntime()
+    this.ledger = new CommandLedger({
+      ...(options.ledgerDir === undefined ? {} : { dir: options.ledgerDir }),
+      ...(options.ledgerRetentionMs === undefined ? {} : { retentionMs: options.ledgerRetentionMs }),
+    })
   }
 
   get activeCount(): number {
@@ -98,15 +108,30 @@ export class Executor {
     if (fingerprintProblem) {
       return { status: "failed", error: { code: "idempotency_conflict", message: fingerprintProblem } }
     }
-    // FR-028: a reused command id with a different fingerprint is refused
-    // before it can reach any handler or runtime.
-    const admission = this.state.admit(command)
-    if (admission === "conflict") {
+    // FR-028, FR-031: the ledger admits a fresh id once, replays a cached
+    // terminal result, and refuses a reuse or an interrupted receipt.
+    const admission = this.ledger.admit(command)
+    if (admission.kind === "invalid") {
+      return { status: "failed", error: { code: "invalid_input", message: admission.message } }
+    }
+    if (admission.kind === "conflict") {
       return {
         status: "failed",
         error: { code: "idempotency_conflict", message: "command id reused with a different fingerprint" },
       }
     }
+    if (admission.kind === "ambiguous") {
+      return { status: "failed", error: { code: "ambiguous_replay", message: admission.message } }
+    }
+    if (admission.kind === "replay") return admission.outcome
+    // `started` is persisted before the effect. A throw leaves it in place, so a
+    // redelivery is refused as ambiguous instead of running twice (N6.1, N6.3).
+    const outcome = await this.dispatch(command, context)
+    this.ledger.settle(command, outcome)
+    return outcome
+  }
+
+  private async dispatch(command: CommandEnvelope, context: ExecutionContext): Promise<ExecutionOutcome> {
     if (command.type === "run.cancel") return this.cancel(command)
     if (command.type === "run.inspect") return this.inspect(command)
     return this.start(command, context)

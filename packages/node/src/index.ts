@@ -12,6 +12,12 @@ export {
 export { NodeClient, NodeClientError, type ClientOptions } from "./client.ts"
 export { EventBatcher, normaliseEvent, type EventBatcherOptions } from "./events.ts"
 export { Executor, type ExecutionContext, type ExecutionOutcome, type ExecutorOptions } from "./executor.ts"
+export {
+  CommandLedger,
+  type LedgerAdmission,
+  type LedgerOptions,
+  type LedgerOutcome,
+} from "./ledger.ts"
 export { startHeartbeat, type HeartbeatLoop, type HeartbeatOptions } from "./heartbeat.ts"
 export { startPoller, type Poller, type PollerOptions } from "./poller.ts"
 export {
@@ -19,6 +25,5 @@ export {
   fingerprintOf,
   NodeState,
   payloadGenerationError,
-  type CommandAdmission,
 } from "./state.ts"
 export { createNode, type Node, type NodeOptions } from "./node.ts"
