@@ -160,4 +160,18 @@ describe("remote permission answers (T021)", () => {
     const outcome = await executor().execute(answerCommand("allow"), context([]))
     expect(outcome).toEqual({ status: "succeeded", result: { applied: false } })
   })
+
+  test("a restarted node never re-asks and cannot apply an old answer", async () => {
+    const events: RunEventInput[] = []
+    const before = executor(50)
+    await before.execute(command(), context(events))
+    expect(events.filter((event) => event.type === "permission.requested")).toHaveLength(1)
+    // A restart is a fresh executor: waiters were memory only, so nothing is
+    // replayed and the old answer has nothing to resolve.
+    const after = executor()
+    expect(await after.execute(answerCommand("allow"), context([]))).toEqual({
+      status: "succeeded",
+      result: { applied: false },
+    })
+  })
 })
