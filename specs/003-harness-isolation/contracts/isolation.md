@@ -70,11 +70,13 @@ Rules:
   - if the real file is inside a declared state dir, do not add a bind: map the
     command and `PATH` entry to the in-sandbox path of that state bind;
   - otherwise, under HOME, bind the smallest directory containing the real file
-    only when it is inside the install-root allowlist (`~/.local/bin`,
-    `~/.local/share/claude`, `~/.bun`, `~/.opencode`, `~/.npm-global`,
-    `~/.volta`, `~/.nvm`); anything else under HOME binds only the entry and
-    interpreter files, so a subdirectory such as `~/.ssh/sub` or `~/.config/gh`
-    cannot leak siblings;
+    only when it is a bin dir (`~/.local/bin`, `~/.bun/bin`, `~/.opencode/bin`,
+    `~/.npm-global/bin`, when present) or a strict subdir of a package root
+    (`~/.local/share/claude`, `~/.bun`, `~/.npm-global`, `~/.volta`, `~/.nvm`,
+    `~/.opencode`); a package root itself is file-only, so a binary directly in
+    `~/.npm-global` cannot expose `.npmrc`; anything else under HOME binds only
+    the entry and interpreter files, so a subdirectory such as `~/.ssh/sub` or
+    `~/.config/gh` cannot leak siblings;
   - outside HOME, bind the smallest directory containing the real file, never
     `/`, the home root, an ancestor of HOME or a state path, a temp root or a
     workspace ancestor; those bind only the entry and interpreter files.

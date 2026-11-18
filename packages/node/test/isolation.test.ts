@@ -186,10 +186,10 @@ describe("isolation argv", () => {
     expect(binds).toEqual([])
   })
 
-  test("an install-root entry dir is bound whole", () => {
+  test("a bin dir is bound whole", () => {
     const home = temp("af-home-")
-    for (const root of [".bun", ".opencode"]) {
-      const dir = join(home, root, "bin")
+    for (const root of [".local/bin", ".bun/bin", ".opencode/bin", ".npm-global/bin"]) {
+      const dir = join(home, root)
       mkdirSync(dir, { recursive: true })
       const entry = join(dir, "x")
       writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
@@ -197,6 +197,16 @@ describe("isolation argv", () => {
       expect(binds.dirBinds).toEqual([dir])
       expect(binds.fileBinds).toEqual([])
     }
+  })
+
+  test("a strict subdir of a package root is bound whole", () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".local", "share", "claude", "versions", "v1")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "agent")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const binds = entryBinds({ command: entry, dirs: [dir], files: [entry] }, profileFor("nope"), "/tmp/ws", home)
+    expect(binds.dirBinds).toEqual([dir])
   })
 
   test("a non-allowlisted home dir binds only the file", () => {
@@ -483,6 +493,39 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
     expect(result.text).toBe(`read:${npmrc}=ENOENT`)
   })
 
+  test("a binary in ~/.local/bin is bound and a sibling helper resolves by name", async () => {
+    const home = temp("af-home-")
+    const bin = join(home, ".local", "bin")
+    mkdirSync(bin, { recursive: true })
+    const entry = join(bin, "agent.ts")
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    const helper = join(bin, "helper")
+    writeFileSync(helper, "#!/bin/sh\necho helper-ok\n", { mode: 0o755 })
+    const workspace = temp("af-ws-")
+    const resolved = resolveWorkspace(workspace, home)
+    const resolution = resolveHarness({
+      id: "fake",
+      profile: "coding",
+      command: entry,
+      args: [JSON.stringify({ scenario: "exec", exec: "helper" })],
+    })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    const definition = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor("fake"),
+      resolved,
+      home,
+      process.env,
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+    )
+    const args = definition.args ?? []
+    expect(args).toContain(bin)
+    expect(args[args.indexOf("PATH") + 1]).toContain(bin)
+    const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+    const result = await run.result()
+    expect(result.text).toContain("helper-ok")
+  })
+
   for (const root of ["/tmp", "/var/tmp"]) {
     test(`a sibling in ${root} is not visible when the entry is directly in ${root}`, async () => {
       const entry = join(root, `af-entry-${randomUUID()}.ts`)
@@ -643,9 +686,13 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       },
       { workspace, home },
     )
-    expect(result.text).toBe(
-      ["list:/home/agent=", "list:/home/agent/.ssh=ENOENT", "list:/home/agent/.claude=ENOENT"].join("\n"),
-    )
+    const lines = result.text.split("\n")
+    // Bun may create its own ~/.bun cache in the private home; no harness state
+    // may appear.
+    expect(lines[0]).not.toContain(".ssh")
+    expect(lines[0]).not.toContain(".claude")
+    expect(lines[1]).toBe("list:/home/agent/.ssh=ENOENT")
+    expect(lines[2]).toBe("list:/home/agent/.claude=ENOENT")
   })
 
   test("no AGENTICFORM_* variable or node secret reaches the harness", async () => {

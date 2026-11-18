@@ -77,7 +77,6 @@ export const HARNESS_REPORT_REASONS = [
   "protocol_unsupported",
   "capability_missing",
   "agent_error",
-  "entry_dir_unsafe",
 ] as const
 
 export type HarnessReportReason = (typeof HARNESS_REPORT_REASONS)[number]

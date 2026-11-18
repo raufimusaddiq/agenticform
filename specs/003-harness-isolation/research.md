@@ -111,21 +111,35 @@ entries, so a missing optional config directory does not fail the run.
 ## Entry-point install roots
 
 A directory under HOME may be bound whole only when it is inside a declared
-state dir (mapped to the sandbox home) or one of these install roots. Anything
-else under HOME binds only the resolved entry file and its interpreter, so a
-subdirectory such as `~/.ssh/sub` or `~/.config/gh` cannot leak siblings.
+state dir (mapped to the sandbox home) or one of the install roots below.
+Anything else under HOME binds only the resolved entry file and its interpreter,
+so a subdirectory such as `~/.ssh/sub` or `~/.config/gh` cannot leak siblings.
 
-| Install root | Why |
+Two kinds of data:
+
+**Bin dirs** are bound as-is (the dir itself, read-only, on `PATH`), only when
+they exist:
+
+| Bin dir | Why |
 |---|---|
 | `~/.local/bin` | User-local executables; the common install target for `claude` and other CLIs. |
+| `~/.bun/bin` | Bun's own binaries (`bun`, `bunx`). |
+| `~/.opencode/bin` | OpenCode's binary. |
+| `~/.npm-global/bin` | npm's user-prefix global bins. |
+
+**Package roots** allow only a strict subdir; the root itself is file-only
+because it may hold config (for example `~/.npm-global/.npmrc`):
+
+| Package root | Why |
+|---|---|
 | `~/.local/share/claude` | Claude Code's versioned native install; `~/.local/bin/claude` symlinks here. |
-| `~/.bun` | Bun's bin and install cache; `bunx` entries and the `bun` interpreter live here. |
-| `~/.opencode` | OpenCode's install root (`~/.opencode/bin/opencode`). |
-| `~/.npm-global` | npm's user prefix when configured; global CLI installs. |
+| `~/.bun` | Bun's install cache; `bunx` entries live under `install/cache`. |
+| `~/.npm-global` | npm's user prefix; global packages live under `lib/node_modules`. |
 | `~/.volta` | Volta's shims and installed toolchain. |
 | `~/.nvm` | nvm's installed Node versions and global bins. |
+| `~/.opencode` | OpenCode's install root; the binary is in `bin`. |
 
-The list is data next to the profile table; a new install root is a table edit.
+The lists are data next to the profile table; a new install root is a table edit.
 
 ## Presence probe
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { CommandEnvelope, HarnessStatus, HeartbeatRequest } from "@agenticform/protocol"
@@ -12,7 +12,7 @@ import {
   type RuntimeDriver,
 } from "@agenticform/runtime"
 import { Executor } from "../src/executor.ts"
-import { HarnessProber, probeHarness, resolveHarness } from "../src/harness-probe.ts"
+import { HarnessProber, probeHarness, resolveHarness, type ResolvedHarness } from "../src/harness-probe.ts"
 import { startHeartbeat } from "../src/heartbeat.ts"
 import { fingerprintOf } from "../src/state.ts"
 
@@ -473,43 +473,6 @@ describe("non-ready runs", () => {
     expect(invalidated).toEqual(["fake"])
   })
 
-  test("an unsafe entry dir binds only the file, never a root bind", async () => {
-    let captured: HarnessDefinition | undefined
-    const driver: RuntimeDriver = {
-      async connect(input): Promise<DriverConnection> {
-        captured = input.harness
-        return {
-          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
-          async openSession() {},
-          async prompt() {
-            return { stopReason: "end_turn" }
-          },
-          async cancel() {},
-          async close() {},
-          stderrTail() {
-            return ""
-          },
-        }
-      },
-    }
-    const executor = new Executor({
-      runtime: createRuntime({
-        driver,
-        harnesses: { fake: { id: "fake", profile: "coding", command: "/agent" } },
-      }),
-      harnessStatus: () => "ready",
-      harnessEntry: () => ({ definition: { id: "fake", profile: "coding", command: "/agent" }, dirs: ["/"], files: [] }),
-    })
-    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
-      emit: () => {},
-      signal: new AbortController().signal,
-    })
-    expect(outcome.status).toBe("succeeded")
-    const args = captured?.args ?? []
-    const rootBinds = args.flatMap((arg, index) => (arg === "--ro-bind" && args[index + 1] === "/" ? ["/"] : []))
-    expect(rootBinds).toEqual([])
-  })
-
   test("a run before the first probe triggers a probe and waits", async () => {
     let status: HarnessStatus | undefined
     let probes = 0
@@ -614,6 +577,10 @@ describe("non-ready runs", () => {
 
   test("a run reuses the prober's resolved entry dirs", async () => {
     const dir = temp("af-entry-")
+    const entry = join(dir, "agent")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const resolution = resolveHarness({ id: "fake", profile: "coding", command: entry })
+    if (!resolution.ok) throw new Error("entry did not resolve")
     let captured: HarnessDefinition | undefined
     const driver: RuntimeDriver = {
       async connect(input): Promise<DriverConnection> {
@@ -635,10 +602,10 @@ describe("non-ready runs", () => {
     const executor = new Executor({
       runtime: createRuntime({
         driver,
-        harnesses: { fake: { id: "fake", profile: "coding", command: "/unresolvable" } },
+        harnesses: { fake: { id: "fake", profile: "coding", command: entry } },
       }),
       harnessStatus: () => "ready",
-      harnessEntry: () => ({ definition: { id: "fake", profile: "coding", command: "/unresolvable" }, dirs: [dir], files: [] }),
+      harnessEntry: () => resolution.resolved,
     })
     const outcome = await executor.execute(command("fake", temp("af-ws-")), {
       emit: () => {},
@@ -646,6 +613,70 @@ describe("non-ready runs", () => {
     })
     expect(outcome.status).toBe("succeeded")
     expect(captured?.args).toContain(dir)
+  })
+
+  test("a changed entry invalidates the ready cache and re-probes", async () => {
+    const root = temp("af-ver-")
+    const v1 = join(root, "v1")
+    const v2 = join(root, "v2")
+    mkdirSync(v1)
+    mkdirSync(v2)
+    const a1 = join(v1, "agent")
+    const a2 = join(v2, "agent")
+    writeFileSync(a1, "#!/bin/sh\n", { mode: 0o755 })
+    writeFileSync(a2, "#!/bin/sh\n", { mode: 0o755 })
+    const link = join(root, "agent")
+    symlinkSync(a1, link)
+    let cached: ResolvedHarness | undefined = {
+      definition: { id: "fake", profile: "coding", command: a1 },
+      dirs: [v1],
+      files: [a1],
+    }
+    let probes = 0
+    let captured: HarnessDefinition | undefined
+    const driver: RuntimeDriver = {
+      async connect(input): Promise<DriverConnection> {
+        captured = input.harness
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            return { stopReason: "end_turn" }
+          },
+          async cancel() {},
+          async close() {},
+          stderrTail() {
+            return ""
+          },
+        }
+      },
+    }
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver,
+        harnesses: { fake: { id: "fake", profile: "coding", command: link } },
+      }),
+      harnessStatus: () => "ready",
+      harnessEntry: () => cached,
+      harnessProbe: async () => {
+        probes += 1
+        cached = { definition: { id: "fake", profile: "coding", command: a2 }, dirs: [v2], files: [a2] }
+        return "ready"
+      },
+      harnessFailed: () => {
+        cached = undefined
+      },
+    })
+    // The harness is updated to a new version dir behind the same symlink.
+    rmSync(link)
+    symlinkSync(a2, link)
+    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.status).toBe("succeeded")
+    expect(probes).toBe(1)
+    expect(captured?.args).toContain(a2)
   })
 })
 

@@ -3,7 +3,6 @@ import type { HarnessStatus } from "@agenticform/protocol"
 import {
   createRuntime,
   type Capability,
-  type HarnessDefinition,
   type McpServer,
   type Run,
   type RunResult,
@@ -82,6 +81,17 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | undefin
   }
 }
 
+/** Two resolved entries are the same when the command, dirs and files match. */
+function sameEntry(a: ResolvedHarness, b: ResolvedHarness): boolean {
+  return (
+    a.definition.command === b.definition.command &&
+    a.dirs.length === b.dirs.length &&
+    a.dirs.every((dir, index) => dir === b.dirs[index]) &&
+    a.files.length === b.files.length &&
+    a.files.every((file, index) => file === b.files[index])
+  )
+}
+
 /**
  * Executes hub commands through `runtime` (FR-019). The node owns no harness
  * logic: it maps a command to a runtime input and a runtime result to a
@@ -92,7 +102,7 @@ export class Executor {
   private readonly ledger: CommandLedger
   private readonly active = new Map<string, ActiveRun>()
   private readonly state = new NodeState()
-  private readonly harnesses: readonly string[] | undefined
+  private readonly configuredHarnesses: readonly string[] | undefined
   private readonly harnessStatus: ((id: string) => HarnessStatus | undefined) | undefined
   private readonly harnessProbe: ((id: string) => Promise<HarnessStatus | undefined>) | undefined
   private readonly harnessEntry: ((id: string) => ResolvedHarness | undefined) | undefined
@@ -106,7 +116,7 @@ export class Executor {
       ...(options.ledgerDir === undefined ? {} : { dir: options.ledgerDir }),
       ...(options.ledgerRetentionMs === undefined ? {} : { retentionMs: options.ledgerRetentionMs }),
     })
-    this.harnesses = options.harnesses
+    this.configuredHarnesses = options.harnesses
     this.harnessStatus = options.harnessStatus
     this.harnessProbe = options.harnessProbe
     this.harnessEntry = options.harnessEntry
@@ -121,6 +131,11 @@ export class Executor {
   /** Commands refused because their generation was older than the active run. */
   get staleObservations(): number {
     return this.staleCount
+  }
+
+  /** The harness ids the runtime catalog knows. */
+  harnesses(): string[] {
+    return this.runtime.harnesses().map((harness) => harness.id)
   }
 
   inventory(): RuntimeInventoryEntry[] {
@@ -251,7 +266,7 @@ export class Executor {
     // contracts/harness-detection.md §5: a harness this node does not offer is
     // `harness_missing`, even if the runtime catalog knows it. An empty list
     // means "all configured", matching the node's advertisement filter.
-    if (this.harnesses && this.harnesses.length > 0 && !this.harnesses.includes(payload.harness)) {
+    if (this.configuredHarnesses && this.configuredHarnesses.length > 0 && !this.configuredHarnesses.includes(payload.harness)) {
       return {
         status: "failed",
         error: { code: "harness_missing", message: `Harness is not configured on this node: ${payload.harness}` },
@@ -296,22 +311,37 @@ export class Executor {
         }
       }
     }
-    // T031: reuse the entry point the prober resolved. A caller without a
-    // prober (custom callers, tests) resolves the harness command on the host
-    // PATH here; that is a deliberate behaviour change from the pre-T031 code.
+    // T031: re-resolve the entry at each run start (cheap, no network). The
+    // ready cache is long, but the entry may have moved (a new version dir); a
+    // changed entry invalidates the cache and re-probes before the run.
+    const fresh = resolveHarness(definition)
     const cached = this.harnessEntry?.(payload.harness)
-    let resolved: ResolvedHarness
-    if (cached) {
-      resolved = cached
-    } else {
-      const resolution = resolveHarness(definition)
-      if (!resolution.ok) {
-        return {
-          status: "failed",
-          error: { code: "harness_missing", message: `Harness is missing: ${payload.harness} (${resolution.reason})` },
-        }
+    const changed = cached !== undefined && (!fresh.ok || !sameEntry(cached, fresh.resolved))
+    if (changed) {
+      this.harnessFailed?.(payload.harness)
+      const status = await withTimeout(
+        this.harnessProbe?.(payload.harness) ?? Promise.resolve(undefined),
+        this.probeWaitMs,
+      )
+      if (status !== "ready") {
+        const code =
+          status === "missing"
+            ? "harness_missing"
+            : status === "unauthenticated"
+              ? "harness_unauthenticated"
+              : "harness_unavailable"
+        return { status: "failed", error: { code, message: `Harness is not ready: ${payload.harness}` } }
       }
-      resolved = resolution.resolved
+    }
+    const resolved = this.harnessEntry?.(payload.harness) ?? (fresh.ok ? fresh.resolved : undefined)
+    if (!resolved) {
+      return {
+        status: "failed",
+        error: {
+          code: "harness_missing",
+          message: `Harness is missing: ${payload.harness}${fresh.ok ? "" : ` (${fresh.reason})`}`,
+        },
+      }
     }
 
     // Re-entry for the same run: an equal or older generation is stale; a newer
@@ -348,23 +378,16 @@ export class Executor {
     }
 
     // Every run is sandboxed (FR-001). There is no unsandboxed path: a sandbox
-    // that cannot start fails the run instead of falling back.
-    let sandboxed: HarnessDefinition
-    try {
-      sandboxed = sandboxHarness(
-        resolved.definition,
-        profileFor(payload.harness),
-        workspace,
-        undefined,
-        undefined,
-        { entryDirs: resolved.dirs, entryFiles: resolved.files },
-      )
-    } catch (error) {
-      if (error instanceof IsolationError && error.code === "entry_dir_unsafe") {
-        return { status: "failed", error: { code: "harness_unavailable", message: error.message } }
-      }
-      throw error
-    }
+    // that cannot start fails the run instead of falling back. Unsafe entry
+    // dirs degrade to file-only binds, so the argv builder does not throw.
+    const sandboxed = sandboxHarness(
+      resolved.definition,
+      profileFor(payload.harness),
+      workspace,
+      undefined,
+      undefined,
+      { entryDirs: resolved.dirs, entryFiles: resolved.files },
+    )
     const run = this.runtime.run({
       harness: sandboxed,
       cwd: workspace,

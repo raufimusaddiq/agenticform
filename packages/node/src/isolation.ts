@@ -40,7 +40,7 @@ const TABLE: Readonly<Record<string, { rw: readonly string[]; ro: readonly strin
 
 export class IsolationError extends Error {
   constructor(
-    readonly code: "workspace_missing" | "isolation_unavailable" | "entry_dir_unsafe",
+    readonly code: "workspace_missing" | "isolation_unavailable",
     message: string,
   ) {
     super(message)
@@ -101,18 +101,19 @@ const realpathOr = (path: string): string => {
 const TEMP_ROOTS = ["/tmp", "/var/tmp"]
 
 /**
- * Install roots under HOME that may be bound whole (contracts/isolation.md §2).
- * Kept as data next to the profile table; a harness installed elsewhere under
- * HOME binds only its entry file. Evidence is in research.md.
+ * Install roots under HOME (contracts/isolation.md §2). Two kinds of data:
+ * - bin dirs are bound as-is (the dir itself, read-only, on PATH);
+ * - package roots allow only a strict subdir; the root itself is file-only.
+ * Evidence is in research.md.
  */
-const HOME_INSTALL_ROOTS = [
-  "~/.local/bin",
+const HOME_BIN_DIRS = ["~/.local/bin", "~/.bun/bin", "~/.opencode/bin", "~/.npm-global/bin"] as const
+const HOME_PACKAGE_ROOTS = [
   "~/.local/share/claude",
   "~/.bun",
-  "~/.opencode",
   "~/.npm-global",
   "~/.volta",
   "~/.nvm",
+  "~/.opencode",
 ] as const
 
 export interface EntryPoint {
@@ -159,7 +160,8 @@ export function entryBinds(
     }
   })
   const stateSources = stateBinds.map((bind) => bind.source)
-  const installRoots = HOME_INSTALL_ROOTS.map((path) => realpathOr(join(home, path.slice(2))))
+  const binDirs = HOME_BIN_DIRS.map((path) => realpathOr(join(home, path.slice(2)))).filter((dir) => existsSync(dir))
+  const packageRoots = HOME_PACKAGE_ROOTS.map((path) => realpathOr(join(home, path.slice(2))))
 
   const commandReal = entry.command ? realpathOr(entry.command) : ""
   // (1) The real file is inside a declared state dir: use the state bind.
@@ -181,9 +183,11 @@ export function entryBinds(
       continue
     }
     const underHome = isUnder(resolved, homeRoot)
-    // Strictly inside an install root: a binary directly in the root (which may
-    // hold config such as ~/.npm-global/.npmrc) is file-only.
-    const allowedUnderHome = installRoots.some((root) => resolved !== root && isUnder(resolved, root))
+    // A bin dir is bound as-is; a package root only allows a strict subdir, so
+    // a binary directly in the root (which may hold config such as
+    // ~/.npm-global/.npmrc) is file-only.
+    const allowedUnderHome =
+      binDirs.includes(resolved) || packageRoots.some((root) => resolved !== root && isUnder(resolved, root))
     const unsafe =
       resolved === "/" ||
       resolved === homeRoot ||
