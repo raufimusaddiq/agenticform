@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { CommandEnvelope, HeartbeatRequest } from "@agenticform/protocol"
+import type { CommandEnvelope, HarnessStatus, HeartbeatRequest } from "@agenticform/protocol"
 import {
   createRuntime,
   RuntimeError,
@@ -457,6 +457,149 @@ describe("non-ready runs", () => {
     })
     expect(outcome.status).toBe("failed")
     expect(invalidated).toEqual(["fake"])
+  })
+
+  test("an unsafe entry dir fails with harness_unavailable, never a root bind", async () => {
+    let connected = 0
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver: fakeDriver(() => (connected += 1)),
+        harnesses: { fake: { id: "fake", profile: "coding", command: "/agent" } },
+      }),
+      harnessStatus: () => "ready",
+      harnessEntry: () => ({ definition: { id: "fake", profile: "coding", command: "/agent" }, dirs: ["/"] }),
+    })
+    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.status).toBe("failed")
+    expect(outcome.error?.code).toBe("harness_unavailable")
+    expect(outcome.error?.message).toContain("entry directory")
+    expect(connected).toBe(0)
+  })
+
+  test("a run before the first probe triggers a probe and waits", async () => {
+    let status: HarnessStatus | undefined
+    let probes = 0
+    let connected = 0
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver: fakeDriver(() => (connected += 1)),
+        harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
+      }),
+      harnessStatus: () => status,
+      harnessProbe: async () => {
+        probes += 1
+        status = "ready"
+        return status
+      },
+    })
+    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.status).toBe("succeeded")
+    expect(probes).toBe(1)
+    expect(connected).toBe(1)
+  })
+
+  test("a probe that does not finish within the bound fails clearly", async () => {
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver: fakeDriver(() => {}),
+        harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
+      }),
+      harnessStatus: () => undefined,
+      harnessProbe: () => new Promise(() => {}),
+      probeWaitMs: 10,
+    })
+    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.error?.code).toBe("harness_unavailable")
+    expect(outcome.error?.message).toContain("probe did not finish")
+  })
+
+  test("an unconfigured harness is harness_missing", async () => {
+    let connected = 0
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver: fakeDriver(() => (connected += 1)),
+        harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
+      }),
+      harnesses: ["other"],
+      harnessStatus: () => "ready",
+    })
+    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.error?.code).toBe("harness_missing")
+    expect(connected).toBe(0)
+  })
+
+  test("a run reuses the prober's resolved entry dirs", async () => {
+    const dir = temp("af-entry-")
+    let captured: HarnessDefinition | undefined
+    const driver: RuntimeDriver = {
+      async connect(input): Promise<DriverConnection> {
+        captured = input.harness
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            return { stopReason: "end_turn" }
+          },
+          async cancel() {},
+          async close() {},
+          stderrTail() {
+            return ""
+          },
+        }
+      },
+    }
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver,
+        harnesses: { fake: { id: "fake", profile: "coding", command: "/unresolvable" } },
+      }),
+      harnessStatus: () => "ready",
+      harnessEntry: () => ({ definition: { id: "fake", profile: "coding", command: "/unresolvable" }, dirs: [dir] }),
+    })
+    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.status).toBe("succeeded")
+    expect(captured?.args).toContain(dir)
+  })
+})
+
+describe("heartbeat", () => {
+  test("a forced tick joins an in-flight beat", async () => {
+    let calls = 0
+    let markStarted: (() => void) | undefined
+    const started = new Promise<void>((resolve) => (markStarted = resolve))
+    let release: (() => void) | undefined
+    const loop = startHeartbeat(
+      {
+        heartbeat: async () => {
+          calls += 1
+          markStarted?.()
+          await new Promise<void>((resolve) => (release = resolve))
+          return { status: "online", commandsPollMs: 1_500 }
+        },
+      } as never,
+      { intervalMs: 60_000, body: () => ({ protocolVersion: 1, harnesses: [] }) },
+    )
+    await started
+    const forced = loop.tick()
+    release?.()
+    await forced
+    expect(calls).toBe(1)
+    await loop.stop()
   })
 })
 

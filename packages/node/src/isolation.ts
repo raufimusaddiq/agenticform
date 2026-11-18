@@ -40,7 +40,7 @@ const TABLE: Readonly<Record<string, { rw: readonly string[]; ro: readonly strin
 
 export class IsolationError extends Error {
   constructor(
-    readonly code: "workspace_missing" | "isolation_unavailable",
+    readonly code: "workspace_missing" | "isolation_unavailable" | "entry_dir_unsafe",
     message: string,
   ) {
     super(message)
@@ -89,6 +89,17 @@ export function resolveWorkspace(cwd: string, home: string = homedir()): string 
 
 const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`)
 
+const realpathOr = (path: string): string => {
+  try {
+    return realpathSync(path)
+  } catch {
+    return resolve(path)
+  }
+}
+
+/** A temp root may be an entry dir: the probe workspace lives there. */
+const TEMP_ROOTS = ["/tmp", "/var/tmp"]
+
 /** `--dir` for each ancestor the sandbox root does not already provide. */
 function dirArgs(dest: string, root: string): string[] {
   const rel = relative(root, dest)
@@ -116,11 +127,41 @@ export function sandboxArgs(
   env: Record<string, string | undefined> = process.env,
   options: { remountRoot?: boolean | undefined; entryDirs?: readonly string[] | undefined } = {},
 ): string[] {
-  // The entry point is resolved before the sandbox is built (T031). Its
-  // directory is bound read-only and put on PATH, so a harness installed under
-  // the home is reachable without widening the state table. The list comes from
-  // the resolved result only, never from run input.
-  const entryDirs = [...new Set(options.entryDirs ?? [])].filter((dir) => isAbsolute(dir) && existsSync(dir))
+  const homeRoot = realpathOr(home)
+  const workspaceRoot = realpathOr(workspace)
+  const tempRoots = TEMP_ROOTS.map(realpathOr)
+  const stateBinds = profile.state.map((entry) => {
+    const fromHome = entry.path.startsWith("~/")
+    return {
+      fromHome,
+      source: fromHome ? join(home, entry.path.slice(1)) : entry.path,
+      dest: fromHome ? join(SANDBOX_HOME, entry.path.slice(1)) : entry.path,
+      mode: entry.mode,
+    }
+  })
+  const stateSources = stateBinds.map((bind) => bind.source)
+  // The entry point is resolved before the sandbox is built (T031). Refuse a
+  // directory that would expose the whole machine or the home (the same guard
+  // as resolveWorkspace), and skip one already covered by the workspace or a
+  // state bind. A temp root is allowed as an entry dir because the probe
+  // workspace lives there; the workspace is re-bound after the entry binds.
+  const entryDirs = [...new Set(options.entryDirs ?? [])].filter((dir) => {
+    if (!isAbsolute(dir) || !existsSync(dir)) return false
+    const resolved = realpathOr(dir)
+    if (resolved === "/" || resolved === homeRoot) {
+      throw new IsolationError("entry_dir_unsafe", `entry directory is unsafe: ${dir}`)
+    }
+    if (isUnder(homeRoot, resolved)) {
+      throw new IsolationError("entry_dir_unsafe", `entry directory is an ancestor of the home: ${dir}`)
+    }
+    if (resolved !== workspaceRoot && isUnder(workspaceRoot, resolved) && !tempRoots.includes(resolved)) {
+      throw new IsolationError("entry_dir_unsafe", `entry directory is an ancestor of the workspace: ${dir}`)
+    }
+    if (isUnder(resolved, workspaceRoot) || stateSources.some((source) => isUnder(resolved, source))) {
+      return false
+    }
+    return true
+  })
   const args = [
     "--unshare-user",
     "--unshare-pid",
@@ -149,16 +190,13 @@ export function sandboxArgs(
   for (const path of SYSTEM_PATHS) if (existsSync(path)) args.push("--ro-bind", path, path)
   args.push("--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", SANDBOX_HOME)
   args.push(profile.workspace === "read-only" ? "--ro-bind" : "--bind", workspace, workspace)
-  for (const entry of profile.state) {
-    const fromHome = entry.path.startsWith("~/")
-    const source = fromHome ? join(home, entry.path.slice(1)) : entry.path
-    const dest = fromHome ? join(SANDBOX_HOME, entry.path.slice(1)) : entry.path
-    if (entry.mode === "ro") {
-      if (!existsSync(source)) continue
-      args.push(...dirArgs(dest, fromHome ? SANDBOX_HOME : "/"), "--ro-bind", source, dest)
+  for (const bind of stateBinds) {
+    if (bind.mode === "ro") {
+      if (!existsSync(bind.source)) continue
+      args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--ro-bind", bind.source, bind.dest)
     } else {
-      mkdirSync(source, { recursive: true, mode: 0o700 })
-      args.push(...dirArgs(dest, fromHome ? SANDBOX_HOME : "/"), "--bind", source, dest)
+      mkdirSync(bind.source, { recursive: true, mode: 0o700 })
+      args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--bind", bind.source, bind.dest)
     }
   }
   // Entry-point binds come after the private tmpfs mounts and the workspace and
@@ -166,6 +204,15 @@ export function sandboxArgs(
   // private tmpfs would otherwise shadow) is visible. Only the entry directory
   // is exposed, read-only; the rest of /tmp stays private.
   for (const dir of entryDirs) args.push("--ro-bind", dir, dir)
+  // An entry dir can be an ancestor of the workspace or a state dir (for
+  // example a binary in /var/tmp with a probe workspace under /var/tmp).
+  // Re-bind both after the entry binds so the read-only entry mount cannot
+  // shadow them.
+  args.push(profile.workspace === "read-only" ? "--ro-bind" : "--bind", workspace, workspace)
+  for (const bind of stateBinds) {
+    if (bind.mode === "ro" && !existsSync(bind.source)) continue
+    args.push(bind.mode === "ro" ? "--ro-bind" : "--bind", bind.source, bind.dest)
+  }
   // The root tmpfs is writable by default, so a path next to the workspace
   // (created for the bind) would accept a write. Remounting it read-only makes
   // every unbound path fail with EROFS; the workspace, /tmp, the home and the

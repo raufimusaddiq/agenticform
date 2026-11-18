@@ -56,8 +56,12 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
   const executor = new Executor({
     runtime,
     ledgerDir: join(config.stateDir, "ledger"),
+    ...(harnesses === undefined ? {} : { harnesses }),
     harnessStatus: (id) => prober.status(id),
+    harnessProbe: (id) => prober.ensure(id),
+    harnessEntry: (id) => prober.resolved(id),
     harnessFailed: (id) => prober.invalidate(id),
+    probeWaitMs: config.harnessProbeTimeoutMs + 5_000,
   })
   const capabilities = options.capabilities ?? []
   const slots = options.slots ?? 1
@@ -76,11 +80,11 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
     executor,
     start() {
       if (heartbeat || poller) return
-      void prober.refresh()
+      void prober.refresh().catch(onError)
       heartbeat = startHeartbeat(client, {
         intervalMs: config.heartbeatIntervalMs,
         body: () => {
-          void prober.refresh()
+          void prober.refresh().catch(onError)
           return {
             protocolVersion: config.protocolVersion,
             status: "online",
@@ -94,8 +98,12 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
         onError,
       })
       // Advertise a harness as soon as its first probe lands, rather than
-      // waiting a whole heartbeat interval.
-      void prober.refresh().then(() => heartbeat?.tick())
+      // waiting a whole heartbeat interval. The heartbeat joins an in-flight
+      // beat instead of sending a duplicate.
+      void prober
+        .refresh()
+        .then(() => heartbeat?.tick())
+        .catch(onError)
       poller = startPoller(client, {
         pollMs: config.pollMs,
         leaseRenewMs: config.leaseRenewMs,

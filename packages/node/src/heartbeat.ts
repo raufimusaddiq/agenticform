@@ -26,18 +26,26 @@ export function startHeartbeat(client: NodeClient, options: HeartbeatOptions): H
 
   const tick = async (): Promise<void> => {
     if (stopped) return
+    // A forced beat (for example after a probe lands) joins the in-flight beat
+    // instead of sending a duplicate.
+    if (inflight) return inflight
+    inflight = (async () => {
+      try {
+        const response = await client.heartbeat(await options.body(), controller.signal)
+        options.onResponse?.(response)
+      } catch (error) {
+        if (!stopped) options.onError?.(error)
+      }
+    })()
     try {
-      const response = await client.heartbeat(await options.body(), controller.signal)
-      options.onResponse?.(response)
-    } catch (error) {
-      if (!stopped) options.onError?.(error)
+      await inflight
+    } finally {
+      inflight = undefined
     }
   }
 
   const loop = async (): Promise<void> => {
-    inflight = tick()
-    await inflight
-    inflight = undefined
+    await tick()
     if (!stopped) timer = setTimeout(() => void loop(), options.intervalMs)
   }
   void loop()

@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { createRuntime, type RunEvent } from "@agenticform/runtime"
 import {
+  IsolationError,
   profileFor,
   resolveWorkspace,
   sandboxArgs,
@@ -24,8 +25,8 @@ const hasBwrap = Bun.spawnSync(["sh", "-c", "command -v bwrap"]).exitCode === 0
  */
 const tempRoot = Bun.spawnSync(["sh", "-c", "test -w /var/tmp"]).exitCode === 0 ? "/var/tmp" : tmpdir()
 const tempDirs: string[] = []
-const temp = (prefix: string): string => {
-  const dir = mkdtempSync(join(tempRoot, prefix))
+const temp = (prefix: string, root = tempRoot): string => {
+  const dir = mkdtempSync(join(root, prefix))
   tempDirs.push(dir)
   return dir
 }
@@ -125,14 +126,16 @@ describe("isolation argv", () => {
     // A caller that mutates its copy cannot widen the table for the next run.
     first.state.push({ path: "/etc", mode: "rw" })
     expect(profileFor("claude").state).toEqual(second.state)
-    // An unknown harness gets the workspace bind and no state bind.
+    // An unknown harness gets the workspace bind and no state bind. The
+    // workspace is bound twice: the initial mount and the re-bind after the
+    // entry-point binds.
     const args = sandboxArgs(profileFor("nope"), "/tmp/ws", "/tmp/home", {})
     const system = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/etc", "/run"]
     const binds = args.flatMap((arg, index) => {
       const source = args[index + 1]
       return (arg === "--bind" || arg === "--ro-bind") && source !== undefined ? [source] : []
     })
-    expect(binds.filter((path) => !system.includes(path))).toEqual(["/tmp/ws"])
+    expect(binds.filter((path) => !system.includes(path))).toEqual(["/tmp/ws", "/tmp/ws"])
   })
 
   test("entry-point binds come after the private tmpfs and before the root remount", () => {
@@ -145,6 +148,39 @@ describe("isolation argv", () => {
     expect(bind).toBeLessThan(remount)
     expect(args[bind - 1]).toBe("--ro-bind")
     expect(args[args.indexOf("PATH") + 1]).toContain(entry)
+  })
+
+  test("the workspace is re-bound after the entry binds", () => {
+    const workspace = temp("af-ws-")
+    const entry = temp("af-entry-")
+    const args = sandboxArgs(profileFor("nope"), workspace, temp("af-home-"), {}, { entryDirs: [entry] })
+    const entryBind = args.indexOf(entry)
+    const workspaceBinds = args.flatMap((arg, index) => (arg === "--bind" && args[index + 1] === workspace ? [index] : []))
+    expect(workspaceBinds).toHaveLength(2)
+    expect(workspaceBinds[1]).toBeGreaterThan(entryBind)
+  })
+
+  test("an entry dir at / is refused, never --ro-bind / /", () => {
+    expect(() => sandboxArgs(profileFor("nope"), "/tmp/ws", temp("af-home-"), {}, { entryDirs: ["/"] })).toThrow(
+      IsolationError,
+    )
+  })
+
+  test("the home root and its ancestors are refused as entry dirs", () => {
+    const home = temp("af-home-")
+    expect(() => sandboxArgs(profileFor("nope"), "/tmp/ws", home, {}, { entryDirs: [home] })).toThrow(IsolationError)
+    expect(() => sandboxArgs(profileFor("nope"), "/tmp/ws", home, {}, { entryDirs: [dirname(home)] })).toThrow(
+      IsolationError,
+    )
+  })
+
+  test("an entry dir inside the workspace is not bound read-only", () => {
+    const workspace = temp("af-ws-")
+    const entry = join(workspace, "bin")
+    mkdirSync(entry)
+    const args = sandboxArgs(profileFor("nope"), workspace, temp("af-home-"), {}, { entryDirs: [entry] })
+    const binds = args.flatMap((arg, index) => (arg === "--ro-bind" && args[index + 1] === entry ? [entry] : []))
+    expect(binds).toEqual([])
   })
 
   test("the workspace is resolved and / and the home root are refused", () => {
@@ -213,6 +249,38 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       { workspace, home, mode: "read-only" },
     )
     expect(result.text).toBe(`${inside}=EROFS`)
+  })
+
+  test("an entry dir that is an ancestor of the workspace keeps the workspace writable", async () => {
+    const entryDir = "/var/tmp"
+    const entry = join(entryDir, `af-entry-${randomUUID()}.ts`)
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    try {
+      const workspace = temp("af-ws-")
+      // Keep the home off /var/tmp: the entry dir is /var/tmp, and an entry dir
+      // that is an ancestor of the home is refused (BLOCKER 2).
+      const home = temp("af-home-", "/tmp")
+      const resolved = resolveWorkspace(workspace, home)
+      const inside = join(workspace, "inside.txt")
+      const definition = sandboxHarness(
+        {
+          id: "fake",
+          profile: "coding",
+          command: entry,
+          args: [JSON.stringify({ scenario: "writes", writes: [inside] })],
+        },
+        profileFor("fake"),
+        resolved,
+        home,
+        process.env,
+        { entryDirs: [entryDir, bunDir] },
+      )
+      const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+      const result = await run.result()
+      expect(result.text).toBe(`${inside}=ok`)
+    } finally {
+      rmSync(entry, { force: true })
+    }
   })
 
   test("a symlinked workspace binds its target and the target's parent stays read-only", async () => {

@@ -3,7 +3,7 @@ import { homedir, tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, join } from "node:path"
 import type { HarnessReport, HarnessStatus } from "@agenticform/protocol"
 import { AcpDriver, RuntimeError, type HarnessDefinition, type RuntimeDriver } from "@agenticform/runtime"
-import { profileFor, sandboxHarness } from "./isolation.ts"
+import { IsolationError, profileFor, sandboxHarness } from "./isolation.ts"
 
 /**
  * Entry-point resolution (contracts/harness-detection.md §2.1). It never runs a
@@ -202,6 +202,7 @@ const probeRoot = (): string => {
 }
 
 function classify(error: unknown): { status: HarnessStatus; reason: string } {
+  if (error instanceof IsolationError) return { status: "unknown", reason: error.code }
   const code = error instanceof RuntimeError ? error.code : "agent_error"
   if (code === "auth_required") return { status: "unauthenticated", reason: "auth_required" }
   if (code === "spawn_failed") return { status: "missing", reason: "spawn_failed" }
@@ -237,15 +238,17 @@ export async function probeHarness(definition: HarnessDefinition, options: Probe
   const workspace = mkdtempSync(join(options.workspaceRoot ?? probeRoot(), "af-probe-"))
   const controller = new AbortController()
   const driver = options.driver ?? new AcpDriver()
-  const sandboxed = sandboxHarness(
-    resolution.resolved.definition,
-    profileFor(definition.id),
-    workspace,
-    options.home ?? homedir(),
-    options.env ?? process.env,
-    { entryDirs: resolution.resolved.dirs },
-  )
   try {
+    // The argv builder can refuse an unsafe entry dir; that is an `unknown`
+    // probe, not a spawn failure.
+    const sandboxed = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor(definition.id),
+      workspace,
+      options.home ?? homedir(),
+      options.env ?? process.env,
+      { entryDirs: resolution.resolved.dirs },
+    )
     const connection = await bounded(
       driver.connect(
         { harness: sandboxed, cwd: workspace, env: {} },
@@ -293,6 +296,7 @@ export interface HarnessProberOptions {
  */
 export class HarnessProber {
   private readonly cache = new Map<string, { report: HarnessReport; at: number }>()
+  private readonly entries = new Map<string, ResolvedHarness>()
   private inflight: Promise<void> | null = null
   private readonly now: () => number
 
@@ -308,6 +312,18 @@ export class HarnessProber {
 
   status(id: string): HarnessStatus | undefined {
     return this.cache.get(id)?.report.status
+  }
+
+  /** The entry point the last probe resolved, so a run does not re-resolve it. */
+  resolved(id: string): ResolvedHarness | undefined {
+    return this.entries.get(id)
+  }
+
+  /** Await a fresh status, triggering a single-flight probe when the entry is stale. */
+  async ensure(id: string): Promise<HarnessStatus | undefined> {
+    if (this.fresh(id)) return this.status(id)
+    await this.refresh()
+    return this.status(id)
   }
 
   invalidate(id: string): void {
@@ -331,11 +347,16 @@ export class HarnessProber {
   private async run(): Promise<void> {
     for (const definition of this.options.definitions()) {
       if (this.fresh(definition.id)) continue
+      // Resolve once per probe and keep it: the executor reuses the dirs.
+      const resolution = resolveHarness(definition)
+      if (resolution.ok) this.entries.set(definition.id, resolution.resolved)
+      else this.entries.delete(definition.id)
       let report: HarnessReport
       try {
         report = await (this.options.probe?.(definition) ??
           probeHarness(definition, {
             timeoutMs: this.options.timeoutMs,
+            resolve: () => resolution,
             ...(this.options.home === undefined ? {} : { home: this.options.home }),
             ...(this.options.env === undefined ? {} : { env: this.options.env }),
             ...(this.options.driver === undefined ? {} : { driver: this.options.driver }),

@@ -3,6 +3,7 @@ import type { HarnessStatus } from "@agenticform/protocol"
 import {
   createRuntime,
   type Capability,
+  type HarnessDefinition,
   type McpServer,
   type Run,
   type RunResult,
@@ -10,7 +11,7 @@ import {
 } from "@agenticform/runtime"
 import type { CommandEnvelope } from "@agenticform/protocol"
 import { normaliseEvent } from "./events.ts"
-import { resolveHarness } from "./harness-probe.ts"
+import { resolveHarness, type ResolvedHarness } from "./harness-probe.ts"
 import { IsolationError, profileFor, resolveWorkspace, sandboxHarness } from "./isolation.ts"
 import { CommandLedger } from "./ledger.ts"
 import { NodeState, fingerprintError, payloadGenerationError } from "./state.ts"
@@ -32,10 +33,18 @@ export interface ExecutorOptions {
   ledgerDir?: string
   /** Retention window for terminal receipts. */
   ledgerRetentionMs?: number
+  /** Harness ids this node offers; an unconfigured id is `harness_missing`. */
+  harnesses?: readonly string[]
   /** Probe status for a harness; omitted skips the pre-run gate (tests, custom callers). */
   harnessStatus?: (id: string) => HarnessStatus | undefined
+  /** Trigger a single-flight probe and return the fresh status. */
+  harnessProbe?: (id: string) => Promise<HarnessStatus | undefined>
+  /** The entry point the prober already resolved, so a run does not re-resolve it. */
+  harnessEntry?: (id: string) => ResolvedHarness | undefined
   /** Called after a failed run so the next heartbeat re-probes that harness. */
   harnessFailed?: (id: string) => void
+  /** Bound on the pre-run probe wait. Default 30 s. */
+  probeWaitMs?: number
 }
 
 interface ActiveRun {
@@ -60,6 +69,19 @@ function outcomeOf(result: RunResult): ExecutionOutcome {
   return { status: "failed", error: result.error ?? { code: "agent_error", message: "run failed" } }
 }
 
+/** Resolve to `undefined` when `work` does not finish within `ms`. */
+async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms)
+  })
+  try {
+    return await Promise.race([work, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * Executes hub commands through `runtime` (FR-019). The node owns no harness
  * logic: it maps a command to a runtime input and a runtime result to a
@@ -70,8 +92,12 @@ export class Executor {
   private readonly ledger: CommandLedger
   private readonly active = new Map<string, ActiveRun>()
   private readonly state = new NodeState()
+  private readonly harnesses: readonly string[] | undefined
   private readonly harnessStatus: ((id: string) => HarnessStatus | undefined) | undefined
+  private readonly harnessProbe: ((id: string) => Promise<HarnessStatus | undefined>) | undefined
+  private readonly harnessEntry: ((id: string) => ResolvedHarness | undefined) | undefined
   private readonly harnessFailed: ((id: string) => void) | undefined
+  private readonly probeWaitMs: number
   private staleCount = 0
 
   constructor(options: ExecutorOptions = {}) {
@@ -80,8 +106,12 @@ export class Executor {
       ...(options.ledgerDir === undefined ? {} : { dir: options.ledgerDir }),
       ...(options.ledgerRetentionMs === undefined ? {} : { retentionMs: options.ledgerRetentionMs }),
     })
+    this.harnesses = options.harnesses
     this.harnessStatus = options.harnessStatus
+    this.harnessProbe = options.harnessProbe
+    this.harnessEntry = options.harnessEntry
     this.harnessFailed = options.harnessFailed
+    this.probeWaitMs = options.probeWaitMs ?? 30_000
   }
 
   get activeCount(): number {
@@ -91,10 +121,6 @@ export class Executor {
   /** Commands refused because their generation was older than the active run. */
   get staleObservations(): number {
     return this.staleCount
-  }
-
-  harnesses(): string[] {
-    return this.runtime.harnesses().map((harness) => harness.id)
   }
 
   inventory(): RuntimeInventoryEntry[] {
@@ -222,6 +248,15 @@ export class Executor {
       }
       throw error
     }
+    // contracts/harness-detection.md §5: a harness this node does not offer is
+    // `harness_missing`, even if the runtime catalog knows it. An empty list
+    // means "all configured", matching the node's advertisement filter.
+    if (this.harnesses && this.harnesses.length > 0 && !this.harnesses.includes(payload.harness)) {
+      return {
+        status: "failed",
+        error: { code: "harness_missing", message: `Harness is not configured on this node: ${payload.harness}` },
+      }
+    }
     const definition = this.runtime.harnesses().find((harness) => harness.id === payload.harness)
     if (!definition) {
       return {
@@ -232,7 +267,13 @@ export class Executor {
     // FR-023, FR-024: a non-ready harness fails with its named code before any
     // child starts. The gate is skipped only when no prober is wired (tests).
     if (this.harnessStatus) {
-      const status = this.harnessStatus(payload.harness)
+      let status = this.harnessStatus(payload.harness)
+      // A run can arrive before the first probe (for example right after a
+      // restart). Trigger the single-flight probe and wait for it, bounded,
+      // instead of failing with a misleading "unavailable".
+      if (status === undefined && this.harnessProbe) {
+        status = await withTimeout(this.harnessProbe(payload.harness), this.probeWaitMs)
+      }
       if (status === "missing") {
         return { status: "failed", error: { code: "harness_missing", message: `Harness is missing: ${payload.harness}` } }
       }
@@ -245,18 +286,31 @@ export class Executor {
       if (status !== "ready") {
         return {
           status: "failed",
-          error: { code: "harness_unavailable", message: `Harness is unavailable: ${payload.harness}` },
+          error: {
+            code: "harness_unavailable",
+            message:
+              status === undefined
+                ? `Harness probe did not finish: ${payload.harness}`
+                : `Harness is unavailable: ${payload.harness}`,
+          },
         }
       }
     }
-    // T031: resolve the entry point without network, then bind its directory so
-    // a harness installed under the home is reachable inside the sandbox.
-    const resolution = resolveHarness(definition)
-    if (!resolution.ok) {
-      return {
-        status: "failed",
-        error: { code: "harness_missing", message: `Harness is missing: ${payload.harness} (${resolution.reason})` },
+    // T031: reuse the entry point the prober resolved; fall back to resolving
+    // here for callers without a prober.
+    const cached = this.harnessEntry?.(payload.harness)
+    let resolved: ResolvedHarness
+    if (cached) {
+      resolved = cached
+    } else {
+      const resolution = resolveHarness(definition)
+      if (!resolution.ok) {
+        return {
+          status: "failed",
+          error: { code: "harness_missing", message: `Harness is missing: ${payload.harness} (${resolution.reason})` },
+        }
       }
+      resolved = resolution.resolved
     }
 
     // Re-entry for the same run: an equal or older generation is stale; a newer
@@ -294,14 +348,22 @@ export class Executor {
 
     // Every run is sandboxed (FR-001). There is no unsandboxed path: a sandbox
     // that cannot start fails the run instead of falling back.
-    const sandboxed = sandboxHarness(
-      resolution.resolved.definition,
-      profileFor(payload.harness),
-      workspace,
-      undefined,
-      undefined,
-      { entryDirs: resolution.resolved.dirs },
-    )
+    let sandboxed: HarnessDefinition
+    try {
+      sandboxed = sandboxHarness(
+        resolved.definition,
+        profileFor(payload.harness),
+        workspace,
+        undefined,
+        undefined,
+        { entryDirs: resolved.dirs },
+      )
+    } catch (error) {
+      if (error instanceof IsolationError && error.code === "entry_dir_unsafe") {
+        return { status: "failed", error: { code: "harness_unavailable", message: error.message } }
+      }
+      throw error
+    }
     const run = this.runtime.run({
       harness: sandboxed,
       cwd: workspace,
