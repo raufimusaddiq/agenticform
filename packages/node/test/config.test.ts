@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
-import { loadConfig, validateConfig, type NodeConfig } from "../src/config.ts"
+import { loadConfig, validateAdvertisements, validateConfig, validateEnrollment, type NodeConfig } from "../src/config.ts"
 
 const base = (patch: Partial<NodeConfig>): NodeConfig => ({
   hubUrl: "https://hub.example.com",
@@ -82,5 +82,42 @@ describe("node config", () => {
     })
     expect(override.stateDir).toBe("/tmp/af-state")
     expect(override.pollMs).toBe(250)
+  })
+})
+
+describe("advertisement limits (T-34)", () => {
+  const many = (n: number, prefix = "h"): string[] => Array.from({ length: n }, (_, i) => `${prefix}${i}`)
+
+  test("harnesses at the limit pass, one over fails naming the env var", () => {
+    expect(() => validateAdvertisements({ harnesses: many(32) })).not.toThrow()
+    expect(() => validateAdvertisements({ harnesses: many(33) })).toThrow(/AGENTICFORM_NODE_HARNESSES.*32/)
+    expect(() => validateAdvertisements({ harnesses: ["x".repeat(64)] })).not.toThrow()
+    expect(() => validateAdvertisements({ harnesses: ["x".repeat(65)] })).toThrow(/AGENTICFORM_NODE_HARNESSES.*64/)
+  })
+
+  test("capabilities at the limit pass, one over fails naming the env var", () => {
+    expect(() => validateAdvertisements({ capabilities: many(32, "c") })).not.toThrow()
+    expect(() => validateAdvertisements({ capabilities: many(33, "c") })).toThrow(/AGENTICFORM_NODE_CAPABILITIES.*32/)
+    expect(() => validateAdvertisements({ capabilities: ["x".repeat(64)] })).not.toThrow()
+    expect(() => validateAdvertisements({ capabilities: ["x".repeat(65)] })).toThrow(/AGENTICFORM_NODE_CAPABILITIES.*64/)
+  })
+
+  test("runtime catalog ids at the limit pass, one over fails", () => {
+    expect(() => validateAdvertisements({ catalog: many(32) })).not.toThrow()
+    expect(() => validateAdvertisements({ catalog: many(33) })).toThrow(/catalog.*32/)
+    expect(() => validateAdvertisements({ catalog: ["x".repeat(64)] })).not.toThrow()
+    expect(() => validateAdvertisements({ catalog: ["x".repeat(65)] })).toThrow(/catalog.*64/)
+  })
+
+  test("enrollment name and labels at the limit pass, one over fails", () => {
+    expect(() => validateEnrollment("n".repeat(64))).not.toThrow()
+    expect(() => validateEnrollment("n".repeat(65))).toThrow(/AGENTICFORM_NODE_NAME.*64/)
+    const labels = Object.fromEntries(many(32, "k").map((key) => [key, "v"]))
+    expect(() => validateEnrollment("n", labels)).not.toThrow()
+    expect(() => validateEnrollment("n", { ...labels, extra: "v" })).toThrow(/labels.*32/)
+    expect(() => validateEnrollment("n", { ["k".repeat(64)]: "v" })).not.toThrow()
+    expect(() => validateEnrollment("n", { ["k".repeat(65)]: "v" })).toThrow(/label key.*64/)
+    expect(() => validateEnrollment("n", { k: "v".repeat(64) })).not.toThrow()
+    expect(() => validateEnrollment("n", { k: "v".repeat(65) })).toThrow(/label.*64/)
   })
 })

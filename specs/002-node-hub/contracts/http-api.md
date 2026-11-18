@@ -61,6 +61,9 @@ Unauthenticated; the body carries the one-time token.
 Only the public key is sent; the hub stores the token hash and consumes it once.
 Reuse, expiry and races return `401 unauthorized`.
 
+`name` is at most 64 characters. `labels` holds at most 32 entries, each key and
+value at most 64 characters. Over a limit the hub returns `400 invalid_input`.
+
 ### `POST /v1/node/heartbeat` (signed)
 
 ```json
@@ -93,7 +96,11 @@ returns `400 invalid_input` and stores nothing:
 | `runtimes[].state` | at most 64 characters |
 | `harnessReport` | at most 64 entries, each `id` at most 64 characters |
 
-The same `harnesses` limits apply at enrollment.
+The same `harnesses` limits apply at enrollment. A node applies every limit
+before it dials, so an over-limit advertisement fails at startup naming the
+env var and the limit instead of being refused into a silent offline state.
+These constants live in `@agenticform/protocol` so node and hub cannot drift.
+Command results and events are not affected; they stay under the 1 MiB body cap.
 
 ### `GET /v1/node/commands/next` (signed)
 

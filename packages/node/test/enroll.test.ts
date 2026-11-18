@@ -119,4 +119,39 @@ describe("enrollment", () => {
     expect(readTree(stateDir)).not.toContain("af_enroll_one_time_secret")
     expect(existsSync(marker)).toBe(false)
   })
+
+  test("an over-limit harness list exits 1 before any network call", async () => {
+    let requests = 0
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        requests += 1
+        return Response.json({ nodeId: "n", protocolVersion: 1, heartbeatSeconds: 15 }, { status: 201 })
+      },
+    })
+    stop = () => server.stop(true)
+
+    const work = mkdtempSync(join(tmpdir(), "af-node-enroll-"))
+    cleanups.push(work)
+    const child = Bun.spawn(["bun", script, "enroll"], {
+      cwd: root,
+      env: {
+        ...process.env,
+        AGENTICFORM_HUB_URL: `http://127.0.0.1:${server.port}`,
+        AGENTICFORM_STATE_DIR: join(work, "state"),
+        AGENTICFORM_ENROLL_TOKEN: "af_enroll_one_time_secret",
+        AGENTICFORM_NODE_NAME: "builder-1",
+        AGENTICFORM_NODE_HARNESSES: Array.from({ length: 33 }, (_, i) => `h${i}`).join(","),
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const exitCode = await child.exited
+    const stderr = await new Response(child.stderr).text()
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain("AGENTICFORM_NODE_HARNESSES")
+    expect(stderr).toContain("32")
+    expect(requests).toBe(0)
+  })
 })

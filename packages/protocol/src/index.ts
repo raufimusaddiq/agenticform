@@ -106,13 +106,21 @@ export const ISOLATION_PROFILE_PATTERN = /^\d{1,3}(\.\d{1,3}){0,2}$/
 /**
  * Bounds on node-supplied strings the hub stores (contracts/http-api.md
  * §heartbeat). A node is authenticated, but what it stores is still bounded.
+ * The node applies the same limits before it dials, so an over-limit
+ * advertisement fails at startup instead of silently dropping the node offline.
  */
 export const NODE_HARNESSES_MAX_COUNT = 32
 export const NODE_CAPABILITIES_MAX_COUNT = 32
 export const NODE_STRING_MAX_LENGTH = 64
+export const NODE_NAME_MAX_LENGTH = 64
+export const NODE_LABELS_MAX_COUNT = 32
+export const NODE_LABEL_MAX_LENGTH = 64
 export const RUNTIME_TYPE_MAX_LENGTH = 64
 export const RUNTIME_SESSION_ID_MAX_LENGTH = 256
 export const RUNTIME_STATE_MAX_LENGTH = 64
+export const RUNTIME_INVENTORY_MAX_COUNT = 1_000
+export const HARNESS_REPORT_MAX_COUNT = 64
+export const HARNESS_ID_MAX_LENGTH = 64
 
 /** The `isolation.profile` string for a profile version number. */
 export function isolationProfileVersion(version: number): string {

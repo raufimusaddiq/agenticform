@@ -1,7 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import type { Database } from "bun:sqlite"
 import type { EnrollRequest, EnrollResponse } from "@agenticform/protocol"
-import { SUPPORTED_PROTOCOL_VERSIONS, NODE_HARNESSES_MAX_COUNT, NODE_STRING_MAX_LENGTH } from "@agenticform/protocol"
+import {
+  NODE_HARNESSES_MAX_COUNT,
+  NODE_LABEL_MAX_LENGTH,
+  NODE_LABELS_MAX_COUNT,
+  NODE_NAME_MAX_LENGTH,
+  NODE_STRING_MAX_LENGTH,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@agenticform/protocol"
 import { sha256Hex } from "@agenticform/protocol/canonical"
 import type { HubConfig } from "./config.ts"
 import { fail, unauthorized } from "./errors.ts"
@@ -35,6 +42,9 @@ export function enrollNode(
   if (typeof body.token !== "string" || typeof body.name !== "string" || !body.name.trim()) {
     fail("invalid_input", "token and name are required")
   }
+  if (body.name.length > NODE_NAME_MAX_LENGTH) {
+    fail("invalid_input", `name exceeds ${NODE_NAME_MAX_LENGTH} characters`)
+  }
   if (!Number.isInteger(body.protocolVersion)) {
     fail("invalid_input", "protocolVersion must be an integer")
   }
@@ -50,6 +60,18 @@ export function enrollNode(
       Object.values(body.labels).some((value) => typeof value !== "string")
     ) {
       fail("invalid_input", "labels must be a flat string map")
+    }
+    const entries = Object.entries(body.labels)
+    if (entries.length > NODE_LABELS_MAX_COUNT) {
+      fail("invalid_input", `labels exceeds ${NODE_LABELS_MAX_COUNT} entries`)
+    }
+    for (const [key, value] of entries) {
+      if (key.length > NODE_LABEL_MAX_LENGTH) {
+        fail("invalid_input", `label key exceeds ${NODE_LABEL_MAX_LENGTH} characters`)
+      }
+      if (value.length > NODE_LABEL_MAX_LENGTH) {
+        fail("invalid_input", `label value exceeds ${NODE_LABEL_MAX_LENGTH} characters`)
+      }
     }
   }
   if (typeof body.publicKey !== "string" || !isEd25519Spki(body.publicKey)) {

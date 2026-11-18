@@ -4,6 +4,7 @@ import type { HarnessDefinition, Runtime } from "@agenticform/runtime"
 import { createRuntime } from "@agenticform/runtime"
 import { NodeClient, type ClientOptions } from "./client.ts"
 import type { NodeConfig } from "./config.ts"
+import { validateAdvertisements } from "./config.ts"
 import { Executor } from "./executor.ts"
 import { HarnessProber } from "./harness-probe.ts"
 import { startHeartbeat, type HeartbeatLoop } from "./heartbeat.ts"
@@ -61,10 +62,16 @@ const bounded = async (work: Promise<unknown>, ms: number, signal?: AbortSignal)
  * Nothing here listens; every connection is initiated by the node (FR-001).
  */
 export function createNode(config: NodeConfig, identity: NodeIdentity, options: NodeOptions = {}): Node {
+  const runtime = options.runtime ?? createRuntime()
+  // T-34: refuse an advertisement the hub would reject, before any network call.
+  validateAdvertisements({
+    ...(options.harnesses === undefined ? {} : { harnesses: options.harnesses }),
+    ...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
+    catalog: runtime.harnesses().map((harness) => harness.id),
+  })
   const clientOptions: ClientOptions = {}
   if (options.fetch) clientOptions.fetch = options.fetch
   const client = new NodeClient(config, identity, clientOptions)
-  const runtime = options.runtime ?? createRuntime()
   const harnesses = options.harnesses
   // FR-013, FR-014: prove the sandbox shape once at startup. Without it the node
   // advertises nothing and probes nothing, so no harness child is ever spawned.

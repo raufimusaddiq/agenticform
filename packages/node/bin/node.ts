@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { hostname } from "node:os"
 import type { EnrollRequest, EnrollResponse } from "@agenticform/protocol"
-import { loadConfig, type NodeConfig } from "../src/config.ts"
+import { loadConfig, validateAdvertisements, validateEnrollment, type NodeConfig } from "../src/config.ts"
 import { generateKeyPair, loadIdentity, saveIdentity } from "../src/identity.ts"
 import { createNode } from "../src/index.ts"
 
@@ -21,6 +21,9 @@ export async function enroll(
   options: EnrollOptions,
   fetchImpl: typeof fetch = fetch,
 ): Promise<EnrollResponse> {
+  // T-34: refuse what the hub would reject, before the one outbound call.
+  validateAdvertisements({ harnesses: options.harnesses })
+  validateEnrollment(options.name, options.labels)
   const existing = loadIdentity(config.stateDir)
   const keys = existing ?? generateKeyPair()
   const body: EnrollRequest = {
@@ -76,9 +79,12 @@ if (import.meta.main) {
       process.exit(1)
     }
     const slots = Number(process.env.AGENTICFORM_NODE_SLOTS ?? 1)
+    const capabilities = list(process.env.AGENTICFORM_NODE_CAPABILITIES)
+    const harnesses = list(process.env.AGENTICFORM_NODE_HARNESSES)
+    validateAdvertisements({ capabilities, harnesses })
     const node = createNode(config, identity, {
-      capabilities: list(process.env.AGENTICFORM_NODE_CAPABILITIES),
-      harnesses: list(process.env.AGENTICFORM_NODE_HARNESSES),
+      capabilities,
+      harnesses,
       slots: Number.isInteger(slots) && slots > 0 ? slots : 1,
     })
     node.start()

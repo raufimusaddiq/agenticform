@@ -1,12 +1,15 @@
 import type { Database } from "bun:sqlite"
 import type { HarnessReport, HarnessReportReason, HeartbeatRequest, HeartbeatResponse, IsolationReport, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
 import {
+  HARNESS_ID_MAX_LENGTH,
+  HARNESS_REPORT_MAX_COUNT,
   HARNESS_REPORT_REASON_SET,
   ISOLATION_PROFILE_MAX_LENGTH,
   ISOLATION_PROFILE_PATTERN,
   NODE_CAPABILITIES_MAX_COUNT,
   NODE_HARNESSES_MAX_COUNT,
   NODE_STRING_MAX_LENGTH,
+  RUNTIME_INVENTORY_MAX_COUNT,
   RUNTIME_SESSION_ID_MAX_LENGTH,
   RUNTIME_STATE_MAX_LENGTH,
   RUNTIME_TYPE_MAX_LENGTH,
@@ -27,8 +30,6 @@ export interface RuntimeInventoryInput {
   state: unknown
 }
 
-const MAX_INVENTORY = 1_000
-const MAX_REPORT = 64
 const STATUSES = new Set(["ready", "missing", "unauthenticated", "unknown"])
 
 /**
@@ -60,14 +61,16 @@ function boundedString(value: unknown, field: string, maxLength: number): string
 /** FR-027: only a status and a reason code; raw harness output is refused. */
 function validateReport(report: unknown): HarnessReport[] {
   if (!Array.isArray(report)) fail("invalid_input", "harnessReport must be an array")
-  if (report.length > MAX_REPORT) fail("invalid_input", "harnessReport exceeds the maximum length")
+  if (report.length > HARNESS_REPORT_MAX_COUNT) fail("invalid_input", "harnessReport exceeds the maximum length")
   return report.map((entry) => {
     const item = entry as Partial<HarnessReport>
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
       fail("invalid_input", "each harnessReport entry must be an object")
     }
     if (typeof item.id !== "string" || !item.id) fail("invalid_input", "harnessReport.id must be a string")
-    if (item.id.length > 64) fail("invalid_input", "harnessReport.id exceeds 64 characters")
+    if (item.id.length > HARNESS_ID_MAX_LENGTH) {
+      fail("invalid_input", `harnessReport.id exceeds ${HARNESS_ID_MAX_LENGTH} characters`)
+    }
     if (typeof item.status !== "string" || !STATUSES.has(item.status)) {
       fail("invalid_input", "harnessReport.status must be ready, missing, unauthenticated or unknown")
     }
@@ -119,7 +122,7 @@ function validateIsolation(isolation: unknown, harnesses: string[], report: Harn
 
 function validateInventory(runtimes: unknown): RuntimeInventoryEntry[] {
   if (!Array.isArray(runtimes)) fail("invalid_input", "runtimes must be an array")
-  if (runtimes.length > MAX_INVENTORY) fail("invalid_input", "runtimes exceeds the maximum length")
+  if (runtimes.length > RUNTIME_INVENTORY_MAX_COUNT) fail("invalid_input", "runtimes exceeds the maximum length")
   return runtimes.map((entry) => {
     const item = entry as Partial<RuntimeInventoryInput>
     if (item === null || typeof item !== "object" || Array.isArray(item)) {

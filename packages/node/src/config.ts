@@ -1,4 +1,12 @@
 import { join } from "node:path"
+import {
+  NODE_CAPABILITIES_MAX_COUNT,
+  NODE_HARNESSES_MAX_COUNT,
+  NODE_LABEL_MAX_LENGTH,
+  NODE_LABELS_MAX_COUNT,
+  NODE_NAME_MAX_LENGTH,
+  NODE_STRING_MAX_LENGTH,
+} from "@agenticform/protocol"
 
 export interface NodeConfig {
   hubUrl: string
@@ -76,5 +84,51 @@ export function validateConfig(config: NodeConfig): void {
   if (url.search || url.hash) throw new Error("AGENTICFORM_HUB_URL must be a clean origin")
   if (!LOOPBACK.has(url.hostname) && url.protocol !== "https:") {
     throw new Error("AGENTICFORM_HUB_URL must use HTTPS for a non-local host")
+  }
+}
+
+const preview = (value: string): string => (value.length > 32 ? `${value.slice(0, 32)}…` : value)
+
+/**
+ * T-34: the hub refuses an over-limit advertisement with `400 invalid_input`,
+ * which would leave the node silently offline. Refuse it here instead, before
+ * the first network call, naming the env var and the limit.
+ */
+export function validateAdvertisements(input: {
+  harnesses?: string[]
+  capabilities?: string[]
+  catalog?: string[]
+}): void {
+  const check = (name: string, values: string[] | undefined, maxCount: number): void => {
+    if (values === undefined) return
+    if (values.length > maxCount) throw new Error(`${name} must list at most ${maxCount} entries`)
+    for (const value of values) {
+      if (value.length > NODE_STRING_MAX_LENGTH) {
+        throw new Error(`${name} entry "${preview(value)}" exceeds ${NODE_STRING_MAX_LENGTH} characters`)
+      }
+    }
+  }
+  check("AGENTICFORM_NODE_HARNESSES", input.harnesses, NODE_HARNESSES_MAX_COUNT)
+  check("AGENTICFORM_NODE_CAPABILITIES", input.capabilities, NODE_CAPABILITIES_MAX_COUNT)
+  check("runtime catalog harnesses", input.catalog, NODE_HARNESSES_MAX_COUNT)
+}
+
+/** T-34: the enrollment name and labels are stored, so bound them too. */
+export function validateEnrollment(name: string, labels?: Record<string, string>): void {
+  if (name.length > NODE_NAME_MAX_LENGTH) {
+    throw new Error(`AGENTICFORM_NODE_NAME exceeds ${NODE_NAME_MAX_LENGTH} characters`)
+  }
+  if (labels === undefined) return
+  const entries = Object.entries(labels)
+  if (entries.length > NODE_LABELS_MAX_COUNT) {
+    throw new Error(`labels must have at most ${NODE_LABELS_MAX_COUNT} entries`)
+  }
+  for (const [key, value] of entries) {
+    if (key.length > NODE_LABEL_MAX_LENGTH) {
+      throw new Error(`label key "${preview(key)}" exceeds ${NODE_LABEL_MAX_LENGTH} characters`)
+    }
+    if (value.length > NODE_LABEL_MAX_LENGTH) {
+      throw new Error(`label "${preview(key)}" value exceeds ${NODE_LABEL_MAX_LENGTH} characters`)
+    }
   }
 }
