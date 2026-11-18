@@ -107,6 +107,18 @@ describe("isolation argv", () => {
     expect(args.at(-2)).toBe("--remount-ro")
   })
 
+  test("in-sandbox paths are POSIX on every host", () => {
+    const home = temp("af-home-")
+    const args = sandboxArgs(profileFor("claude"), "/tmp/ws", home, {})
+    // The state bind dest and the config dir value are POSIX by definition; a
+    // host path module would emit backslashes on Windows.
+    expect(args).toContain("/home/agent/.claude")
+    expect(args[args.indexOf("CLAUDE_CONFIG_DIR") + 1]).toBe("/home/agent/.claude")
+    const sandboxPaths = args.filter((arg) => arg.startsWith("/home/agent"))
+    expect(sandboxPaths.length).toBeGreaterThan(0)
+    for (const path of sandboxPaths) expect(path).not.toContain("\\")
+  })
+
   test("an unknown harness gets an empty profile", () => {
     expect(profileFor("nope").state).toEqual([])
     expect(profileFor("claude").state.length).toBeGreaterThan(0)
