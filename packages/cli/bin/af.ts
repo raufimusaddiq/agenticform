@@ -111,11 +111,19 @@ async function main(argv: string[]): Promise<void> {
     let attempt = 0
     while (true) {
       const before = after
+      const controller = new AbortController()
       try {
-        lastSeen = await hub.followEvents(id, after, (event) => {
-          lastSeen = event.seq
-          print(event)
-        })
+        lastSeen = await hub.followEvents(
+          id,
+          after,
+          (event) => {
+            lastSeen = event.seq
+            print(event)
+            // The hub keeps the stream open after run.disconnected; stop here.
+            if (event.type === "run.disconnected") controller.abort()
+          },
+          controller.signal,
+        )
         after = lastSeen
       } catch (error) {
         // A dropped connection is no progress: back off, then resume from the last seq seen.

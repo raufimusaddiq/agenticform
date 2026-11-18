@@ -44,7 +44,7 @@ const server = Bun.serve({
         new ReadableStream({
           start(controller) {
             controller.enqueue(encoder.encode(event(1, "run.disconnected")))
-            controller.close()
+            // The real hub keeps the stream open after run.disconnected.
           },
         }),
         { headers: { "content-type": "text/event-stream" } },

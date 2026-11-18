@@ -167,7 +167,9 @@ async function call(name: string, args: Record<string, unknown>): Promise<unknow
             cursor,
             (event) => {
               events.push(event)
-              if (events.length >= MAX_EVENTS) controller.abort()
+              // The hub keeps the stream open after run.disconnected; stop here.
+              if (event.type === "run.disconnected") controller.abort()
+              else if (events.length >= MAX_EVENTS) controller.abort()
             },
             controller.signal,
           )

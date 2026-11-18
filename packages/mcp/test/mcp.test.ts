@@ -36,7 +36,7 @@ const server = Bun.serve({
                 `id: 1\ndata: ${JSON.stringify({ seq: 1, key: "k1", type: "run.disconnected", at: new Date().toISOString(), data: {} })}\n\n`,
               ),
             )
-            controller.close()
+            // The real hub keeps the stream open after run.disconnected.
           },
         }),
         { headers: { "content-type": "text/event-stream" } },

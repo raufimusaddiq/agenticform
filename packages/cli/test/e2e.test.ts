@@ -117,9 +117,16 @@ function cli(args: string[], overrides: Record<string, string> = {}): Promise<{ 
       stdio: ["ignore", "pipe", "pipe"],
     })
     let out = ""
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL")
+      resolve({ code: -1, out: `${out}\n[timed out]` })
+    }, 15_000)
     child.stdout?.on("data", (chunk) => (out += String(chunk)))
     child.stderr?.on("data", (chunk) => (out += String(chunk)))
-    child.on("exit", (code) => resolve({ code: code ?? -1, out }))
+    child.on("exit", (code) => {
+      clearTimeout(timer)
+      resolve({ code: code ?? -1, out })
+    })
   })
 }
 
@@ -235,6 +242,42 @@ describe("thin clients over the hub HTTP API", () => {
     const resumed: number[] = []
     await client.followEvents(run.runId, last, (event) => resumed.push(event.seq))
     expect(resumed).toEqual([])
+  })
+
+  test("follow stops on a real hub disconnected run", async () => {
+    const nodeId = await enrollOnlineNode()
+    const client = new HubClient({ url, token: TOKEN })
+    const run = await client.createRun({
+      idempotencyKey: "parity-disconnected",
+      harness: "codex",
+      prompt: "fix tests",
+      nodeId,
+    })
+    const revoked = await admin("POST", `/v1/nodes/${nodeId}/revoke`)
+    expect(revoked.status).toBe(200)
+
+    const started = Date.now()
+    const result = await cli(["run", "events", run.runId, "--follow"])
+    expect(result.code).toBe(3)
+    expect(result.out).toContain("run.disconnected")
+    expect(result.out).toContain(`run ${run.runId} disconnected; recover it with POST /v1/runs/${run.runId}/recover`)
+    expect(Date.now() - started).toBeLessThan(5_000)
+
+    const server = mcp()
+    try {
+      await server.request("initialize", { protocolVersion: "2024-11-05" })
+      const startedMcp = Date.now()
+      const response = await server.request("tools/call", {
+        name: "list_events",
+        arguments: { runId: run.runId, follow: true },
+      })
+      const page = JSON.parse(response.result.content[0].text)
+      expect(page.status).toBe("disconnected")
+      expect(page.nextAfter).toBeGreaterThan(0)
+      expect(Date.now() - startedMcp).toBeLessThan(5_000)
+    } finally {
+      server.close()
+    }
   })
 
   test("the CLI takes the token from env, never argv", async () => {
