@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
-import { isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import type { HarnessDefinition } from "@agenticform/runtime"
 
 /**
@@ -114,6 +114,7 @@ export function sandboxArgs(
   workspace: string,
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
+  options: { remountRoot?: boolean | undefined } = {},
 ): string[] {
   const args = [
     "--unshare-user",
@@ -159,7 +160,7 @@ export function sandboxArgs(
   // (created for the bind) would accept a write. Remounting it read-only makes
   // every unbound path fail with EROFS; the workspace, /tmp, the home and the
   // state binds are separate mounts and keep their own flags.
-  args.push("--remount-ro", "/")
+  if (options.remountRoot !== false) args.push("--remount-ro", "/")
   return args
 }
 
@@ -186,14 +187,19 @@ export interface SelfTestResult {
 
 /**
  * Prove the exact shape a run uses, not that a binary exists (FR-013). A child
- * that writes inside the workspace must exit zero; one that writes outside it
- * must not. The result is cached by the caller and never retried until restart.
+ * that writes inside the workspace must exit zero; one that writes to the
+ * remounted root must not. The result is cached by the caller and never retried
+ * until restart.
  */
-export function selfTest(options: { timeoutMs?: number; env?: Record<string, string | undefined> } = {}): SelfTestResult {
+export function selfTest(
+  options: { timeoutMs?: number; env?: Record<string, string | undefined>; remountRoot?: boolean } = {},
+): SelfTestResult {
   const timeoutMs = options.timeoutMs ?? 10_000
-  const workspace = mkdtempSync(join(tmpdir(), "af-selftest-"))
+  const workspace = selfTestWorkspace()
   const profile: IsolationProfile = { version: PROFILE_VERSION, workspace: "write", state: [] }
-  const args = sandboxArgs(profile, workspace, homedir(), options.env ?? process.env)
+  const args = sandboxArgs(profile, workspace, homedir(), options.env ?? process.env, {
+    remountRoot: options.remountRoot,
+  })
   const run = (command: string[]) =>
     spawnSync("bwrap", [...args, "--", ...command], { timeout: timeoutMs, stdio: "ignore" })
   try {
@@ -201,10 +207,26 @@ export function selfTest(options: { timeoutMs?: number; env?: Record<string, str
     if (basic.error || basic.status !== 0) return { mode: "none", selfTest: "fail", reason: "sandbox_unavailable" }
     const inside = run(["touch", join(workspace, "ok")])
     if (inside.status !== 0) return { mode: "none", selfTest: "fail", reason: "workspace_write_denied" }
-    const outside = run(["touch", "/usr/af-selftest-denied"])
-    if (outside.status === 0) return { mode: "none", selfTest: "fail", reason: "write_not_denied" }
+    // The root is not a separate read-only bind, so this only fails when
+    // --remount-ro is present. A sibling of the workspace mount point is the
+    // same check for the parent directory the bind creates.
+    const outsideRoot = run(["touch", "/af-selftest-denied"])
+    if (outsideRoot.status === 0) return { mode: "none", selfTest: "fail", reason: "write_not_denied" }
+    if (!isUnder(workspace, tmpdir())) {
+      const outsideSibling = run(["touch", join(dirname(workspace), "af-selftest-denied")])
+      if (outsideSibling.status === 0) return { mode: "none", selfTest: "fail", reason: "write_not_denied" }
+    }
     return { mode: "bwrap", selfTest: "pass" }
   } finally {
     rmSync(workspace, { recursive: true, force: true })
+  }
+}
+
+/** /var/tmp is on the remounted root; /tmp is a private tmpfs and cannot prove it. */
+function selfTestWorkspace(): string {
+  try {
+    return mkdtempSync(join("/var/tmp", "af-selftest-"))
+  } catch {
+    return mkdtempSync(join(tmpdir(), "af-selftest-"))
   }
 }

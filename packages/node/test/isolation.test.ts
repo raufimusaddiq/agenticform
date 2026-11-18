@@ -112,9 +112,21 @@ describe("isolation argv", () => {
   })
 })
 
-describe.skipIf(!hasBwrap)("isolation: real bwrap", () => {
+describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
+  test("bwrap is available", () => {
+    expect(hasBwrap).toBe(true)
+  })
+
   test("the self-test proves the write boundary", () => {
     expect(selfTest()).toEqual({ mode: "bwrap", selfTest: "pass" })
+  })
+
+  test("the self-test catches a missing root remount", () => {
+    expect(selfTest({ remountRoot: false })).toEqual({
+      mode: "none",
+      selfTest: "fail",
+      reason: "write_not_denied",
+    })
   })
 
   for (const harness of createRuntime().harnesses().map((entry) => entry.id)) {

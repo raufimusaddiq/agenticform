@@ -8,7 +8,8 @@ normative for `packages/node`; `runtime` is not aware of it.
 For every harness in the catalog, under the `write` profile:
 
 - a write inside the run's workspace succeeds;
-- a write outside the workspace fails with `EROFS`;
+- a write outside the workspace fails with `EROFS`, except the private `/tmp`,
+  private home and declared state dirs, which are writable but private to the run;
 - `$HOME` contains only the harness's declared state directories;
 - `/tmp` is private to the run;
 - `~/.ssh`, other projects and the node's state directory are not readable.

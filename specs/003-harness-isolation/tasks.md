@@ -36,7 +36,7 @@ with the first story; phase 7 lands with the last.
 - [x] T010 [US1] Apply the sandbox override in `packages/node/src/executor.ts` so every run spawns `bwrap -- ...` (FR-001, FR-004)
 - [x] T011 [US1] Add the `write` and `read-only` workspace profiles, default `write` (FR-002)
 - [x] T012 [US1] Give each run a private `/tmp` and home (FR-005)
-- [x] T013 [US1] Test: for every catalog entry, a write inside the workspace succeeds and a write at `$HOME`, `/tmp` and a sibling project fails with `EROFS` (FR-003, SC-001)
+- [x] T013 [US1] Test: a write inside the workspace succeeds; a write to a sibling project and to any path outside the workspace, private `/tmp`, private home and declared state dirs fails with `EROFS`; `/tmp` and `$HOME` are writable but private to the run (FR-003, FR-005, SC-001)
 - [x] T014 [US1] Test: a `read-only` run cannot write inside the workspace (FR-002)
 - [x] T015 [US1] Test: a symlinked workspace binds its target and the target's parent stays read-only (FR-008)
 - [x] T016 [US1] Test: the harness is a separate child in its own process group and cancel stops the group (FR-004)
