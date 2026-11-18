@@ -403,6 +403,22 @@ export function selfTest(
   }
 }
 
+let startupResult: SelfTestResult | undefined
+
+/**
+ * The startup result, computed once per process. The contract forbids retrying
+ * until restart, so a later call returns the first answer (FR-013, FR-014).
+ */
+export function startupSelfTest(options: Parameters<typeof selfTest>[0] = {}): SelfTestResult {
+  startupResult ??= selfTest(options)
+  return startupResult
+}
+
+/** Test-only: forget the memoized result so the next call runs the self-test. */
+export function resetStartupSelfTest(): void {
+  startupResult = undefined
+}
+
 /** /var/tmp is on the remounted root; /tmp is a private tmpfs and cannot prove it. */
 function selfTestWorkspace(): string {
   try {

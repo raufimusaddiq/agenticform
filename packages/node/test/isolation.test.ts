@@ -12,7 +12,9 @@ import {
   resolveWorkspace,
   sandboxArgs,
   sandboxHarness,
+  resetStartupSelfTest,
   selfTest,
+  startupSelfTest,
   type IsolationProfile,
   type WorkspaceMode,
 } from "../src/isolation.ts"
@@ -246,6 +248,45 @@ describe("isolation argv", () => {
     expect(() => resolveWorkspace("/", home)).toThrow()
     expect(() => resolveWorkspace(home, home)).toThrow()
     expect(() => resolveWorkspace(join(home, "absent"), home)).toThrow()
+  })
+})
+
+describe("isolation: startup self-test", () => {
+  /** spawnSync resolves the command through the process PATH, not the child env. */
+  const withPath = <T>(path: string, work: () => T): T => {
+    const original = process.env.PATH
+    process.env.PATH = path
+    try {
+      return work()
+    } finally {
+      process.env.PATH = original
+    }
+  }
+
+  test("with bwrap hidden from PATH the self-test fails", () => {
+    withPath("/nonexistent", () => {
+      expect(selfTest()).toEqual({ mode: "none", selfTest: "fail", reason: "sandbox_unavailable" })
+    })
+  })
+
+  test("a bwrap that exists but cannot build the shape fails the self-test", () => {
+    const dir = temp("af-bwrap-")
+    writeFileSync(join(dir, "bwrap"), "#!/bin/sh\nexit 1\n", { mode: 0o755 })
+    withPath(`${dir}:${process.env.PATH ?? ""}`, () => {
+      expect(selfTest()).toEqual({ mode: "none", selfTest: "fail", reason: "sandbox_unavailable" })
+    })
+  })
+
+  test("the startup result is computed once and not retried", () => {
+    resetStartupSelfTest()
+    try {
+      const first = withPath("/nonexistent", () => startupSelfTest())
+      expect(first).toEqual({ mode: "none", selfTest: "fail", reason: "sandbox_unavailable" })
+      // A later call with a working PATH still returns the first answer.
+      expect(startupSelfTest()).toEqual(first)
+    } finally {
+      resetStartupSelfTest()
+    }
   })
 })
 

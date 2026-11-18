@@ -65,7 +65,10 @@ entry file and its interpreter, so siblings stay invisible and the private
 never runs a harness unsandboxed: a sandbox that cannot start fails the run.
 
 The heartbeat reports each configured harness's probe status and advertises only
-the ready ones. The isolation mode field is still planned (spec 003, US3).
+the ready ones. It also reports the isolation mode, profile version and self-test
+outcome. At startup the node proves the sandbox shape with a self-test; when it
+fails, the node advertises no harnesses, probes none and refuses every run with
+`isolation_unavailable` until restart.
 
 ## Process lifecycle
 

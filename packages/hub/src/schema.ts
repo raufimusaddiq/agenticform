@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS run_events (
 );
 `
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /** Ordered migrations. Append a new entry and bump SCHEMA_VERSION for each change. */
 export const MIGRATIONS: readonly { version: number; sql: string }[] = [
@@ -110,6 +110,10 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
   {
     version: 2,
     sql: "ALTER TABLE nodes ADD COLUMN harness_report TEXT NOT NULL DEFAULT '[]';",
+  },
+  {
+    version: 3,
+    sql: "ALTER TABLE nodes ADD COLUMN isolation TEXT NOT NULL DEFAULT 'null';",
   },
 ]
 
@@ -152,6 +156,7 @@ export interface NodeRow {
   capacity_in_use: number
   inventory: string
   harness_report: string
+  isolation: string
   stale_observations: number
   last_heartbeat_at: number | null
   created_at: number

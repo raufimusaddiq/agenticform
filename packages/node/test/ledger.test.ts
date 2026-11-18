@@ -13,6 +13,9 @@ import { Executor } from "../src/executor.ts"
 import { CommandLedger } from "../src/ledger.ts"
 import { fingerprintOf } from "../src/state.ts"
 
+/** The Executor refuses every run without a passing self-test (FR-014). */
+const SANDBOX = { mode: "bwrap", selfTest: "pass" } as const
+
 const dirs: string[] = []
 const stateDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "af-ledger-test-"))
@@ -158,7 +161,7 @@ describe("durable command effects", () => {
     expect(JSON.parse(readFileSync(join(dir, "cmd-1.json"), "utf8")).status).toBe("started")
 
     const counting = countingDriver()
-    const executor = new Executor({ runtime: runtime(counting.driver), ledgerDir: dir })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(counting.driver), ledgerDir: dir })
     const outcome = await executor.execute(command(), context())
 
     expect(outcome.status).toBe("failed")
@@ -169,13 +172,13 @@ describe("durable command effects", () => {
   test("a lost completion returns the cached result on re-lease", async () => {
     const dir = stateDir()
     const counting = countingDriver()
-    const first = new Executor({ runtime: runtime(counting.driver), ledgerDir: dir })
+    const first = new Executor({ isolation: SANDBOX, runtime: runtime(counting.driver), ledgerDir: dir })
     const run = await first.execute(command(), context())
     expect(run.status).toBe("succeeded")
     expect(counting.connected()).toBe(1)
 
     // The completion response was lost; the hub re-leases after a restart.
-    const second = new Executor({ runtime: runtime(counting.driver), ledgerDir: dir })
+    const second = new Executor({ isolation: SANDBOX, runtime: runtime(counting.driver), ledgerDir: dir })
     expect(await second.execute(command(), context())).toEqual(run)
     expect(counting.connected()).toBe(1)
     expect(JSON.parse(readFileSync(join(dir, "cmd-1.json"), "utf8")).status).toBe("succeeded")
@@ -190,7 +193,7 @@ describe("durable command effects", () => {
         throw new Error("harness missing")
       },
     }
-    const executor = new Executor({ runtime: runtime(failing), ledgerDir: dir })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(failing), ledgerDir: dir })
     const outcome = await executor.execute(command(), context())
     expect(outcome.status).toBe("failed")
     expect(connected).toBe(1)

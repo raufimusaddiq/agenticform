@@ -53,13 +53,13 @@ with the first story; phase 7 lands with the last.
 
 ## Phase 5: User Story 3 - No sandbox means no run (P1)
 
-- [ ] T024 [US3] Wire the self-test result into startup: `isolation.mode`, no advertised harnesses on failure (FR-013, FR-014)
-- [ ] T025 [US3] Fail a run with `isolation_unavailable` when the sandbox cannot start, with no unsandboxed retry (FR-015)
-- [ ] T026 [US3] Report `isolation` in the heartbeat (FR-016)
-- [ ] T027 [US3] Test: with `bwrap` hidden from `PATH`, startup reports `isolation_unavailable` and spawns no harness (FR-014, SC-003)
-- [ ] T028 [US3] Test: a sandbox that exists but cannot create the shape fails the self-test (FR-013)
-- [ ] T029 [US3] Test: a per-run sandbox failure fails the run and never retries unsandboxed (FR-015)
-- [ ] T030 [US3] Test: the heartbeat carries `mode`, `profile` and `selfTest` (FR-016)
+- [x] T024 [US3] Wire the self-test result into startup: `isolation.mode`, no advertised harnesses on failure (FR-013, FR-014)
+- [x] T025 [US3] Fail a run with `isolation_unavailable` when the sandbox cannot start, with no unsandboxed retry (FR-015)
+- [x] T026 [US3] Report `isolation` in the heartbeat (FR-016)
+- [x] T027 [US3] Test: with `bwrap` hidden from `PATH`, startup reports `isolation_unavailable` and spawns no harness (FR-014, SC-003)
+- [x] T028 [US3] Test: a sandbox that exists but cannot create the shape fails the self-test (FR-013)
+- [x] T029 [US3] Test: a per-run sandbox failure fails the run and never retries unsandboxed (FR-015)
+- [x] T030 [US3] Test: the heartbeat carries `mode`, `profile` and `selfTest` (FR-016)
 
 ## Phase 6: User Story 4 - The heartbeat tells the truth about harnesses (P1)
 

@@ -11,7 +11,7 @@ import {
 import type { CommandEnvelope } from "@agenticform/protocol"
 import { normaliseEvent } from "./events.ts"
 import { resolveHarness, type ResolvedHarness } from "./harness-probe.ts"
-import { IsolationError, profileFor, resolveWorkspace, sandboxHarness } from "./isolation.ts"
+import { IsolationError, profileFor, resolveWorkspace, sandboxHarness, type SelfTestResult } from "./isolation.ts"
 import { CommandLedger } from "./ledger.ts"
 import { NodeState, fingerprintError, payloadGenerationError } from "./state.ts"
 
@@ -48,6 +48,12 @@ export interface ExecutorOptions {
   home?: string
   /** Environment used to resolve the entry point; must match the prober's. */
   env?: Record<string, string | undefined>
+  /**
+   * Startup self-test result. Required: a caller that cannot say the sandbox
+   * works must not run, so there is no default that silently allows a run
+   * (FR-014).
+   */
+  isolation: SelfTestResult
 }
 
 interface ActiveRun {
@@ -85,6 +91,26 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | undefin
   }
 }
 
+const STDERR_SCAN_BYTES = 4096
+
+/**
+ * A sandbox that cannot start fails the run; there is no unsandboxed retry
+ * (FR-015). `spawn_failed` means bwrap itself is missing. A bwrap setup error
+ * exits before the harness and writes a `bwrap:` line to stderr; an `execvp`
+ * failure is the harness entry point, not the sandbox. Only the first few
+ * kilobytes are scanned, so a harness that logs its own `bwrap:` line later
+ * cannot fake a sandbox failure.
+ */
+function sandboxFailed(run: Run, outcome: ExecutionOutcome): boolean {
+  if (outcome.status !== "failed") return false
+  if (outcome.error?.code === "spawn_failed") return true
+  if (outcome.error?.code !== "process_exited") return false
+  const head = run.stderrTail().slice(0, STDERR_SCAN_BYTES)
+  return head
+    .split("\n")
+    .some((line) => line.startsWith("bwrap:") && !line.includes("execvp"))
+}
+
 /** Two resolved entries are the same when the command, dirs and files match. */
 function sameEntry(a: ResolvedHarness, b: ResolvedHarness): boolean {
   return (
@@ -114,9 +140,10 @@ export class Executor {
   private readonly probeWaitMs: number
   private readonly home: string | undefined
   private readonly env: Record<string, string | undefined> | undefined
+  private readonly isolation: SelfTestResult
   private staleCount = 0
 
-  constructor(options: ExecutorOptions = {}) {
+  constructor(options: ExecutorOptions) {
     this.runtime = options.runtime ?? createRuntime()
     this.ledger = new CommandLedger({
       ...(options.ledgerDir === undefined ? {} : { dir: options.ledgerDir }),
@@ -130,6 +157,7 @@ export class Executor {
     this.probeWaitMs = options.probeWaitMs ?? 30_000
     this.home = options.home
     this.env = options.env
+    this.isolation = options.isolation
   }
 
   get activeCount(): number {
@@ -258,6 +286,17 @@ export class Executor {
     }
     if (typeof payload.prompt !== "string" || !payload.prompt) {
       return { status: "failed", error: { code: "invalid_input", message: "prompt is required" } }
+    }
+    // FR-014: no usable sandbox means no run. The result is fixed at startup,
+    // so this is a constant refusal, not a retry.
+    if (this.isolation.mode === "none") {
+      return {
+        status: "failed",
+        error: {
+          code: "isolation_unavailable",
+          message: `Sandbox is unavailable: ${this.isolation.reason ?? "self-test failed"}`,
+        },
+      }
     }
     // spec.md: a missing working directory fails the run before the harness
     // starts, rather than letting the harness fail with an opaque error. The
@@ -419,7 +458,17 @@ export class Executor {
       const outcome = outcomeOf(await run.result())
       // FR-021: a failed run invalidates the probe entry, so the next heartbeat
       // re-probes and a login is picked up without a restart.
-      if (outcome.status === "failed") this.harnessFailed?.(payload.harness)
+      if (outcome.status === "failed") {
+        this.harnessFailed?.(payload.harness)
+        // FR-015: a sandbox that cannot start fails the run with its own code.
+        // There is no unsandboxed retry and the profile never widens.
+        if (sandboxFailed(run, outcome)) {
+          return {
+            status: "failed",
+            error: { code: "isolation_unavailable", message: "Sandbox failed to start; no unsandboxed retry" },
+          }
+        }
+      }
       return outcome
     } finally {
       // A newer generation may already own the entry; only the owner deletes it.

@@ -9,6 +9,9 @@ import {
 import { Executor } from "../src/executor.ts"
 import { NodeState, fingerprintError, fingerprintOf, payloadGenerationError } from "../src/state.ts"
 
+/** The Executor refuses every run without a passing self-test (FR-014). */
+const SANDBOX = { mode: "bwrap", selfTest: "pass" } as const
+
 const supported: Capabilities["supported"] = {
   cancel: true,
   "steer.emulated": false,
@@ -115,7 +118,7 @@ describe("node state", () => {
 describe("executor reuse and monotonic fencing", () => {
   test("refuses a reused command id with a different fingerprint before any effect", async () => {
     const counting = countingDriver()
-    const executor = new Executor({ runtime: runtime(counting.driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(counting.driver) })
     const first = await executor.execute(command(), context())
     expect(first.status).toBe("succeeded")
     expect(counting.connected()).toBe(1)
@@ -133,7 +136,7 @@ describe("executor reuse and monotonic fencing", () => {
 
   test("refuses a mismatched payload fingerprint before any effect", async () => {
     const counting = countingDriver()
-    const executor = new Executor({ runtime: runtime(counting.driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(counting.driver) })
     const bad = command()
     bad.payload = { ...bad.payload, fingerprint: "sha256:forged" }
     const outcome = await executor.execute(bad, context())
@@ -146,7 +149,7 @@ describe("executor reuse and monotonic fencing", () => {
 
   test("refuses a command with no payload fingerprint before any effect", async () => {
     const counting = countingDriver()
-    const executor = new Executor({ runtime: runtime(counting.driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(counting.driver) })
     const missing = command()
     Reflect.deleteProperty(missing.payload, "fingerprint")
     const outcome = await executor.execute(missing, context())
@@ -159,7 +162,7 @@ describe("executor reuse and monotonic fencing", () => {
 
   test("an older generation never replaces the recorded runtime", async () => {
     const counting = countingDriver()
-    const executor = new Executor({ runtime: runtime(counting.driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(counting.driver) })
     const newer = await executor.execute(
       command({ commandId: "cmd-2", generation: 2, payload: { ...command().payload, generation: 2 } }),
       context(),
