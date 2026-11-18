@@ -161,18 +161,19 @@ describe("isolation argv", () => {
     expect(workspaceBinds[1]).toBeGreaterThan(entryBind)
   })
 
-  test("an entry dir at / is refused, never --ro-bind / /", () => {
-    expect(() => sandboxArgs(profileFor("nope"), "/tmp/ws", temp("af-home-"), {}, { entryDirs: ["/"] })).toThrow(
-      IsolationError,
-    )
+  test("an entry dir at / binds only the file, never --ro-bind / /", () => {
+    const args = sandboxArgs(profileFor("nope"), "/tmp/ws", temp("af-home-"), {}, { entryDirs: ["/"] })
+    const rootBinds = args.flatMap((arg, index) => (arg === "--ro-bind" && args[index + 1] === "/" ? ["/"] : []))
+    expect(rootBinds).toEqual([])
   })
 
-  test("the home root and its ancestors are refused as entry dirs", () => {
+  test("the home root and its ancestors are not bound whole", () => {
     const home = temp("af-home-")
-    expect(() => sandboxArgs(profileFor("nope"), "/tmp/ws", home, {}, { entryDirs: [home] })).toThrow(IsolationError)
-    expect(() => sandboxArgs(profileFor("nope"), "/tmp/ws", home, {}, { entryDirs: [dirname(home)] })).toThrow(
-      IsolationError,
-    )
+    for (const dir of [home, dirname(home)]) {
+      const args = sandboxArgs(profileFor("nope"), "/tmp/ws", home, {}, { entryDirs: [dir] })
+      const binds = args.flatMap((arg, index) => (arg === "--ro-bind" && args[index + 1] === dir ? [dir] : []))
+      expect(binds).toEqual([])
+    }
   })
 
   test("an entry dir inside the workspace is not bound read-only", () => {
@@ -285,6 +286,71 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       rmSync(entry, { force: true })
     }
   })
+
+  test("a harness inside a state dir is reached through the state bind", async () => {
+    const home = temp("af-home-")
+    const stateDir = join(home, ".claude")
+    mkdirSync(join(stateDir, "local"), { recursive: true })
+    const entry = join(stateDir, "local", "claude.ts")
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    const workspace = temp("af-ws-")
+    const resolved = resolveWorkspace(workspace, home)
+    const inside = join(workspace, "inside.txt")
+    const resolution = resolveHarness({
+      id: "claude",
+      profile: "coding",
+      command: entry,
+      args: [JSON.stringify({ scenario: "writes", writes: [inside] })],
+    })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    const definition = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor("claude"),
+      resolved,
+      home,
+      process.env,
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+    )
+    expect(definition.args).toContain("/home/agent/.claude/local/claude.ts")
+    const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+    const result = await run.result()
+    expect(result.text).toBe(`${inside}=ok`)
+  })
+
+  for (const protectedDir of ["~/.local", "~/.config"]) {
+    test(`${protectedDir} is not bound whole and its siblings stay invisible`, async () => {
+      const home = temp("af-home-")
+      const dir = join(home, protectedDir.slice(2))
+      mkdirSync(dir, { recursive: true })
+      const entry = join(dir, "agent.ts")
+      writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+      const sibling =
+        protectedDir === "~/.local" ? join(home, ".local", "share", "keyrings") : join(home, ".config", "gh")
+      mkdirSync(sibling, { recursive: true })
+      writeFileSync(join(sibling, "secret"), "secret")
+      const workspace = temp("af-ws-")
+      const resolved = resolveWorkspace(workspace, home)
+      const resolution = resolveHarness({
+        id: "fake",
+        profile: "coding",
+        command: entry,
+        args: [JSON.stringify({ scenario: "writes", reads: [join(sibling, "secret")] })],
+      })
+      if (!resolution.ok) throw new Error("entry did not resolve")
+      const definition = sandboxHarness(
+        resolution.resolved.definition,
+        profileFor("fake"),
+        resolved,
+        home,
+        process.env,
+        { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+      )
+      const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+      const result = await run.result()
+      expect(result.status).toBe("completed")
+      expect(result.text).toBe(`read:${join(sibling, "secret")}=ENOENT`)
+    })
+  }
 
   for (const root of ["/tmp", "/var/tmp"]) {
     test(`a sibling in ${root} is not visible when the entry is directly in ${root}`, async () => {
@@ -464,7 +530,7 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       expect(result.text).not.toContain("enroll-secret")
       expect(result.text).not.toContain("node-secret")
       expect(result.text).toContain("HOME=/home/agent")
-      expect(result.text).toContain("PATH=/usr/local/bin:/usr/bin:/bin")
+      expect(result.text).toContain("/usr/local/bin:/usr/bin:/bin")
     } finally {
       for (const name of ["AGENTICFORM_ADMIN_TOKEN", "AGENTICFORM_ENROLLMENT_TOKEN", "AGENTICFORM_HUB_URL", "NODE_SECRET"]) {
         if (saved[name] === undefined) delete process.env[name]

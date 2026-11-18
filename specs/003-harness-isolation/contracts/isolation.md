@@ -65,11 +65,16 @@ Rules:
 - A read-only state path that does not exist is skipped; a read-write one is
   created with mode `0700`.
 - Entry-point binds come after the private `/tmp` and home tmpfs, so a resolved
-  entry point under `/tmp` is not shadowed by the private tmpfs. A safe entry
-  directory is bound whole, read-only, and prepended to the sandbox `PATH`. A
-  temp root (`/tmp`, `/var/tmp`) or a directory that is an ancestor of the
-  workspace is NOT bound whole: only the resolved entry file and its interpreter
-  are bound, so siblings stay invisible and the private `/tmp` is preserved.
+  entry point under `/tmp` is not shadowed by the private tmpfs. Resolve the
+  entry with `realpath` and apply one rule:
+  - if the real file is inside a declared state dir, do not add a bind: map the
+    command and `PATH` entry to the in-sandbox path of that state bind;
+  - otherwise bind the smallest directory containing the real file, unless it is
+    the home root, an ancestor of HOME, an ancestor of a state path, a temp root,
+    a workspace ancestor, or one of `~/.local`, `~/.config`, `~/.cache`,
+    `~/.ssh`, `~/.gnupg` (or their direct parents); then bind only the entry and
+    interpreter files.
+  Only directories that exist inside the sandbox are put on `PATH`.
 - The root is remounted read-only after the binds, so a path next to the
   workspace (created for the bind) cannot be written. The workspace, `/tmp`, the
   home, the state binds and the entry-point binds are separate mounts and keep

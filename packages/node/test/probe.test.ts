@@ -473,11 +473,28 @@ describe("non-ready runs", () => {
     expect(invalidated).toEqual(["fake"])
   })
 
-  test("an unsafe entry dir fails with harness_unavailable, never a root bind", async () => {
-    let connected = 0
+  test("an unsafe entry dir binds only the file, never a root bind", async () => {
+    let captured: HarnessDefinition | undefined
+    const driver: RuntimeDriver = {
+      async connect(input): Promise<DriverConnection> {
+        captured = input.harness
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            return { stopReason: "end_turn" }
+          },
+          async cancel() {},
+          async close() {},
+          stderrTail() {
+            return ""
+          },
+        }
+      },
+    }
     const executor = new Executor({
       runtime: createRuntime({
-        driver: fakeDriver(() => (connected += 1)),
+        driver,
         harnesses: { fake: { id: "fake", profile: "coding", command: "/agent" } },
       }),
       harnessStatus: () => "ready",
@@ -487,10 +504,10 @@ describe("non-ready runs", () => {
       emit: () => {},
       signal: new AbortController().signal,
     })
-    expect(outcome.status).toBe("failed")
-    expect(outcome.error?.code).toBe("harness_unavailable")
-    expect(outcome.error?.message).toContain("entry directory")
-    expect(connected).toBe(0)
+    expect(outcome.status).toBe("succeeded")
+    const args = captured?.args ?? []
+    const rootBinds = args.flatMap((arg, index) => (arg === "--ro-bind" && args[index + 1] === "/" ? ["/"] : []))
+    expect(rootBinds).toEqual([])
   })
 
   test("a run before the first probe triggers a probe and waits", async () => {

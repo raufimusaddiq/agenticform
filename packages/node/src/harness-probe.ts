@@ -97,8 +97,8 @@ function resolveDirect(definition: HarnessDefinition, options: ResolveOptions): 
     // A broken symlink is not runnable.
     return missing("not_installed")
   }
-  const dirs = [dirname(found), dirname(real)]
-  const files = [found, real]
+  const dirs = [dirname(real)]
+  const files = [real]
   const interpreter = interpreterOf(real)
   if (interpreter) {
     const resolved = findOnPath(interpreter, path)
@@ -106,7 +106,7 @@ function resolveDirect(definition: HarnessDefinition, options: ResolveOptions): 
       try {
         const realInterpreter = realpathSync(resolved)
         dirs.push(dirname(realInterpreter))
-        files.push(resolved, realInterpreter)
+        files.push(realInterpreter)
       } catch {
         dirs.push(dirname(resolved))
         files.push(resolved)
@@ -116,7 +116,7 @@ function resolveDirect(definition: HarnessDefinition, options: ResolveOptions): 
   return {
     ok: true,
     resolved: {
-      definition: { ...definition, command: found, args: [...(definition.args ?? [])] },
+      definition: { ...definition, command: real, args: [...(definition.args ?? [])] },
       dirs: unique(dirs),
       files: unique(files),
     },
@@ -377,7 +377,10 @@ export class HarnessProber {
 
   private async probe(definition: HarnessDefinition): Promise<HarnessReport> {
     // Resolve once per probe and keep it: the executor reuses the dirs.
-    const resolution = resolveHarness(definition)
+    const resolution = resolveHarness(definition, {
+      ...(this.options.home === undefined ? {} : { home: this.options.home }),
+      ...(this.options.env?.PATH === undefined ? {} : { path: this.options.env.PATH }),
+    })
     if (resolution.ok) this.entries.set(definition.id, resolution.resolved)
     else this.entries.delete(definition.id)
     try {
