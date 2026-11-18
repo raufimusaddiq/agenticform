@@ -1,10 +1,6 @@
 # Agenticform
 
-Agenticform is a small execution fabric for coding agents. It gives applications, scripts and other agents one way to run Claude Code, Codex, OpenCode, omp, Pi, DeepSeek Harness and similar tools.
-
-> **Status:** early. The local `runtime` package, the `node` daemon and the `hub` exist. The earlier Java, Go and React stack has been removed; its history stays in git.
-
-## What it does
+Agenticform is a small execution fabric for coding agents. It gives applications, scripts and other agents one way to run Claude Code, Codex, OpenCode, omp, Pi, DeepSeek Harness, Hermes and OpenClaw. Callers decide what work to do; Agenticform runs it and reports what happened, so planning and task management belong in the application using it.
 
 ```ts
 import { createRuntime } from "@agenticform/runtime"
@@ -23,49 +19,43 @@ for await (const event of run.events()) {
 const result = await run.result()
 ```
 
-Changing `harness` is the only edit needed to use another agent. When a harness cannot meet a run's stated requirements, the run fails with a named error rather than degrading silently.
+Changing `harness` is the only edit needed to use another agent. When a harness cannot meet a run's stated requirements, the run fails with a named error rather than degrading silently. Permission requests are denied unless the caller allows them.
 
-Agenticform runs work. Callers decide what work to do, so planning and task management belong in the application using it.
+## Architecture
+
+```text
+applications / scripts / agents
+        │ library, HTTP, CLI or MCP
+        ▼
+client ─────► hub ◄───── node (machine A) ─► sandboxed harness
+              ▲
+              └───────── node (machine B) ─► sandboxed harness
+```
+
+| Package | What it is |
+|---|---|
+| `runtime` | Local runs over ACP: starts a harness, negotiates capabilities, normalises events. Works alone, with no server. |
+| `node` | Daemon on each machine. Connects outbound only (no inbound port), keeps a durable command ledger written before any effect, wraps every harness in a bubblewrap sandbox, probes each configured harness and reports the result in the heartbeat. |
+| `hub` | Connection point. SQLite (WAL) storage, signed node requests with single-use nonces, lease fencing, placement, the HTTP API and a small operator UI at `/`. It never holds harness credentials. |
+| `protocol` | Shared wire types and canonical signing. |
+| `client` | TypeScript SDK for the hub's HTTP API. |
+| `cli`, `mcp` | `af` and `agenticform-mcp`, thin clients of the same API. |
+
+**Isolation.** The node never runs a harness unsandboxed. At startup it runs a sandbox self-test; if that fails, it advertises no harnesses and refuses every run with `isolation_unavailable` until restart. A harness whose state directory is unusable is reported `state_dir_unusable`, and a run for it fails with `harness_unavailable` before any child starts. Details: [docs/architecture.md](docs/architecture.md).
 
 ## Try it
 
-You need [Bun](https://bun.sh) and a harness that is already installed and logged in.
-
-```bash
-bun install
-bun test packages
-bun packages/runtime/examples/run.ts codex . "Summarise this repository"
-bun packages/node/examples/end-to-end.ts
-```
-
-The last command runs a real node against a fake hub and a fake agent, so it needs no harness and no credentials.
-
-## Clean install and one run
-
-From a fresh clone, with nothing else installed but Bun:
+You need [Bun](https://bun.sh). Running a real harness also needs that harness installed and logged in.
 
 ```bash
 bun install --frozen-lockfile
 bun run typecheck
 bun test packages
+bun packages/runtime/examples/run.ts codex . "Summarise this repository"
 bun packages/node/examples/end-to-end.ts
 ```
 
-The last step is the run journey: a real node enrolls, heartbeats, leases one
-`run.start`, streams events and completes, against a fake hub and a fake agent.
-It writes only to a temporary state directory and removes it, so it needs no
-harness, no credentials and no database. `packages/node/test/journey.test.ts`
-runs the same journey as part of `bun test packages`.
-
-## Packages
-
-| Package | Purpose | Status |
-|---|---|---|
-| `runtime` | Local runs, ACP driver, events, capabilities | Available |
-| `node` | Daemon on each machine, isolation, recovery | Available |
-| `hub` | Connection point, placement, fencing, HTTP API | Available |
-| `client` | TypeScript SDK for the HTTP API | Available |
-| CLI, MCP | Thin clients of the HTTP API | Available |
+The last command runs a real node against a fake hub and a fake agent: it enrolls, heartbeats, leases one `run.start`, streams events and completes. It needs no harness, credentials or database, and writes only to a temporary state directory.
 
 ## Configuration
 
@@ -158,8 +148,10 @@ startup. A probe runs at most one at a time and never blocks a heartbeat.
 - [Architecture](docs/architecture.md)
 - [Supported harnesses](docs/harnesses.md)
 - [Constitution](.specify/memory/constitution.md)
+- [Node/hub invariants](docs/node-hub-invariants.md)
 - [Runtime spec](specs/001-runtime-foundation/spec.md)
 - [Node and hub spec](specs/002-node-hub/spec.md)
+- [Harness isolation spec](specs/003-harness-isolation/spec.md)
 
 ## Development
 

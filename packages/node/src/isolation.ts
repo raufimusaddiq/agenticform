@@ -278,7 +278,7 @@ function ensureStateDir(path: string): void {
  * not trust the harness exit status. Only a config dir is checked; another rw
  * state dir keeps the create-and-continue behaviour.
  */
-export function assertStateDirUsable(path: string): void {
+function assertStateDirUsable(path: string): void {
   let stats
   try {
     stats = statSync(path)
