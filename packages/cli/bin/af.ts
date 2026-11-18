@@ -12,6 +12,7 @@ const USAGE = `usage: af <command>
   af nodes
   af run start --harness <h> --prompt <text> --key <idempotency-key>
                [--cwd <dir>] [--node <id>] [--requires a,b] [--label k=v]...
+               [--git-backed[=true|false]]
   af run get <runId>
   af run events <runId> [--after <seq>] [--follow]
   af run cancel <runId>
@@ -89,7 +90,7 @@ async function main(argv: string[]): Promise<void> {
 
   if (group === "run" && action === "start") {
     const rest = argv.slice(2)
-    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label"])
+    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label", "git-backed"])
     const harness = flag(rest, "harness")
     const prompt = flag(rest, "prompt")
     const idempotencyKey = flag(rest, "key")
@@ -98,6 +99,13 @@ async function main(argv: string[]): Promise<void> {
     const cwd = flag(rest, "cwd")
     const node = flag(rest, "node")
     const labels = parseLabels(flags(rest, "label"))
+    const gitBackedFlag = rest.find((arg) => arg === "--git-backed" || arg.startsWith("--git-backed="))
+    let gitBacked: boolean | undefined
+    if (gitBackedFlag !== undefined) {
+      const value = gitBackedFlag.includes("=") ? gitBackedFlag.split("=")[1] : "true"
+      if (value !== "true" && value !== "false") throw new Error("--git-backed must be true or false")
+      gitBacked = value === "true"
+    }
     const request: RunRequest = {
       idempotencyKey,
       harness,
@@ -106,6 +114,7 @@ async function main(argv: string[]): Promise<void> {
       ...(node === undefined ? {} : { nodeId: node }),
       ...(requires === undefined ? {} : { requires: requires.split(",").filter(Boolean) }),
       ...(Object.keys(labels).length ? { labels } : {}),
+      ...(gitBacked === undefined ? {} : { gitBacked }),
     }
     return print(await client().createRun(request))
   }
@@ -131,6 +140,21 @@ async function main(argv: string[]): Promise<void> {
   let lastSeen = after
   let attempt = 0
   while (true) {
+    // Check before every stream open: a disconnected run's stream stays open
+    // and never replays the event when `after` is already past it.
+    const run = await hub.getRun(id)
+    if (run.status === "disconnected") {
+      console.error(
+        `run ${id} disconnected; recover it with POST /v1/runs/${id}/recover then follow again`,
+      )
+      process.exit(3)
+    }
+    if (FOLLOW_STOP_STATUSES.has(run.status)) {
+      const page = await hub.getEvents(id, after)
+      for (const event of page.events) print(event)
+      return
+    }
+
     const before = after
     const controller = new AbortController()
     try {
@@ -151,14 +175,6 @@ async function main(argv: string[]): Promise<void> {
       if (error instanceof HubApiError) throw error
       after = lastSeen
     }
-    const run = await hub.getRun(id)
-    if (run.status === "disconnected") {
-      console.error(
-        `run ${id} disconnected; recover it with POST /v1/runs/${id}/recover then follow again`,
-      )
-      process.exit(3)
-    }
-    if (FOLLOW_STOP_STATUSES.has(run.status)) return
     if (after > before) attempt = 0
     await reconnectDelay(attempt)
     attempt += 1

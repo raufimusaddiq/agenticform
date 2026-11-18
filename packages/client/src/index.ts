@@ -65,14 +65,12 @@ export interface ClientOptions {
 
 /** Validate a resume cursor: events start at seq 1, so `after` is a non-negative integer. */
 export function normalizeAfter(value: unknown): number {
-  const after =
-    typeof value === "number"
-      ? value
-      : typeof value === "string" && value.trim() !== ""
-        ? Number(value)
-        : Number.NaN
-  if (!Number.isInteger(after) || after < 0) throw new Error("after must be a non-negative integer")
-  return after
+  if (typeof value === "number") {
+    if (!Number.isInteger(value) || value < 0) throw new Error("after must be a non-negative integer")
+    return value
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value)
+  throw new Error("after must be a non-negative integer")
 }
 
 export const MAX_FOLLOW_RETRIES = 5
@@ -152,8 +150,8 @@ export class HubClient {
   }
 
   async listNodes(): Promise<NodeView[]> {
-    const body = await this.request<{ nodes: NodeView[] }>("GET", "/v1/nodes")
-    return body.nodes
+    const body = await this.request<{ nodes: NodeView[] } | undefined>("GET", "/v1/nodes")
+    return body?.nodes ?? []
   }
 
   createRun(request: RunRequest): Promise<RunView> {
@@ -210,24 +208,32 @@ export class HubClient {
     const decoder = new TextDecoder()
     let buffer = ""
     let last = cursor
+    const dispatch = (frame: string): boolean => {
+      const data = frame
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("\n")
+      if (!data) return false
+      const event = JSON.parse(data) as RunEventWire
+      last = event.seq
+      onEvent(event)
+      return signal?.aborted === true
+    }
     for await (const chunk of response.body) {
       buffer += decoder.decode(chunk, { stream: true })
+      // Accept LF and CRLF framing, including a CRLF split across chunks.
+      buffer = buffer.replace(/\r\n/g, "\n")
       let split: number
       while ((split = buffer.indexOf("\n\n")) !== -1) {
         const frame = buffer.slice(0, split)
         buffer = buffer.slice(split + 2)
-        const data = frame
-          .split("\n")
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trim())
-          .join("\n")
-        if (!data) continue
-        const event = JSON.parse(data) as RunEventWire
-        last = event.seq
-        onEvent(event)
-        if (signal?.aborted) return last
+        if (dispatch(frame)) return last
       }
     }
+    // Flush a final frame that arrived without the trailing blank line.
+    buffer += decoder.decode()
+    if (dispatch(buffer)) return last
     return last
   }
 }

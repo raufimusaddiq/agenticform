@@ -72,14 +72,13 @@ describe("error responses", () => {
   })
 })
 
-describe("resume cursor", () => {
-  test("accepts non-negative integers", () => {
+describe("resume cursor", () => {  test("accepts non-negative integers", () => {
     expect(normalizeAfter(0)).toBe(0)
     expect(normalizeAfter("3")).toBe(3)
   })
 
   test("rejects negative, fractional and non-numeric values", () => {
-    for (const value of [-1, 1.5, "x", "", null]) {
+    for (const value of [-1, 1.5, "x", "", null, "0x10", "1e3", " 1"]) {
       expect(() => normalizeAfter(value)).toThrow("after must be a non-negative integer")
     }
   })
@@ -99,5 +98,40 @@ describe("follow stop statuses", () => {
     expect(FOLLOW_STOP_STATUSES.has("cancelled")).toBe(true)
     expect(FOLLOW_STOP_STATUSES.has("disconnected")).toBe(true)
     expect(FOLLOW_STOP_STATUSES.has("running")).toBe(false)
+  })
+})
+
+describe("SSE framing", () => {
+  test("parses CRLF frames and flushes a final frame without a blank line", async () => {
+    const wire = (seq: number): string =>
+      `id: ${seq}\ndata: ${JSON.stringify({ seq, key: `k${seq}`, type: "message.delta", at: new Date().toISOString(), data: {} })}`
+    const stub = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(`${wire(1).replace(/\n/g, "\r\n")}\r\n\r\n${wire(2)}`, {
+          headers: { "content-type": "text/event-stream" },
+        }),
+    })
+    try {
+      const sseClient = new HubClient({ url: stub.url.origin, token: "t" })
+      const seen: number[] = []
+      const last = await sseClient.followEvents("r1", 0, (event) => seen.push(event.seq))
+      expect(seen).toEqual([1, 2])
+      expect(last).toBe(2)
+    } finally {
+      stub.stop(true)
+    }
+  })
+})
+
+describe("listNodes", () => {
+  test("treats a 204 as an empty list", async () => {
+    const stub = Bun.serve({ port: 0, fetch: () => new Response(null, { status: 204 }) })
+    try {
+      const emptyClient = new HubClient({ url: stub.url.origin, token: "t" })
+      expect(await emptyClient.listNodes()).toEqual([])
+    } finally {
+      stub.stop(true)
+    }
   })
 })

@@ -15,6 +15,9 @@ const server = Bun.serve({
   fetch(request) {
     const url = new URL(request.url)
     if (url.pathname === "/v1/runs/r1/events") {
+      if (url.searchParams.get("stream") !== "sse") {
+        return Response.json({ events: [], lastSeq: Number(url.searchParams.get("after") ?? 0) })
+      }
       streams += 1
       resumes.push(request.headers.get("last-event-id"))
       if (streams === 1) {
@@ -110,7 +113,6 @@ describe("af run events --follow", () => {
   test("stops on a disconnected run with exit 3 and a recover hint", async () => {
     const result = await cli(["run", "events", "d1", "--follow"])
     expect(result.code).toBe(3)
-    expect(result.out).toContain('"type": "run.disconnected"')
     expect(result.err).toContain(
       "run d1 disconnected; recover it with POST /v1/runs/d1/recover then follow again",
     )

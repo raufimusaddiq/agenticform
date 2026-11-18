@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { spawn, type ChildProcess } from "node:child_process"
 import { generateKeyPairSync, randomBytes, sign as cryptoSign } from "node:crypto"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { canonicalString } from "@agenticform/protocol/canonical"
 import { HubClient } from "@agenticform/client"
 
@@ -46,8 +46,12 @@ beforeAll(async () => {
   })
 })
 
-afterAll(() => {
-  hub?.kill("SIGTERM")
+afterAll(async () => {
+  if (!hub) return
+  const exited = new Promise<void>((resolve) => hub.once("exit", () => resolve()))
+  hub.kill("SIGTERM")
+  await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 5_000))])
+  rmSync(dirname(stateFile), { recursive: true, force: true })
 })
 
 const admin = (method: string, path: string, body?: unknown): Promise<Response> =>
@@ -259,7 +263,6 @@ describe("thin clients over the hub HTTP API", () => {
     const started = Date.now()
     const result = await cli(["run", "events", run.runId, "--follow"])
     expect(result.code).toBe(3)
-    expect(result.out).toContain("run.disconnected")
     expect(result.out).toContain(`run ${run.runId} disconnected; recover it with POST /v1/runs/${run.runId}/recover`)
     expect(Date.now() - started).toBeLessThan(5_000)
 
@@ -278,6 +281,37 @@ describe("thin clients over the hub HTTP API", () => {
     } finally {
       server.close()
     }
+  })
+
+  test("follow with --after past the disconnected event exits 3 promptly", async () => {
+    const nodeId = await enrollOnlineNode()
+    const client = new HubClient({ url, token: TOKEN })
+    const run = await client.createRun({
+      idempotencyKey: "parity-disconnected-after",
+      harness: "codex",
+      prompt: "fix tests",
+      nodeId,
+    })
+    await admin("POST", `/v1/nodes/${nodeId}/revoke`)
+    const events = await client.getEvents(run.runId, 0)
+    const seq = events.events.at(-1)?.seq as number
+    expect(seq).toBeGreaterThan(0)
+
+    const started = Date.now()
+    const result = await cli(["run", "events", run.runId, "--follow", "--after", String(seq)])
+    expect(result.code).toBe(3)
+    expect(result.out).toContain(`run ${run.runId} disconnected`)
+    expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
+  test("af run start accepts --git-backed=false", async () => {
+    const nodeId = await enrollOnlineNode()
+    const result = await cli([
+      "run", "start", "--key", "parity-git-backed", "--harness", "codex", "--prompt", "fix tests",
+      "--node", nodeId, "--git-backed=false",
+    ])
+    expect(result.code).toBe(0)
+    expect(parse(result.out).runId).toBeTruthy()
   })
 
   test("the CLI takes the token from env, never argv", async () => {
