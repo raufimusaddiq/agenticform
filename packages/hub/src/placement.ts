@@ -17,10 +17,7 @@ export function nodeSupports(node: NodeRow, filter: PlacementFilter): boolean {
   if (!harnesses.includes(filter.harness)) return false
   const capabilities = new Set(JSON.parse(node.capabilities) as string[])
   for (const capability of filter.requires ?? []) if (!capabilities.has(capability)) return false
-  const labels = JSON.parse(node.labels) as Record<string, string>
-  for (const [key, value] of Object.entries(filter.labels ?? {})) {
-    if (labels[key] !== value) return false
-  }
+  if (!labelsMatch(node, filter)) return false
   if (node.capacity_in_use >= node.capacity_slots) return false
   return true
 }

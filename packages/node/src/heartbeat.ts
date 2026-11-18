@@ -3,7 +3,7 @@ import type { NodeClient } from "./client.ts"
 
 export interface HeartbeatOptions {
   intervalMs: number
-  body: () => HeartbeatRequest | Promise<HeartbeatRequest>
+  body: (signal?: AbortSignal) => HeartbeatRequest | Promise<HeartbeatRequest>
   onResponse?: (response: HeartbeatResponse) => void
   onError?: (error: unknown) => void
 }
@@ -31,7 +31,7 @@ export function startHeartbeat(client: NodeClient, options: HeartbeatOptions): H
     if (inflight) return inflight
     inflight = (async () => {
       try {
-        const response = await client.heartbeat(await options.body(), controller.signal)
+        const response = await client.heartbeat(await options.body(controller.signal), controller.signal)
         options.onResponse?.(response)
       } catch (error) {
         if (!stopped) options.onError?.(error)

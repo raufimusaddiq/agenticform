@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { createPublicKey, verify } from "node:crypto"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { CommandEnvelope, EventBatchResponse, RunEventInput } from "@agenticform/protocol"
+import type { CommandEnvelope, EventBatchResponse, HeartbeatRequest, RunEventInput } from "@agenticform/protocol"
 import { canonicalString } from "@agenticform/protocol/canonical"
 import {
   createRuntime,
@@ -24,6 +24,7 @@ import { fingerprintOf } from "../src/state.ts"
 
 const stateDir = mkdtempSync(join(tmpdir(), "af-node-test-"))
 afterEach(() => rmSync(stateDir, { recursive: true, force: true }))
+const hasBwrap = Bun.spawnSync(["sh", "-c", "command -v bwrap"]).exitCode === 0
 
 const config = (hubUrl: string): NodeConfig => ({
   hubUrl,
@@ -921,7 +922,7 @@ describe("shutdown", () => {
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
-    const node = createNode(config("http://127.0.0.1:1"), identity(), {
+    const node = createNode({ ...config("http://127.0.0.1:1"), harnessProbeTimeoutMs: 50 }, identity(), {
       fetch: fetchImpl,
       runtime: runtime(),
     })
@@ -931,4 +932,39 @@ describe("shutdown", () => {
     await node.stop()
     expect(Date.now() - begin).toBeLessThan(500)
   })
+})
+
+describe("first heartbeat", () => {
+  test.skipIf(!hasBwrap)("waits for the first probe pass", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "af-slow-"))
+    const slow = join(dir, "slow")
+    writeFileSync(slow, "#!/bin/sh\nsleep 300\n", { mode: 0o755 })
+    const bodies: HeartbeatRequest[] = []
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes("/v1/node/heartbeat")) {
+        bodies.push(JSON.parse(String(init?.body)) as HeartbeatRequest)
+        return Response.json({ status: "online", commandsPollMs: 60_000 })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const node = createNode(
+      { ...config("http://127.0.0.1:1"), harnessProbeTimeoutMs: 100, heartbeatIntervalMs: 60_000, pollMs: 60_000 },
+      identity(),
+      {
+        fetch: fetchImpl,
+        runtime: createRuntime({ harnesses: { slow: { id: "slow", profile: "coding", command: slow } } }),
+        harnesses: ["slow"],
+      },
+    )
+    try {
+      node.start()
+      for (let i = 0; i < 100 && bodies.length === 0; i += 1) await Bun.sleep(20)
+      expect(bodies.length).toBeGreaterThan(0)
+      expect(bodies[0]?.harnessReport).toEqual([{ id: "slow", status: "unknown", reason: "handshake_timeout" }])
+    } finally {
+      await node.stop()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
 })

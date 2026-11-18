@@ -392,12 +392,14 @@ export class Executor {
     // Every run is sandboxed (FR-001). There is no unsandboxed path: a sandbox
     // that cannot start fails the run instead of falling back. Unsafe entry
     // dirs degrade to file-only binds, so the argv builder does not throw.
+    // Home and env come from the same source as the prober, so state binds and
+    // entry resolution agree.
     const sandboxed = sandboxHarness(
       resolved.definition,
       profileFor(payload.harness),
       workspace,
-      undefined,
-      undefined,
+      this.home,
+      this.env,
       { entryDirs: resolved.dirs, entryFiles: resolved.files },
     )
     const run = this.runtime.run({

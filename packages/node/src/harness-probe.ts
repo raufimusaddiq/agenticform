@@ -130,6 +130,11 @@ function splitSpec(spec: string): { name: string; version: string } | null {
   return { name: spec.slice(0, at), version: spec.slice(at + 1) }
 }
 
+/**
+ * Bun's cache is `.bunx-<uid>/<pkg>@<version>`. Prefer the current user's dir,
+ * then the highest uid; the version is pinned, so a different version is never
+ * substituted (a stale dir with another version does not win).
+ */
 function bunxRoot(cacheRoot: string, name: string, version: string): string | null {
   let entries: string[]
   try {
@@ -137,10 +142,19 @@ function bunxRoot(cacheRoot: string, name: string, version: string): string | nu
   } catch {
     return null
   }
-  for (const entry of entries) {
-    if (!entry.startsWith(".bunx-")) continue
-    const candidate = join(cacheRoot, entry, `${name}@${version}`)
-    if (existsSync(join(candidate, "node_modules", name, "package.json"))) return candidate
+  const uid = typeof process.getuid === "function" ? process.getuid() : undefined
+  const candidates = entries
+    .filter((entry) => entry.startsWith(".bunx-"))
+    .map((entry) => ({ entry, uid: Number(entry.slice(".bunx-".length)) }))
+    .filter((candidate) => Number.isFinite(candidate.uid))
+    .sort((a, b) => {
+      if (uid !== undefined && a.uid === uid) return -1
+      if (uid !== undefined && b.uid === uid) return 1
+      return b.uid - a.uid
+    })
+  for (const candidate of candidates) {
+    const root = join(cacheRoot, candidate.entry, `${name}@${version}`)
+    if (existsSync(join(root, "node_modules", name, "package.json"))) return root
   }
   return null
 }
@@ -277,7 +291,13 @@ export async function probeHarness(definition: HarnessDefinition, options: Probe
         () => controller.abort(new RuntimeError("handshake_timeout", "probe timed out")),
       )
     } finally {
-      await connection.close()
+      // A close that never settles must not keep the probe (and the prober's
+      // inflight) alive; bound it with the same timeout and ignore the result.
+      await bounded(
+        connection.close(),
+        options.timeoutMs,
+        () => controller.abort(new RuntimeError("handshake_timeout", "probe close timed out")),
+      ).catch(() => {})
     }
     return { id: definition.id, status: "ready" }
   } catch (error) {

@@ -148,6 +148,26 @@ describe("entry-point resolution", () => {
     expect(resolution.resolved.dirs).toContain(join(root, "node_modules"))
   })
 
+  test.skipIf(typeof process.getuid !== "function")("a stale bunx cache dir does not win", () => {
+    const cache = temp("af-cache-")
+    const uid = process.getuid?.() ?? 0
+    const stale = join(cache, ".bunx-9999", "@scope", "pkg@1.0.0")
+    const current = join(cache, `.bunx-${uid}`, "@scope", "pkg@1.0.0")
+    for (const root of [stale, current]) {
+      const pkg = join(root, "node_modules", "@scope", "pkg")
+      mkdirSync(pkg, { recursive: true })
+      writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@scope/pkg", bin: { pkg: "index.js" } }))
+      writeFileSync(join(pkg, "index.js"), "")
+    }
+    const resolution = resolveHarness(
+      { id: "fake", profile: "coding", command: "bunx", args: ["@scope/pkg@1.0.0"] },
+      { cacheRoot: cache, path: dirname(process.execPath) },
+    )
+    expect(resolution.ok).toBe(true)
+    if (!resolution.ok) return
+    expect(resolution.resolved.definition.args?.[0]).toContain(`.bunx-${uid}`)
+  })
+
   test("a pinned version absent from the cache is missing/version_not_cached and downloads nothing", () => {
     const cache = temp("af-cache-")
     const resolution = resolveHarness(
@@ -262,6 +282,33 @@ describe("probe classification", () => {
       },
     })
     expect(report).toEqual({ id: "fake", status: "unknown", reason: "process_exited" })
+  })
+
+  test("a close that never settles does not hang the probe", async () => {
+    const def = definition("/nonexistent")
+    const report = await probeHarness(def, {
+      timeoutMs: 50,
+      resolve: () => ({ ok: true, resolved: { definition: def, dirs: [], files: [] } }),
+      driver: {
+        async connect() {
+          return {
+            capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+            async openSession() {},
+            async prompt() {
+              return { stopReason: "end_turn" }
+            },
+            async cancel() {},
+            close() {
+              return new Promise(() => {})
+            },
+            stderrTail() {
+              return ""
+            },
+          }
+        },
+      },
+    })
+    expect(report.status).toBe("ready")
   })
 })
 
@@ -664,6 +711,56 @@ describe("non-ready runs", () => {
     expect(outcome.status).toBe("succeeded")
     expect(probes).toBe(0)
     expect(captured?.args).toContain(bin)
+  })
+
+  test("a custom home flows into entry binds and state binds", async () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".config", "gh")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "agent")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const resolution = resolveHarness({ id: "claude", profile: "coding", command: entry }, { home })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    let captured: HarnessDefinition | undefined
+    const driver: RuntimeDriver = {
+      async connect(input): Promise<DriverConnection> {
+        captured = input.harness
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            return { stopReason: "end_turn" }
+          },
+          async cancel() {},
+          async close() {},
+          stderrTail() {
+            return ""
+          },
+        }
+      },
+    }
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver,
+        harnesses: { claude: { id: "claude", profile: "coding", command: entry } },
+      }),
+      harnessStatus: () => "ready",
+      harnessEntry: () => resolution.resolved,
+      home,
+      env: { PATH: process.env.PATH },
+    })
+    const outcome = await executor.execute(command("claude", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.status).toBe("succeeded")
+    const args = captured?.args ?? []
+    // The non-allowlisted dir under the custom home is file-only.
+    expect(args).not.toContain(dir)
+    expect(args).toContain(entry)
+    // The state bind points at the custom home, not the process home.
+    expect(args).toContain(join(home, ".claude"))
+    expect(args).toContain("/home/agent/.claude")
   })
 
   test("a changed entry invalidates the ready cache and re-probes", async () => {

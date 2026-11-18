@@ -34,6 +34,24 @@ const logError = (error: unknown): void => {
   console.error("node:", error instanceof Error ? error.message : error)
 }
 
+/** Resolve after `ms` or when `signal` aborts, even if `work` has not settled. */
+const bounded = async (work: Promise<unknown>, ms: number, signal?: AbortSignal): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms)
+  })
+  const aborted = new Promise<void>((resolve) => {
+    if (!signal) return
+    if (signal.aborted) resolve()
+    else signal.addEventListener("abort", () => resolve(), { once: true })
+  })
+  try {
+    await Promise.race([work, timeout, aborted])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * Wires the outbound daemon: signed client, heartbeat, poller and executor.
  * Nothing here listens; every connection is initiated by the node (FR-001).
@@ -88,9 +106,16 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
     executor,
     start() {
       if (heartbeat || poller) return
+      // The first beat waits for the first probe pass (bounded by the probe
+      // timeout), so it never advertises an empty list before the probe lands.
+      let firstProbe: Promise<void> | undefined = prober.refresh()
       heartbeat = startHeartbeat(client, {
         intervalMs: config.heartbeatIntervalMs,
-        body: () => {
+        body: async (signal) => {
+          if (firstProbe) {
+            await bounded(firstProbe, config.harnessProbeTimeoutMs, signal)
+            firstProbe = undefined
+          }
           void prober.refresh().catch(onError)
           return {
             protocolVersion: config.protocolVersion,
@@ -104,13 +129,6 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
         },
         onError,
       })
-      // Advertise a harness as soon as its first probe lands, rather than
-      // waiting a whole heartbeat interval. The heartbeat joins an in-flight
-      // beat instead of sending a duplicate.
-      void prober
-        .refresh()
-        .then(() => heartbeat?.tick())
-        .catch(onError)
       poller = startPoller(client, {
         pollMs: config.pollMs,
         leaseRenewMs: config.leaseRenewMs,
