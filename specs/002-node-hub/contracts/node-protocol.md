@@ -93,6 +93,14 @@ bytes received, before any parsing round-trip, so the hub must send the fingerpr
 of the body it transmitted. A reused `commandId` with a different fingerprint is
 refused (`409 ambiguous_replay`), with no side effect.
 
+`run.inspect` returns a snapshot in the completion result:
+`{ "status": "inspected", "runId", "state", "generation" }` for an active run, or
+`{ "status": "absent", "runId", "state": "absent", "generation": null }` when the
+node holds no runtime for that run. It never reports `completed` for an absent
+run. A `run.start` for a run that is already active is refused as `fence_stale`
+when its generation is equal or older; a newer generation fences the old runtime
+before it is replaced.
+
 ## 5. Generation fencing
 
 `(nodeId, runId, generation, runtimeType, runtimeSessionId)` identifies a runtime

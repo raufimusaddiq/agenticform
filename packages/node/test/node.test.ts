@@ -100,6 +100,52 @@ const blockingDriver = (): { driver: RuntimeDriver; cancelled: () => number; sta
   return { driver, cancelled: () => cancelCount, started }
 }
 
+/** Each connection blocks independently, so two generations can be observed. */
+const generationDriver = (): {
+  driver: RuntimeDriver
+  firstStarted: Promise<void>
+  secondStarted: Promise<void>
+  cancelled: () => number
+} => {
+  let started = 0
+  let cancelCount = 0
+  let markFirst: (() => void) | undefined
+  let markSecond: (() => void) | undefined
+  const firstStarted = new Promise<void>((resolve) => {
+    markFirst = resolve
+  })
+  const secondStarted = new Promise<void>((resolve) => {
+    markSecond = resolve
+  })
+  const driver: RuntimeDriver = {
+    async connect(): Promise<DriverConnection> {
+      let release: (() => void) | undefined
+      return {
+        capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+        async openSession() {},
+        async prompt() {
+          started += 1
+          if (started === 1) markFirst?.()
+          if (started === 2) markSecond?.()
+          await new Promise<void>((resolve) => {
+            release = resolve
+          })
+          return { stopReason: "cancelled" }
+        },
+        async cancel() {
+          cancelCount += 1
+          release?.()
+        },
+        async close() {},
+        stderrTail() {
+          return ""
+        },
+      }
+    },
+  }
+  return { driver, firstStarted, secondStarted, cancelled: () => cancelCount }
+}
+
 const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => ({
   commandId: "cmd-1",
   type: "run.start",
@@ -211,6 +257,24 @@ describe("signed client", () => {
     expect(error).toBeInstanceOf(NodeClientError)
     expect((error as NodeClientError).code).toBe("fence_stale")
     expect(attempts).toBe(1)
+  })
+
+  test("a 204 is null only for the optional command poll", async () => {
+    const client = new NodeClient(config("http://127.0.0.1:1"), identity(), {
+      fetch: (async () => new Response(null, { status: 204 })) as unknown as typeof fetch,
+    })
+    expect(await client.nextCommand()).toBeNull()
+    const error = await client
+      .heartbeat({
+        protocolVersion: 1,
+        harnesses: [],
+        capabilities: [],
+        capacity: { slots: 1, inUse: 0 },
+        runtimes: [],
+      })
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(NodeClientError)
+    expect((error as NodeClientError).status).toBe(204)
   })
 })
 
@@ -355,6 +419,59 @@ describe("executor", () => {
       command({ type: "run.cancel", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
     )
     await start
+  })
+
+  test("inspect reports an absent run distinctly", () => {
+    const executor = new Executor({ runtime: runtime() })
+    const outcome = executor.inspect(
+      command({ type: "run.inspect", generation: 1, payload: { fingerprint: "sha256:x", generation: 1 } }),
+    )
+    expect(outcome).toEqual({
+      status: "succeeded",
+      result: { status: "absent", runId: "run-1", state: "absent", generation: null },
+    })
+  })
+
+  test("a newer run.start fences the old generation and owns the run", async () => {
+    const generations = generationDriver()
+    const executor = new Executor({ runtime: runtime(generations.driver) })
+    const first = executor.execute(
+      command({ generation: 1, payload: { ...command().payload, generation: 1 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    await generations.firstStarted
+
+    const second = executor.execute(
+      command({ generation: 2, payload: { ...command().payload, generation: 2 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    await generations.secondStarted
+    expect(generations.cancelled()).toBe(1)
+    expect(executor.inventory()).toEqual([
+      { runId: "run-1", generation: 2, runtimeType: "fake", runtimeSessionId: "", state: "running" },
+    ])
+
+    const inspect = executor.inspect(
+      command({ type: "run.inspect", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+    )
+    expect(inspect.result).toMatchObject({ status: "inspected", generation: 2, state: "running" })
+
+    const stale = await executor.execute(
+      command({ generation: 1, payload: { ...command().payload, generation: 1 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    expect(stale).toEqual({
+      status: "failed",
+      error: { code: "fence_stale", message: "run.start generation is not newer than the active run" },
+    })
+    expect(executor.staleObservations).toBe(1)
+
+    const cancel = await executor.cancel(
+      command({ type: "run.cancel", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+    )
+    expect(cancel.status).toBe("succeeded")
+    expect((await first).status).toBe("succeeded")
+    expect((await second).status).toBe("succeeded")
   })
 })
 
@@ -503,5 +620,77 @@ describe("poller", () => {
     expect(completed).toBe(2)
     expect(polls.some((types) => types?.includes("run.cancel"))).toBe(true)
     expect(polls.filter((types) => types === undefined).length).toBeGreaterThanOrEqual(2)
+  })
+
+  test("stop aborts a parked run.start before it executes", async () => {
+    let connects = 0
+    let prompts = 0
+    let cancelled = 0
+    let release: (() => void) | undefined
+    let markFirst: (() => void) | undefined
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirst = resolve
+    })
+    const driver: RuntimeDriver = {
+      async connect(): Promise<DriverConnection> {
+        connects += 1
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            prompts += 1
+            markFirst?.()
+            await new Promise<void>((resolve) => {
+              release = resolve
+            })
+            return { stopReason: "cancelled" }
+          },
+          async cancel() {
+            cancelled += 1
+            release?.()
+          },
+          async close() {},
+          stderrTail() {
+            return ""
+          },
+        }
+      },
+    }
+    const executor = new Executor({ runtime: runtime(driver) })
+    const commands = [
+      command({ commandId: "cmd-1", runId: "run-1" }),
+      command({ commandId: "cmd-2", runId: "run-2", idempotencyKey: "run:run-2:run.start:1" }),
+    ]
+    let index = 0
+    const errors: unknown[] = []
+    const client = {
+      // Ignores the type filter on purpose, forcing the second start to park.
+      async nextCommand() {
+        return commands[index++] ?? null
+      },
+      async appendEvents(_commandId: string, batch: { events: RunEventInput[] }) {
+        return { accepted: batch.events.length, lastSeq: batch.events.length }
+      },
+      async complete() {
+        return {}
+      },
+      async renew() {
+        return { leasedUntil: new Date().toISOString() }
+      },
+    }
+    const poller = startPoller(client as never, {
+      pollMs: 5,
+      leaseRenewMs: 60_000,
+      executor,
+      slots: 1,
+      onError: (error) => errors.push(error),
+    })
+    await firstStarted
+    await Bun.sleep(30)
+    await poller.stop()
+    expect(prompts).toBe(1)
+    expect(connects).toBe(1)
+    expect(cancelled).toBe(1)
+    expect(errors.some((error) => error instanceof Error && error.message === "poller stopped")).toBe(true)
   })
 })

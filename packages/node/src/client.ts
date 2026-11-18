@@ -69,12 +69,12 @@ export class NodeClient {
   }
 
   heartbeat(body: HeartbeatRequest): Promise<HeartbeatResponse> {
-    return this.request<HeartbeatResponse>("POST", "/v1/node/heartbeat", body) as Promise<HeartbeatResponse>
+    return this.request<HeartbeatResponse>("POST", "/v1/node/heartbeat", body)
   }
 
   async nextCommand(types?: readonly CommandType[]): Promise<CommandEnvelope | null> {
     const query = types && types.length > 0 ? `?types=${encodeURIComponent(types.join(","))}` : ""
-    return this.request<CommandEnvelope>("GET", `/v1/node/commands/next${query}`)
+    return this.requestOptional<CommandEnvelope>("GET", `/v1/node/commands/next${query}`)
   }
 
   renew(commandId: string): Promise<{ leasedUntil: string }> {
@@ -82,7 +82,7 @@ export class NodeClient {
       "POST",
       `/v1/node/commands/${encodeURIComponent(commandId)}/renew`,
       {},
-    ) as Promise<{ leasedUntil: string }>
+    )
   }
 
   appendEvents(commandId: string, batch: EventBatch): Promise<EventBatchResponse> {
@@ -90,7 +90,7 @@ export class NodeClient {
       "POST",
       `/v1/node/commands/${encodeURIComponent(commandId)}/events`,
       batch,
-    ) as Promise<EventBatchResponse>
+    )
   }
 
   complete(commandId: string, body: CompletionRequest): Promise<unknown> {
@@ -106,7 +106,22 @@ export class NodeClient {
     return ceiling + Math.floor(this.random() * this.baseBackoffMs)
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T | null> {
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const result = await this.send<T>(method, path, body, false)
+    if (result === null) throw new NodeClientError(204, "internal", "unexpected empty response")
+    return result
+  }
+
+  private async requestOptional<T>(method: string, path: string, body?: unknown): Promise<T | null> {
+    return this.send<T>(method, path, body, true)
+  }
+
+  private async send<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    allowEmpty: boolean,
+  ): Promise<T | null> {
     const raw = body === undefined ? "" : JSON.stringify(body)
     for (let attempt = 1; ; attempt += 1) {
       const timestamp = this.now()
@@ -135,7 +150,10 @@ export class NodeClient {
           ...(body === undefined ? {} : { body: raw }),
           signal: AbortSignal.timeout(this.config.requestTimeoutMs),
         })
-        if (response.status === 204) return null
+        if (response.status === 204) {
+          if (allowEmpty) return null
+          throw new NodeClientError(204, "internal", "unexpected empty response")
+        }
         if (response.ok) return (await response.json()) as T
         const error = await this.errorFrom(response)
         if (response.status >= 500 && attempt < this.maxAttempts) {

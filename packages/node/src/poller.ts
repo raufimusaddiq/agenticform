@@ -30,6 +30,7 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const inflight = new Set<Promise<void>>()
+  const controllers = new Set<AbortController>()
   const slots = Math.max(1, options.slots ?? 1)
   let running = 0
   const waiters: (() => void)[] = []
@@ -93,6 +94,7 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
 
   const handle = async (command: CommandEnvelope, reserved = false): Promise<void> => {
     const controller = new AbortController()
+    controllers.add(controller)
     const batcher = new EventBatcher({
       send: (events) => client.appendEvents(command.commandId, { leaseId: command.leaseId, events }),
       ...(options.onError ? { onError: options.onError } : {}),
@@ -129,6 +131,7 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
       await complete(command, outcome, batcher)
     } finally {
       clearInterval(renew)
+      controllers.delete(controller)
     }
   }
 
@@ -146,6 +149,12 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
       throw error
     }
     if (!command) {
+      if (free) release()
+      return
+    }
+    if (stopped) {
+      // Shutdown began while the lease was in flight; leave it to lease expiry
+      // rather than starting work during shutdown.
       if (free) release()
       return
     }
@@ -175,6 +184,9 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
     async stop() {
       stopped = true
       if (timer !== undefined) clearTimeout(timer)
+      // Abort first: a parked run.start must not start while we drain.
+      for (const controller of controllers) controller.abort(new Error("poller stopped"))
+      waiters.splice(0)
       await Promise.allSettled([...inflight])
     },
   }

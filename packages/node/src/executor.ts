@@ -125,13 +125,19 @@ export class Executor {
         error: { code: "fence_stale", message: "command generation is older than the active run" },
       }
     }
+    if (!active) {
+      return {
+        status: "succeeded",
+        result: { status: "absent", runId: command.runId, state: "absent", generation: null },
+      }
+    }
     return {
       status: "succeeded",
       result: {
-        status: "completed",
+        status: "inspected",
         runId: command.runId,
-        state: active?.state ?? "absent",
-        generation: active?.generation ?? null,
+        state: active.state,
+        generation: active.generation,
       },
     }
   }
@@ -150,6 +156,31 @@ export class Executor {
     }
     if (typeof payload.prompt !== "string" || !payload.prompt) {
       return { status: "failed", error: { code: "invalid_input", message: "prompt is required" } }
+    }
+
+    // Re-entry for the same run: an equal or older generation is stale; a newer
+    // generation fences the old runtime before it is replaced (N4.3, N4.4).
+    for (let guard = 0; guard < 4; guard += 1) {
+      const existing = this.active.get(command.runId)
+      if (!existing) break
+      if (command.generation <= existing.generation) {
+        this.staleCount += 1
+        return {
+          status: "failed",
+          error: { code: "fence_stale", message: "run.start generation is not newer than the active run" },
+        }
+      }
+      existing.state = "fenced"
+      await existing.run.cancel()
+      if (this.active.get(command.runId) === existing) this.active.delete(command.runId)
+    }
+    const current = this.active.get(command.runId)
+    if (current && current.generation >= command.generation) {
+      this.staleCount += 1
+      return {
+        status: "failed",
+        error: { code: "fence_stale", message: "run.start generation is not newer than the active run" },
+      }
     }
 
     const run = this.runtime.run({
@@ -173,7 +204,8 @@ export class Executor {
       }
       return outcomeOf(await run.result())
     } finally {
-      this.active.delete(command.runId)
+      // A newer generation may already own the entry; only the owner deletes it.
+      if (this.active.get(command.runId)?.run === run) this.active.delete(command.runId)
     }
   }
 }

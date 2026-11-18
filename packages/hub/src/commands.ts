@@ -96,18 +96,15 @@ export function leaseNext(
             OR (SELECT status FROM runs WHERE runs.id = commands.run_id) IN ('completed','failed','cancelled','disconnected'))`,
   ).run(now, node.id)
 
-  const rows = db
-    .query<CommandRow, [string]>(
+  const filter = types && types.length > 0 ? ` AND c.type IN (${types.map(() => "?").join(",")})` : ""
+  const row = db
+    .query<CommandRow, (string | number)[]>(
       `SELECT c.* FROM commands c JOIN runs r ON r.id = c.run_id
        WHERE c.node_id = ? AND c.status = 'queued' AND c.generation = r.generation
-         AND r.status IN ('queued','leased','running')
-       ORDER BY c.created_at`,
+         AND r.status IN ('queued','leased','running')${filter}
+       ORDER BY c.created_at LIMIT 1`,
     )
-    .all(node.id)
-  const row =
-    types && types.length > 0
-      ? rows.find((candidate) => types.includes(candidate.type as CommandType))
-      : rows[0]
+    .get(node.id, ...(types ?? []))
   if (!row) return null
 
   const leaseId = randomUUID()
