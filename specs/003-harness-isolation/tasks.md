@@ -14,7 +14,9 @@ description: "Task list for Harness Isolation and Presence"
 and `packages/runtime` read as they are on main.
 
 **Delivery**: one implement ticket per user story. Phases 1-2 are shared and land
-with the first story; phase 7 lands with the last.
+with the first story; phase 7 lands with the last. Phase 8 is the 2026-11-18
+config-directory amendment (FR-009a..FR-009c) and lands as its own ticket after
+this spec change merges.
 
 ## Phase 1: Setup
 
@@ -82,3 +84,15 @@ with the first story; phase 7 lands with the last.
 - [x] T044 [P] Review every new error code against `contracts/isolation.md` §6 and `contracts/harness-detection.md` §5; remove unused ones
 - [x] T045 [P] Record the sandbox self-test and probe cost on the 1 CPU / 2 GB host in the README
 - [x] T046 [P] Confirm `bun run typecheck` and `bun test packages` pass with `bwrap` present and absent
+
+## Phase 8: Config directory (amendment 2026-11-18)
+
+- [ ] T047 [US2] Add the `claude` profile `env` entry `CLAUDE_CONFIG_DIR=/home/agent/.claude` and validate at table load that every `env` value is absolute and, when it is a path under the sandbox home, matches a declared state entry (FR-009a, FR-009c)
+- [ ] T048 [US2] Create a missing config-directory state dir `0700`, then verify it is a directory and is readable and writable by the node user before building the sandbox (FR-009b)
+- [ ] T049 [US2] Map an unusable config directory to `unknown` with reason `state_dir_unusable`, so a run fails with `harness_unavailable` and no child starts (FR-009b, SC-007)
+- [ ] T050 [US2] Test: two consecutive `claude` runs share `.claude.json`; the second sees the first's onboarding flag, project trust and MCP server (FR-009c, SC-007)
+- [ ] T051 [US2] Test: `.claude.json` lives inside the bound state dir and not at the home root; the argv contains no file bind (FR-009a)
+- [ ] T052 [US2] Test: a relative value and a value with no matching state entry are rejected at table load, and no child starts (FR-009a)
+- [ ] T053 [US2] Test: a missing dir is created `0700`; a dir with mode `000` yields `state_dir_unusable` and `harness_unavailable`, with no child and no accepted empty config (FR-009b, SC-007)
+- [ ] T054 [P] Bump the profile version to `2` and update the heartbeat expectation in the tests (FR-016)
+- [ ] T055 [P] Document the operator migration in `docs/harnesses.md` and the README: stop `claude`, `mv ~/.claude.json ~/.claude/.claude.json`, export `CLAUDE_CONFIG_DIR=~/.claude` (FR-009a)

@@ -89,6 +89,12 @@ Rules:
   their own flags.
 - The argv is built from the profile table and the resolved entry point only. No
   run input may add a bind.
+- A profile `env` value is a literal from the table, never run input, the host
+  path or the node's environment. A value that is an absolute path under the
+  sandbox home MUST equal the in-sandbox path of a state entry the same profile
+  declares; a value that is not absolute, or that names a path with no matching
+  state entry, is a profile error: the node refuses that harness and no child
+  starts.
 
 ## 3. Environment
 
@@ -105,14 +111,21 @@ The harness environment is exactly:
 other inherited variable MUST NOT appear. A profile that needs a variable adds it
 to the table with its reason.
 
+A profile `env` entry exists for a harness that cannot be pointed at its state by
+a mount alone. The only such entry today is `CLAUDE_CONFIG_DIR` for `claude`,
+whose value is the in-sandbox path of the `~/.claude` state bind
+(`/home/agent/.claude`). The value is a constant: it is the same for every run,
+so the harness reads and writes the same file each time. It is never taken from
+the run request, the host path or the node's environment.
+
 ## 4. Profiles
 
 ```ts
 type IsolationProfile = {
-  version: 1
+  version: 2
   workspace: "write" | "read-only"
   state: { path: string; mode: "rw" | "ro" }[]
-  env?: Record<string, string>
+  env?: Record<string, string>   // fixed literals; a path must match a state entry
 }
 ```
 
@@ -136,6 +149,36 @@ another path is a table change with a conformance run, not a runtime widening.
 
 The table lists state directories only. The harness entry point must be resolved
 and made reachable separately (entry-point resolution); it is not a state mount.
+
+One profile declares an `env` entry:
+
+| Harness | `env` | Value | Why |
+|---|---|---|---|
+| `claude` | `CLAUDE_CONFIG_DIR` | `/home/agent/.claude` | Claude Code keeps `.claude.json` and `.credentials.json` at the home root when the variable is unset; with it set, both live in the configuration directory, which the profile already binds. |
+
+Rules for a config-directory entry:
+
+- The value is the in-sandbox path of the profile's own state entry and nothing
+  else. A path that does not match a declared state entry, or a relative value,
+  is a profile error and the harness is not started.
+- A file bind is never used for `.claude.json`. Claude Code writes it by rename
+  (`<name>.tmp.<pid>.<hash>` then `rename`), and a rename over a bound file fails
+  with `EBUSY`; verified on this host.
+- A missing state directory is created `0700`, as for any `rw` entry. A directory
+  that cannot be created, is not a directory, or is not readable and writable by
+  the node user is `state_dir_unusable`: the harness is `unknown` and a run fails
+  with `harness_unavailable`, because Claude Code silently starts with an empty
+  config when its config directory is unusable (verified: exit 0, no file
+  written).
+- The operator's migration is documented in
+  [research.md](../research.md#harness-config-directory): set
+  `CLAUDE_CONFIG_DIR=~/.claude` for the interactive harness as well and move
+  `~/.claude.json` into `~/.claude/.claude.json` once. The node does not read or
+  move operator files.
+- No other catalog harness needs the variable today: `codex` uses `CODEX_HOME`
+  (default `~/.codex`, already a directory bind) and `opencode` uses its XDG data
+  and config directories, both already declared state. The mechanism is generic,
+  so a harness that grows a home-root file is a table row, not new code.
 
 ## 5. Self-test
 

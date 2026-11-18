@@ -81,7 +81,7 @@ by widening the mount for everyone.
 
 | Harness | Read-write | Read-only | Evidence |
 |---|---|---|---|
-| `claude` | `~/.claude` | — | Claude Code 2.1.327: `~/.claude` holds credentials, history and cache; the CLI starts in the sandbox with it bound. The docs name `~/.claude/settings.json` and `~/.claude.json`; there is no `~/.config/claude`. |
+| `claude` | `~/.claude` | — | Claude Code 2.1.327: `~/.claude` holds credentials, history and cache; the CLI starts in the sandbox with it bound. The profile also sets `CLAUDE_CONFIG_DIR=/home/agent/.claude`, which moves `.claude.json` and `.credentials.json` into that directory (see [Harness config directory](#harness-config-directory)). There is no `~/.config/claude`. |
 | `codex` | `~/.codex` | — | Docs: user config is `~/.codex/config.toml`, with profile files and logs beside it. The directory exists here; the CLI is not installed, so no run. |
 | `opencode` | `~/.local/share/opencode` | `~/.config/opencode` | OpenCode 2.3.0: a real `opencode acp` run writes its log and database under the data dir; with that dir read-only the run fails. The docs put global config in `~/.config/opencode`. |
 | `omp` | `~/.omp` | — | Not installed; entry from upstream docs, unverified. |
@@ -105,9 +105,72 @@ entries, so a missing optional config directory does not fail the run.
   mount, and it is not part of this table.
 - **`~/.claude.json` is a file at the home root.** Claude Code writes it for
   account details and MCP configuration. The profile binds directories only, so a
-  run gets a fresh file. A follow-up needs file binds or `CLAUDE_CONFIG_DIR`.
+  run gets a fresh file. Resolved by setting `CLAUDE_CONFIG_DIR` to the bound
+  `~/.claude`; see [Harness config directory](#harness-config-directory).
 - **`~/.config/claude` does not exist.** It was removed from the table; the docs
   and the host agree that Claude Code uses `~/.claude`.
+
+## Harness config directory
+
+Checked on 2026-11-18 against Claude Code 2.1.327 on this host, with a temporary
+`HOME` and a temporary `CLAUDE_CONFIG_DIR`; the operator's `~/.claude` and
+`~/.claude.json` were not read or written.
+
+| Check | Result | Consequence |
+|---|---|---|
+| `CLAUDE_CONFIG_DIR` unset | config dir `$HOME/.claude`; `.claude.json` at `$HOME/.claude.json`; credentials at `$HOME/.claude/.credentials.json` | The home-root file is outside every directory bind |
+| `CLAUDE_CONFIG_DIR=<dir>` | `.claude.json` at `<dir>/.claude.json`; credentials at `<dir>/.credentials.json`; nothing written under `$HOME` | One directory bind covers config, credentials and state |
+| `$HOME/.claude.json` present while `CLAUDE_CONFIG_DIR` is set | never opened (0 accesses in `strace`) | No fork between the two files; the home-root file is ignored |
+| `<dir>` missing | created, `.claude.json` written | A missing dir is not an error; the node still creates it `0700` first |
+| `<dir>` mode `000` | exit 0, no file written, no error | Silent empty config: the node must pre-check, not trust the exit status |
+| `CLAUDE_CONFIG_DIR=relative/cfg` | resolved against the process cwd | Relative values are ambiguous; the profile must require absolute |
+| file bind + rename | `mv: Device or resource busy` | A file bind for `.claude.json` is not viable |
+| full sandbox: private home, `--clearenv`, `--bind <dir> /home/agent/.claude`, `CLAUDE_CONFIG_DIR=/home/agent/.claude` | `claude mcp list` read the sentinel MCP server and wrote `backups/` and `telemetry/` back to the host dir | The shape works end to end |
+
+### Migration
+
+The operator's interactive harness and the sandboxed harness must read the same
+file, or trust and MCP configuration fork. The smallest migration:
+
+1. Stop any running `claude`.
+2. `mv ~/.claude.json ~/.claude/.claude.json` (keep a copy if unsure).
+3. `export CLAUDE_CONFIG_DIR=~/.claude` in the operator's shell profile.
+
+Then both read `~/.claude/.claude.json` and `~/.claude/.credentials.json`, and
+the node's `~/.claude` bind covers everything. The node never moves or edits
+operator files; a node that finds no `.claude.json` starts from a fresh one, as
+it does today.
+
+Rejected alternatives:
+
+| Option | Why not |
+|---|---|
+| Bind `~/.claude.json` as a file | Claude Code writes by rename; the rename fails with `EBUSY` |
+| Symlink `~/.claude/.claude.json` → `~/.claude.json` | The target is outside the bind, so the link dangles inside the sandbox |
+| A separate config dir for the node | Two files diverge; trust and MCP edits in one are invisible to the other |
+| Copy the file in and out per run | A sync problem with a write window, and it duplicates credentials |
+
+### Other harnesses
+
+| Harness | Home-root file? | Action |
+|---|---|---|
+| `codex` | no; `CODEX_HOME` defaults to `~/.codex`, a directory | none; already a state bind |
+| `opencode` | no; XDG data and config directories | none; already state binds |
+| `omp`, `pi`, `dsh`, `hermes`, `openclaw` | not installed here; documented as directory state | none until a real run shows a home-root file |
+
+The mechanism is generic: a harness that grows a home-root file is a table row
+with an `env` entry, not new code.
+
+### Fail closed
+
+- A profile `env` value that is not absolute, or that names a path with no
+  matching state entry, is a table error: the node refuses that harness.
+- A config directory that cannot be created, is not a directory, or is not
+  readable and writable by the node user is `state_dir_unusable`: the harness is
+  `unknown` and a run fails with `harness_unavailable`. The node does not rely on
+  the harness's exit status, which is 0 with an empty config.
+- The env allowlist stays fixed. The only addition is the profile's own constant;
+  no run input, host path or node variable can add one.
 
 ## Entry-point install roots
 
@@ -202,7 +265,7 @@ working. No protocol version bump.
 | Probe cache TTL | 300 s non-ready, 1 h ready | A login is picked up within one beat cycle after the non-ready TTL; a ready harness is stable, so it is probed less often |
 | Probe concurrency | 1 | designed for a 1 CPU node; parallel cold starts would starve the run |
 | Sandbox self-test timeout | 10 s | A working bwrap returns in milliseconds |
-| Profile version | `1` | Bumped when the mount table or argv shape changes |
+| Profile version | `2` | Bumped when the mount table or argv shape changes; `2` adds the `claude` config-directory entry |
 
 ## Open questions, resolved with defaults
 
