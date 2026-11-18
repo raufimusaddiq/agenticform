@@ -41,7 +41,7 @@ best-effort); the delivery host is Linux 6.8 with bubblewrap 0.9.0
 harness credentials read, harness stderr stays out of events and heartbeats
 
 **Scale/Scope**: one sandbox per run, one probe at a time, at most eight catalog
-harnesses, 1 CPU / 2 GB
+harnesses, designed for a 1 CPU / 2 GB node
 
 ## Constitution Check
 

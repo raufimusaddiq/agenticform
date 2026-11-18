@@ -198,7 +198,7 @@ with `harness_unauthenticated` or `harness_missing`.
 
 ## Assumptions
 
-- The node runs on Linux with bubblewrap available, or on a platform with an equivalent primitive; the host under test is 1 CPU / 2 GB and has bubblewrap 0.9.0.
+- The node runs on Linux with bubblewrap available, or on a platform with an equivalent primitive; the node is designed for a 1 CPU / 2 GB host, and the test host has bubblewrap 0.9.0.
 - Harnesses are installed and authenticated by the owner (constitution V); the node only observes.
 - Harness state directories are stable per user and are declared in the catalog; a wrong entry is a catalog bug.
 - Gateway-backed agentic harnesses may run tools outside the local process; the spec claims filesystem isolation for the local child only and says so in the docs.
