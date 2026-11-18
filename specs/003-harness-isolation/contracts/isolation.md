@@ -148,6 +148,12 @@ Pass → `isolation.mode: "bwrap"` (or `"sandbox-exec"`), `selfTest: "pass"`.
 Fail → `isolation.mode: "none"`, `selfTest: "fail"`, no harness advertised, every
 run fails with `isolation_unavailable`. The result is not retried until restart.
 
+The heartbeat carries the same three values. `profile` is the profile version as
+a dotted number (`1`, `1.2`), at most 64 characters. The hub refuses a report
+that contradicts this section: a sandbox mode with `selfTest: "fail"`, `mode:
+"none"` with `selfTest: "pass"`, or `mode: "none"` with a non-empty `harnesses`
+list is `invalid_input`.
+
 ## 6. Failure codes
 
 | Code | Cause | Retry |

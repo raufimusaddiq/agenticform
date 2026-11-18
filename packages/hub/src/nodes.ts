@@ -46,18 +46,33 @@ function validateReport(report: unknown): HarnessReport[] {
 }
 
 const ISOLATION_MODES = new Set(["bwrap", "sandbox-exec", "none"])
+/** A profile version is a short dotted number, e.g. `1` or `1.2`. */
+const PROFILE_VERSION = /^\d{1,3}(\.\d{1,3}){0,2}$/
 
-/** FR-016: the mode, profile version and self-test outcome, nothing else. */
-function validateIsolation(isolation: unknown): IsolationReport | null {
+/**
+ * FR-016: the mode, profile version and self-test outcome, nothing else. The
+ * contract ties the three together: a passing self-test means a sandbox mode,
+ * a failing one means `none` and no advertised harness (contracts/isolation.md
+ * §5). An inconsistent report is refused rather than stored.
+ */
+function validateIsolation(isolation: unknown, harnesses: string[]): IsolationReport | null {
   if (isolation === undefined || isolation === null) return null
   const item = isolation as Partial<IsolationReport>
   if (typeof item !== "object" || Array.isArray(item)) fail("invalid_input", "isolation must be an object")
   if (typeof item.mode !== "string" || !ISOLATION_MODES.has(item.mode)) {
     fail("invalid_input", "isolation.mode must be bwrap, sandbox-exec or none")
   }
-  if (typeof item.profile !== "string" || !item.profile) fail("invalid_input", "isolation.profile must be a string")
+  if (typeof item.profile !== "string" || !PROFILE_VERSION.test(item.profile)) {
+    fail("invalid_input", "isolation.profile must be a dotted version of at most 64 characters")
+  }
   if (item.selfTest !== "pass" && item.selfTest !== "fail") {
     fail("invalid_input", "isolation.selfTest must be pass or fail")
+  }
+  if (item.mode === "none") {
+    if (item.selfTest !== "fail") fail("invalid_input", "isolation.mode none requires selfTest fail")
+    if (harnesses.length > 0) fail("invalid_input", "isolation.mode none requires no advertised harnesses")
+  } else if (item.selfTest !== "pass") {
+    fail("invalid_input", "a sandbox mode requires selfTest pass")
   }
   return { mode: item.mode as IsolationReport["mode"], profile: item.profile, selfTest: item.selfTest }
 }
@@ -123,7 +138,7 @@ export function heartbeat(
   }
   const inventory = body.runtimes === undefined ? [] : validateInventory(body.runtimes)
   const report = body.harnessReport === undefined ? [] : validateReport(body.harnessReport)
-  const isolation = validateIsolation(body.isolation)
+  const isolation = validateIsolation(body.isolation, body.harnesses)
   const capabilities = Array.isArray(body.capabilities) ? body.capabilities : []
   const slots = body.capacity?.slots ?? node.capacity_slots
   const active = db
