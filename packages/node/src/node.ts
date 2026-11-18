@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { isolationProfileVersion } from "@agenticform/protocol"
 import type { HarnessDefinition, Runtime } from "@agenticform/runtime"
 import { createRuntime } from "@agenticform/runtime"
 import { NodeClient, type ClientOptions } from "./client.ts"
@@ -134,7 +135,11 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
             capacity: { slots, inUse: executor.activeCount },
             runtimes: executor.inventory(),
             harnessReport: prober.report(),
-            isolation: { mode: isolation.mode, profile: String(PROFILE_VERSION), selfTest: isolation.selfTest },
+            isolation: {
+              mode: isolation.mode,
+              profile: isolationProfileVersion(PROFILE_VERSION),
+              selfTest: isolation.selfTest,
+            },
           }
         },
         onError,

@@ -1,6 +1,11 @@
 import type { Database } from "bun:sqlite"
 import type { HarnessReport, HarnessReportReason, HeartbeatRequest, HeartbeatResponse, IsolationReport, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
-import { HARNESS_REPORT_REASON_SET, SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
+import {
+  HARNESS_REPORT_REASON_SET,
+  ISOLATION_PROFILE_MAX_LENGTH,
+  ISOLATION_PROFILE_PATTERN,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
 import { insertEvent, hubEventKey } from "./events.ts"
@@ -46,24 +51,25 @@ function validateReport(report: unknown): HarnessReport[] {
 }
 
 const ISOLATION_MODES = new Set(["bwrap", "sandbox-exec", "none"])
-/** A profile version is a short dotted number, e.g. `1` or `1.2`. */
-const PROFILE_VERSION = /^\d{1,3}(\.\d{1,3}){0,2}$/
 
 /**
  * FR-016: the mode, profile version and self-test outcome, nothing else. The
  * contract ties the three together: a passing self-test means a sandbox mode,
- * a failing one means `none` and no advertised harness (contracts/isolation.md
- * §5). An inconsistent report is refused rather than stored.
+ * a failing one means `none`, no advertised harness and no ready report
+ * (contracts/isolation.md §5). An inconsistent report is refused, not stored.
  */
-function validateIsolation(isolation: unknown, harnesses: string[]): IsolationReport | null {
+function validateIsolation(isolation: unknown, harnesses: string[], report: HarnessReport[]): IsolationReport | null {
   if (isolation === undefined || isolation === null) return null
   const item = isolation as Partial<IsolationReport>
   if (typeof item !== "object" || Array.isArray(item)) fail("invalid_input", "isolation must be an object")
   if (typeof item.mode !== "string" || !ISOLATION_MODES.has(item.mode)) {
     fail("invalid_input", "isolation.mode must be bwrap, sandbox-exec or none")
   }
-  if (typeof item.profile !== "string" || !PROFILE_VERSION.test(item.profile)) {
-    fail("invalid_input", "isolation.profile must be a dotted version of at most 64 characters")
+  if (typeof item.profile !== "string" || !ISOLATION_PROFILE_PATTERN.test(item.profile)) {
+    fail(
+      "invalid_input",
+      `isolation.profile must be a dotted version of at most ${ISOLATION_PROFILE_MAX_LENGTH} characters`,
+    )
   }
   if (item.selfTest !== "pass" && item.selfTest !== "fail") {
     fail("invalid_input", "isolation.selfTest must be pass or fail")
@@ -71,6 +77,9 @@ function validateIsolation(isolation: unknown, harnesses: string[]): IsolationRe
   if (item.mode === "none") {
     if (item.selfTest !== "fail") fail("invalid_input", "isolation.mode none requires selfTest fail")
     if (harnesses.length > 0) fail("invalid_input", "isolation.mode none requires no advertised harnesses")
+    if (report.some((entry) => entry.status === "ready")) {
+      fail("invalid_input", "isolation.mode none requires no ready harness report")
+    }
   } else if (item.selfTest !== "pass") {
     fail("invalid_input", "a sandbox mode requires selfTest pass")
   }
@@ -138,7 +147,7 @@ export function heartbeat(
   }
   const inventory = body.runtimes === undefined ? [] : validateInventory(body.runtimes)
   const report = body.harnessReport === undefined ? [] : validateReport(body.harnessReport)
-  const isolation = validateIsolation(body.isolation, body.harnesses)
+  const isolation = validateIsolation(body.isolation, body.harnesses, report)
   const capabilities = Array.isArray(body.capabilities) ? body.capabilities : []
   const slots = body.capacity?.slots ?? node.capacity_slots
   const active = db

@@ -353,6 +353,29 @@ describe("isolation report", () => {
     expect(response.body.error.code).toBe("invalid_input")
   })
 
+  test("mode none with a ready harness report is rejected", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      harnesses: [],
+      harnessReport: [{ id: "codex", status: "ready" }],
+      isolation: { mode: "none", profile: "1", selfTest: "fail" },
+    })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe("invalid_input")
+  })
+
+  test("mode none with a non-ready harness report is accepted", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      harnesses: [],
+      harnessReport: [{ id: "codex", status: "unknown", reason: "spawn_failed" }],
+      isolation: { mode: "none", profile: "1", selfTest: "fail" },
+    })
+    expect(response.status).toBe(200)
+  })
+
   test("mode none with no harness is accepted", async () => {
     hub = startHub()
     const node = await enroll(hub)

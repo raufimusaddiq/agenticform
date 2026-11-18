@@ -149,10 +149,13 @@ Fail → `isolation.mode: "none"`, `selfTest: "fail"`, no harness advertised, ev
 run fails with `isolation_unavailable`. The result is not retried until restart.
 
 The heartbeat carries the same three values. `profile` is the profile version as
-a dotted number (`1`, `1.2`), at most 64 characters. The hub refuses a report
-that contradicts this section: a sandbox mode with `selfTest: "fail"`, `mode:
-"none"` with `selfTest: "pass"`, or `mode: "none"` with a non-empty `harnesses`
-list is `invalid_input`.
+a dotted number of at most 11 characters (`1`, `1.2`, `1.2.3`); the pattern is
+`ISOLATION_PROFILE_PATTERN` and the string comes from `isolationProfileVersion`
+in `packages/protocol`, so the node and the hub cannot drift. The hub refuses a
+report that contradicts this section: a sandbox mode with `selfTest: "fail"`,
+`mode: "none"` with `selfTest: "pass"`, `mode: "none"` with a non-empty
+`harnesses` list, or `mode: "none"` with a `ready` harness report is
+`invalid_input`.
 
 ## 6. Failure codes
 

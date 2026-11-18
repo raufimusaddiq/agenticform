@@ -16,6 +16,9 @@ import { HarnessProber, probeHarness, resolveHarness, type ResolvedHarness } fro
 import { startHeartbeat } from "../src/heartbeat.ts"
 import { fingerprintOf } from "../src/state.ts"
 
+/** The Executor refuses every run without a passing self-test (FR-014). */
+const SANDBOX = { mode: "bwrap", selfTest: "pass" } as const
+
 const hasBwrap = Bun.spawnSync(["sh", "-c", "command -v bwrap"]).exitCode === 0
 const tempRoot = Bun.spawnSync(["sh", "-c", "test -w /var/tmp"]).exitCode === 0 ? "/var/tmp" : tmpdir()
 const tempDirs: string[] = []
@@ -494,7 +497,7 @@ describe("non-ready runs", () => {
         unknown: { id: "unknown", profile: "coding", command: process.execPath },
       },
     })
-    const executor = new Executor({ runtime, harnessStatus: (id) => statuses[id] })
+    const executor = new Executor({ isolation: SANDBOX, runtime, harnessStatus: (id) => statuses[id] })
     const cwd = temp("af-ws-")
     const run = async (harness: string) =>
       executor.execute(command(harness, cwd), { emit: () => {}, signal: new AbortController().signal })
@@ -521,7 +524,7 @@ describe("non-ready runs", () => {
       driver: fakeDriver(() => {}, true),
       harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
     })
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime,
       harnessStatus: () => "ready",
       harnessFailed: (id) => invalidated.push(id),
@@ -538,7 +541,7 @@ describe("non-ready runs", () => {
     let status: HarnessStatus | undefined
     let probes = 0
     let connected = 0
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         driver: fakeDriver(() => (connected += 1)),
         harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
@@ -585,7 +588,7 @@ describe("non-ready runs", () => {
     // A refresh starts with the hung harness and never finishes.
     void prober.refresh()
     await hungStarted
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         driver: fakeDriver(() => {}),
         harnesses: { healthy: { id: "healthy", profile: "coding", command: process.execPath } },
@@ -604,7 +607,7 @@ describe("non-ready runs", () => {
   })
 
   test("a probe that does not finish within the bound fails clearly", async () => {
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         driver: fakeDriver(() => {}),
         harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
@@ -623,7 +626,7 @@ describe("non-ready runs", () => {
 
   test("an unconfigured harness is harness_missing", async () => {
     let connected = 0
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         driver: fakeDriver(() => (connected += 1)),
         harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
@@ -663,7 +666,7 @@ describe("non-ready runs", () => {
         }
       },
     }
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         driver,
         harnesses: { fake: { id: "fake", profile: "coding", command: entry } },
@@ -707,7 +710,7 @@ describe("non-ready runs", () => {
         }
       },
     }
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         driver,
         harnesses: { fake: { id: "fake", profile: "coding", command: "agent" } },
@@ -756,7 +759,7 @@ describe("non-ready runs", () => {
         }
       },
     }
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         driver,
         harnesses: { claude: { id: "claude", profile: "coding", command: entry } },
@@ -782,7 +785,7 @@ describe("non-ready runs", () => {
 
   test("a cwd equal to the custom home is refused", async () => {
     const home = temp("af-home-")
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
       }),
@@ -832,7 +835,7 @@ describe("non-ready runs", () => {
         }
       },
     }
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({
         driver,
         harnesses: { fake: { id: "fake", profile: "coding", command: link } },

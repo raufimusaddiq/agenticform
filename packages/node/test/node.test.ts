@@ -19,9 +19,13 @@ import { EventBatcher, normaliseEvent } from "../src/events.ts"
 import { Executor } from "../src/executor.ts"
 import { startHeartbeat } from "../src/heartbeat.ts"
 import { generateKeyPair, type NodeIdentity } from "../src/identity.ts"
+import { resetStartupSelfTest } from "../src/isolation.ts"
 import { createNode } from "../src/node.ts"
 import { startPoller } from "../src/poller.ts"
 import { fingerprintOf } from "../src/state.ts"
+
+/** The Executor refuses every run without a passing self-test (FR-014). */
+const SANDBOX = { mode: "bwrap", selfTest: "pass" } as const
 
 const stateDir = mkdtempSync(join(tmpdir(), "af-node-test-"))
 afterEach(() => rmSync(stateDir, { recursive: true, force: true }))
@@ -393,7 +397,7 @@ describe("event normalisation and batching", () => {
 
 describe("executor", () => {
   test("runs a command through runtime and never forwards run.finished", async () => {
-    const executor = new Executor({ runtime: runtime() })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime() })
     const events: RunEventInput[] = []
     const outcome = await executor.execute(command(), {
       emit: (event) => events.push(event),
@@ -424,7 +428,7 @@ describe("executor", () => {
         }
       },
     }
-    const executor = new Executor({
+    const executor = new Executor({ isolation: SANDBOX,
       runtime: createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } } }),
     })
     const outcome = await executor.execute(command(), { emit: () => {}, signal: new AbortController().signal })
@@ -436,7 +440,7 @@ describe("executor", () => {
 
   test("fails a run whose working directory is missing, before the harness starts", async () => {
     let connected = 0
-    const executor = new Executor({ runtime: runtime(fakeDriver(() => (connected += 1))) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(fakeDriver(() => (connected += 1))) })
     const outcome = await executor.execute(
       command({ payload: { ...command().payload, cwd: join(stateDir, "absent") } }),
       { emit: () => {}, signal: new AbortController().signal },
@@ -448,7 +452,7 @@ describe("executor", () => {
 
   test("refuses a payload generation that differs from the envelope", async () => {
     let connected = 0
-    const executor = new Executor({ runtime: runtime(fakeDriver(() => (connected += 1))) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(fakeDriver(() => (connected += 1))) })
     const outcome = await executor.execute(
       command({ payload: { ...command().payload, generation: 2 } }),
       { emit: () => {}, signal: new AbortController().signal },
@@ -461,7 +465,7 @@ describe("executor", () => {
   })
 
   test("applies the payload generation check to cancel and inspect", async () => {
-    const executor = new Executor({ runtime: runtime() })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime() })
     for (const type of ["run.cancel", "run.inspect"] as const) {
       const outcome = await executor.execute(
         command({ type, generation: 2, payload: { fingerprint: "sha256:x", generation: 1 } }),
@@ -477,7 +481,7 @@ describe("executor", () => {
 
   test("refuses a stale run.cancel without touching the active run", async () => {
     const blocking = blockingDriver()
-    const executor = new Executor({ runtime: runtime(blocking.driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(blocking.driver) })
     const start = executor.execute(
       command({ generation: 2, payload: { ...command().payload, generation: 2 } }),
       { emit: () => {}, signal: new AbortController().signal },
@@ -516,7 +520,7 @@ describe("executor", () => {
 
   test("refuses a stale run.inspect and records it", async () => {
     const blocking = blockingDriver()
-    const executor = new Executor({ runtime: runtime(blocking.driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(blocking.driver) })
     const start = executor.execute(
       command({ generation: 2, payload: { ...command().payload, generation: 2 } }),
       { emit: () => {}, signal: new AbortController().signal },
@@ -558,7 +562,7 @@ describe("executor", () => {
   })
 
   test("inspect reports an absent run distinctly", () => {
-    const executor = new Executor({ runtime: runtime() })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime() })
     const outcome = executor.inspect(
       command({ type: "run.inspect", generation: 1, payload: { fingerprint: "sha256:x", generation: 1 } }),
     )
@@ -570,7 +574,7 @@ describe("executor", () => {
 
   test("a newer run.start fences the old generation and owns the run", async () => {
     const generations = generationDriver()
-    const executor = new Executor({ runtime: runtime(generations.driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(generations.driver) })
     const first = executor.execute(
       command({ generation: 1, payload: { ...command().payload, generation: 1 } }),
       { emit: () => {}, signal: new AbortController().signal },
@@ -623,7 +627,7 @@ describe("executor", () => {
 
 describe("poller", () => {
   test("executes a leased command, flushes events and completes with eventsToSeq", async () => {
-    const executor = new Executor({ runtime: runtime() })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime() })
     const appended: RunEventInput[][] = []
     let completed: Record<string, unknown> | undefined
     let delivered = false
@@ -661,7 +665,7 @@ describe("poller", () => {
   })
 
   test("surfaces a completion that stays events_pending after retries", async () => {
-    const executor = new Executor({ runtime: runtime() })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime() })
     const errors: unknown[] = []
     let attempts = 0
     let delivered = false
@@ -726,7 +730,7 @@ describe("poller", () => {
         }
       },
     }
-    const executor = new Executor({ runtime: runtime(driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(driver) })
     const commands = [
       command({ commandId: "cmd-1", runId: "run-1" }),
       command({ commandId: "cmd-2", runId: "run-2", idempotencyKey: "run:run-2:run.start:1" }),
@@ -802,7 +806,7 @@ describe("poller", () => {
         }
       },
     }
-    const executor = new Executor({ runtime: runtime(driver) })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime(driver) })
     const commands = [
       command({ commandId: "cmd-1", runId: "run-1" }),
       command({ commandId: "cmd-2", runId: "run-2", idempotencyKey: "run:run-2:run.start:1" }),
@@ -844,7 +848,7 @@ describe("poller", () => {
   })
 
   test("stop resolves promptly when a completion hangs", async () => {
-    const executor = new Executor({ runtime: runtime() })
+    const executor = new Executor({ isolation: SANDBOX, runtime: runtime() })
     let delivered = false
     let markComplete: (() => void) | undefined
     const completeStarted = new Promise<void>((resolve) => {
@@ -1021,6 +1025,36 @@ describe("isolation gate", () => {
     }
   })
 
+  test("createNode consumes the startup self-test and refuses to advertise without it", async () => {
+    let connects = 0
+    const bodies: HeartbeatRequest[] = []
+    resetStartupSelfTest()
+    const original = process.env.PATH
+    let node: ReturnType<typeof createNode>
+    try {
+      // spawnSync resolves bwrap through the process PATH, so hiding it here is
+      // what a host without bwrap looks like to the startup self-test.
+      process.env.PATH = "/nonexistent"
+      node = createNode(
+        { ...config("http://127.0.0.1:1"), heartbeatIntervalMs: 60_000, pollMs: 60_000 },
+        identity(),
+        { fetch: heartbeatFetch(bodies), runtime: runtime(fakeDriver(() => (connects += 1))) },
+      )
+    } finally {
+      process.env.PATH = original
+    }
+    try {
+      node.start()
+      for (let i = 0; i < 100 && bodies.length === 0; i += 1) await Bun.sleep(20)
+      expect(bodies[0]?.isolation).toEqual({ mode: "none", profile: "1", selfTest: "fail" })
+      expect(bodies[0]?.harnesses).toEqual([])
+      expect(connects).toBe(0)
+    } finally {
+      await node.stop()
+      resetStartupSelfTest()
+    }
+  })
+
   test("the heartbeat carries the isolation mode, profile and self-test", async () => {
     const bodies: HeartbeatRequest[] = []
     const node = createNode(
@@ -1070,5 +1104,52 @@ describe("isolation gate", () => {
       error: { code: "isolation_unavailable", message: "Sandbox failed to start; no unsandboxed retry" },
     })
     expect(connects).toBe(1)
+  })
+
+  test("a missing bwrap fails the run with isolation_unavailable and no retry", async () => {
+    let connects = 0
+    const driver: RuntimeDriver = {
+      async connect(): Promise<DriverConnection> {
+        connects += 1
+        throw new RuntimeError("spawn_failed", "Could not start bwrap: ENOENT")
+      },
+    }
+    const executor = new Executor({ runtime: runtime(driver), isolation: SANDBOX })
+    const outcome = await executor.execute(command(), { emit() {}, signal: new AbortController().signal })
+    expect(outcome).toEqual({
+      status: "failed",
+      error: { code: "isolation_unavailable", message: "Sandbox failed to start; no unsandboxed retry" },
+    })
+    // One attempt: a sandbox failure never falls back to an unsandboxed spawn.
+    expect(connects).toBe(1)
+  })
+
+  test("a bwrap line anywhere in the stderr head counts, but an execvp line does not", async () => {
+    const fail = async (stderr: string) => {
+      const driver: RuntimeDriver = {
+        async connect(): Promise<DriverConnection> {
+          return {
+            capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+            async openSession() {},
+            async prompt() {
+              throw new RuntimeError("process_exited", "Agent process exited")
+            },
+            async cancel() {},
+            async close() {},
+            stderrTail() {
+              return stderr
+            },
+          }
+        },
+      }
+      const executor = new Executor({ runtime: runtime(driver), isolation: SANDBOX })
+      return executor.execute(command(), { emit() {}, signal: new AbortController().signal })
+    }
+    // A setup error after an unrelated line still means the sandbox failed.
+    expect((await fail("noise\nbwrap: Can't create file\n")).error?.code).toBe("isolation_unavailable")
+    // execvp is the harness entry point, so the sandbox itself worked.
+    expect((await fail("bwrap: execvp bun: No such file or directory\n")).error?.code).toBe("process_exited")
+    // A harness that logs `bwrap:` later cannot fake a sandbox failure.
+    expect((await fail(`${"x".repeat(4096)}\nbwrap: fake\n`)).error?.code).toBe("process_exited")
   })
 })

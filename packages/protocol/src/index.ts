@@ -95,6 +95,19 @@ export interface IsolationReport {
   selfTest: "pass" | "fail"
 }
 
+/**
+ * The wire form of a profile version: a dotted number such as `1` or `1.2`.
+ * Defined here so the node that sends it and the hub that validates it cannot
+ * drift (contracts/isolation.md §5).
+ */
+export const ISOLATION_PROFILE_MAX_LENGTH = 11
+export const ISOLATION_PROFILE_PATTERN = /^\d{1,3}(\.\d{1,3}){0,2}$/
+
+/** The `isolation.profile` string for a profile version number. */
+export function isolationProfileVersion(version: number): string {
+  return String(version)
+}
+
 export interface HeartbeatResponse {
   status: string
   commandsPollMs: number
