@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs"
 import type { RunEventInput, RuntimeInventoryEntry } from "@agenticform/protocol"
 import {
   createRuntime,
@@ -10,6 +9,7 @@ import {
 } from "@agenticform/runtime"
 import type { CommandEnvelope } from "@agenticform/protocol"
 import { normaliseEvent } from "./events.ts"
+import { IsolationError, profileFor, resolveWorkspace, sandboxHarness } from "./isolation.ts"
 import { CommandLedger } from "./ledger.ts"
 import { NodeState, fingerprintError, payloadGenerationError } from "./state.ts"
 
@@ -201,11 +201,22 @@ export class Executor {
       return { status: "failed", error: { code: "invalid_input", message: "prompt is required" } }
     }
     // spec.md: a missing working directory fails the run before the harness
-    // starts, rather than letting the harness fail with an opaque error.
-    if (!existsSync(payload.cwd)) {
+    // starts, rather than letting the harness fail with an opaque error. The
+    // resolved path is what gets bound, so a symlink cannot escape (FR-008).
+    let workspace: string
+    try {
+      workspace = resolveWorkspace(payload.cwd)
+    } catch (error) {
+      if (error instanceof IsolationError) {
+        return { status: "failed", error: { code: error.code, message: error.message } }
+      }
+      throw error
+    }
+    const definition = this.runtime.harnesses().find((harness) => harness.id === payload.harness)
+    if (!definition) {
       return {
         status: "failed",
-        error: { code: "workspace_missing", message: `workspace is missing: ${payload.cwd}` },
+        error: { code: "unknown_harness", message: `Unknown harness: ${payload.harness}` },
       }
     }
 
@@ -242,9 +253,12 @@ export class Executor {
       }
     }
 
+    // Every run is sandboxed (FR-001). There is no unsandboxed path: a sandbox
+    // that cannot start fails the run instead of falling back.
+    const sandboxed = sandboxHarness(definition, profileFor(payload.harness), workspace)
     const run = this.runtime.run({
-      harness: payload.harness,
-      cwd: payload.cwd,
+      harness: sandboxed,
+      cwd: workspace,
       prompt: payload.prompt,
       ...(Array.isArray(payload.requires) ? { requires: payload.requires as Capability[] } : {}),
       ...(Array.isArray(payload.mcpServers) ? { mcpServers: payload.mcpServers as McpServer[] } : {}),

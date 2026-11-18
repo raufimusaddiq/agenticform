@@ -8,7 +8,8 @@ normative for `packages/node`; `runtime` is not aware of it.
 For every harness in the catalog, under the `write` profile:
 
 - a write inside the run's workspace succeeds;
-- a write outside the workspace fails with `EROFS`;
+- a write outside the workspace fails with `EROFS`, except the private `/tmp`,
+  private home and declared state dirs, which are writable but private to the run;
 - `$HOME` contains only the harness's declared state directories;
 - `/tmp` is private to the run;
 - `~/.ssh`, other projects and the node's state directory are not readable.
@@ -41,7 +42,8 @@ bwrap
   --tmpfs /tmp
   --tmpfs /home/agent
   (--bind | --ro-bind) <workspace> <workspace>
-  (--bind | --ro-bind) <state-path> <state-path> ...
+  (--bind | --ro-bind) <state-source> <sandbox-home>/<relative> ...
+  --remount-ro /
   --
   <harness.command> <harness.args...>
 ```
@@ -49,13 +51,20 @@ bwrap
 Rules:
 
 - Order is fixed: unshare flags, lifecycle flags, environment, system binds,
-  pseudo-filesystems, private tmpfs, workspace, state paths, `--`, command.
+  pseudo-filesystems, private tmpfs, workspace, state paths, root remount, `--`,
+  command.
 - `--unshare-net` MUST NOT appear.
 - `--unshare-cgroup-try` MUST be used, so a kernel without cgroup namespaces does
   not fail the sandbox.
 - The workspace and state paths MUST be absolute and resolved before binding.
+- A `~/...` state entry is bound at the same relative path under the sandbox home,
+  because the harness reads it through `$HOME` (`/home/agent`). An absolute entry
+  is bound at its own path.
 - A read-only state path that does not exist is skipped; a read-write one is
   created with mode `0700`.
+- The root is remounted read-only after the binds, so a path next to the
+  workspace (created for the bind) cannot be written. The workspace, `/tmp`, the
+  home and the state binds are separate mounts and keep their own flags.
 - The argv is built from the profile table only. No run input may add a bind.
 
 ## 3. Environment

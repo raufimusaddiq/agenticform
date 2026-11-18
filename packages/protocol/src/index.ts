@@ -55,6 +55,24 @@ export interface HeartbeatRequest {
   capabilities?: string[]
   capacity?: { slots: number; inUse: number }
   runtimes?: RuntimeInventoryEntry[]
+  /** Every probed harness, including the ones not advertised. Additive and optional. */
+  harnessReport?: HarnessReport[]
+  /** The sandbox the node runs harnesses in. Additive and optional. */
+  isolation?: IsolationReport
+}
+
+export type HarnessStatus = "ready" | "missing" | "unauthenticated" | "unknown"
+
+export interface HarnessReport {
+  id: string
+  status: HarnessStatus
+  reason?: string
+}
+
+export interface IsolationReport {
+  mode: "bwrap" | "sandbox-exec" | "none"
+  profile: string
+  selfTest: "pass" | "fail"
 }
 
 export interface HeartbeatResponse {

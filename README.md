@@ -95,6 +95,8 @@ af run cancel <runId>
 | `AGENTICFORM_LEASE_SECONDS` | hub | `900` | Command lease length |
 | `AGENTICFORM_LEASE_RENEW_SECONDS` | node | `300` | How often a node renews its lease |
 | `AGENTICFORM_REQUEST_TIMEOUT_SECONDS` | node | `30` | Per-request timeout when calling the hub |
+| `AGENTICFORM_HARNESS_PROBE_TTL_SECONDS` | node | `300` | How long a harness probe result is cached before the next heartbeat re-probes |
+| `AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS` | node | `20` | Per-harness probe timeout; a hung harness becomes `unknown` and the heartbeat keeps beating |
 | `AGENTICFORM_CLOCK_SKEW_SECONDS` | hub | `120` | Allowed signed-request clock skew |
 | `AGENTICFORM_NODE_OFFLINE_SECONDS` | hub | `45` | Silence before a node is `OFFLINE`; must exceed the heartbeat interval |
 | `AGENTICFORM_ENROLLMENT_TTL_SECONDS` | hub | `600` | Enrollment token lifetime |

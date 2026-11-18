@@ -157,6 +157,8 @@ const node = createNode(
     pollMs: 50,
     leaseRenewMs: 60_000,
     requestTimeoutMs: 5_000,
+    harnessProbeTtlMs: 300_000,
+    harnessProbeTimeoutMs: 20_000,
     protocolVersion: 1,
   },
   identity,
