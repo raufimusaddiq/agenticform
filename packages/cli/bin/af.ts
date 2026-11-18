@@ -16,6 +16,8 @@ const USAGE = `usage: af <command>
   af run events <runId> [--after <seq>] [--follow]
   af run cancel <runId>
 
+Flags also accept --flag=value. Use that form when a value starts with "--".
+
 Environment: AGENTICFORM_HUB_URL, AGENTICFORM_ADMIN_TOKEN`
 
 function client(): HubClient {
@@ -27,6 +29,9 @@ function client(): HubClient {
 }
 
 function flag(args: string[], name: string): string | undefined {
+  const prefix = `--${name}=`
+  const inline = args.find((arg) => arg.startsWith(prefix))
+  if (inline !== undefined) return inline.slice(prefix.length)
   const index = args.indexOf(`--${name}`)
   if (index === -1) return undefined
   const value = args[index + 1]
@@ -35,9 +40,15 @@ function flag(args: string[], name: string): string | undefined {
 }
 
 function flags(args: string[], name: string): string[] {
+  const prefix = `--${name}=`
   const values: string[] = []
   for (let i = 0; i < args.length; i++) {
-    if (args[i] !== `--${name}`) continue
+    const arg = args[i] as string
+    if (arg.startsWith(prefix)) {
+      values.push(arg.slice(prefix.length))
+      continue
+    }
+    if (arg !== `--${name}`) continue
     const value = args[i + 1]
     if (value === undefined || value.startsWith("--")) throw new Error(`--${name} requires a value`)
     values.push(value)

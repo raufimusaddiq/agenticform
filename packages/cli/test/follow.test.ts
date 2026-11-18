@@ -98,4 +98,12 @@ describe("af run events --follow", () => {
     expect(result.code).toBe(1)
     expect(result.err).toContain("--harness requires a value")
   })
+
+  test("accepts --flag=value, including values starting with '--'", async () => {
+    const result = await cli([
+      "run", "start", "--key=k", "--harness=codex", "--prompt=--literal", "--label", "broken",
+    ])
+    expect(result.code).toBe(1)
+    expect(result.err).toContain('invalid --label "broken": expected key=value')
+  })
 })

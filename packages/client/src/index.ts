@@ -43,11 +43,13 @@ export class HubApiError extends Error {
   }
 }
 
+export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
+
 export interface ClientOptions {
   url: string
   /** Admin bearer token. Never placed in a URL, argv or log. */
   token: string
-  fetch?: typeof fetch
+  fetch?: FetchLike
 }
 
 /** Validate a resume cursor: events start at seq 1, so `after` is a non-negative integer. */
@@ -80,12 +82,12 @@ export async function reconnectDelay(attempt: number): Promise<void> {
 export class HubClient {
   readonly url: string
   private readonly token: string
-  private readonly fetchImpl: typeof fetch
+  private readonly fetchImpl: FetchLike
 
   constructor(options: ClientOptions) {
     this.url = options.url.replace(/\/+$/, "")
     this.token = options.token
-    this.fetchImpl = options.fetch ?? fetch
+    this.fetchImpl = options.fetch ?? ((url, init) => fetch(url, init))
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -103,22 +105,39 @@ export class HubClient {
   private async read<T>(response: Response): Promise<T | undefined> {
     if (response.status === 204) return undefined
     const text = await response.text()
-    let value: unknown
-    try {
-      value = text ? (JSON.parse(text) as unknown) : undefined
-    } catch {
-      value = undefined
-    }
     if (!response.ok) {
+      let value: unknown
+      try {
+        value = text ? (JSON.parse(text) as unknown) : undefined
+      } catch {
+        value = undefined
+      }
       const error = (value as { error?: { code?: string; message?: string } } | undefined)?.error
-      const message = error?.message ?? (response.statusText || text || `hub responded with ${response.status}`)
+      const fallback = text.length > 200 ? `${text.slice(0, 200)}…` : text
+      const message =
+        error?.message ?? (response.statusText || fallback || `hub responded with ${response.status}`)
       throw new HubApiError(
         error?.code ?? STATUS_CODES[response.status] ?? "internal",
         message,
         response.status,
       )
     }
-    return value as T
+    if (!text) {
+      throw new HubApiError(
+        "internal",
+        `hub returned a non-JSON body with status ${response.status}`,
+        response.status,
+      )
+    }
+    try {
+      return JSON.parse(text) as T
+    } catch {
+      throw new HubApiError(
+        "internal",
+        `hub returned a non-JSON body with status ${response.status}`,
+        response.status,
+      )
+    }
   }
 
   async listNodes(): Promise<NodeView[]> {

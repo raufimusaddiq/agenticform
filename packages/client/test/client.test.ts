@@ -14,6 +14,12 @@ const server = Bun.serve({
     if (path === "/v1/runs/missing") {
       return Response.json({ error: { code: "not_found", message: "run not found" } }, { status: 404 })
     }
+    if (path === "/v1/runs/truncated") {
+      return new Response('{"runId": "r1", "sta', { status: 200 })
+    }
+    if (path === "/v1/runs/empty") {
+      return new Response("", { status: 200 })
+    }
     return new Response("not found", { status: 404 })
   },
 })
@@ -37,6 +43,32 @@ describe("error responses", () => {
     expect(error.status).toBe(404)
     expect(error.code).toBe("not_found")
     expect(error.message).toBe("run not found")
+  })
+
+  test("a truncated 2xx body is an internal HubApiError, not undefined", async () => {
+    const error = await client.getRun("truncated").catch((caught) => caught)
+    expect(error).toBeInstanceOf(HubApiError)
+    expect(error.status).toBe(200)
+    expect(error.code).toBe("internal")
+    expect(error.message).toBe("hub returned a non-JSON body with status 200")
+  })
+
+  test("an empty 2xx body is an internal HubApiError", async () => {
+    const error = await client.getRun("empty").catch((caught) => caught)
+    expect(error).toBeInstanceOf(HubApiError)
+    expect(error.code).toBe("internal")
+    expect(error.message).toBe("hub returned a non-JSON body with status 200")
+  })
+
+  test("a long non-JSON error body is truncated in the message", async () => {
+    const longClient = new HubClient({
+      url: "http://127.0.0.1:1",
+      token: "t",
+      fetch: async () => new Response("x".repeat(500), { status: 502, statusText: "" }),
+    })
+    const error = await longClient.listNodes().catch((caught) => caught)
+    expect(error).toBeInstanceOf(HubApiError)
+    expect(error.message).toBe(`${"x".repeat(200)}…`)
   })
 })
 

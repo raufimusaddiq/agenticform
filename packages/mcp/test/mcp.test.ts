@@ -42,7 +42,11 @@ const server = Bun.serve({
 
 afterAll(() => server.stop(true))
 
-function mcp(): { call: (name: string, args: unknown) => Promise<any>; close: () => void } {
+function mcp(): {
+  call: (name: string, args: unknown) => Promise<any>
+  request: (method: string, params?: unknown) => Promise<any>
+  close: () => void
+} {
   const child = spawn(process.execPath, ["run", bin], {
     env: {
       ...process.env,
@@ -76,6 +80,13 @@ function mcp(): { call: (name: string, args: unknown) => Promise<any>; close: ()
         )
       })
     },
+    request(method, params) {
+      const id = nextId++
+      return new Promise((resolve) => {
+        pending.set(id, resolve)
+        child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`)
+      })
+    },
     close() {
       child.kill("SIGTERM")
     },
@@ -103,6 +114,18 @@ describe("MCP boundary validation", () => {
       expect(
         toolError(await client.call("start_run", { idempotencyKey: "k", harness: "codex", prompt: "p", nope: 1 })),
       ).toContain("unknown start_run argument: nope")
+    } finally {
+      client.close()
+    }
+  })
+
+  test("start_run schema advertises mcpServers and gitBacked", async () => {
+    const client = mcp()
+    try {
+      const listed = await client.request("tools/list")
+      const tool = listed.result.tools.find((entry: { name: string }) => entry.name === "start_run")
+      expect(tool.inputSchema.properties.mcpServers.type).toBe("array")
+      expect(tool.inputSchema.properties.gitBacked.type).toBe("boolean")
     } finally {
       client.close()
     }
