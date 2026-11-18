@@ -60,8 +60,10 @@ describe.skipIf(!hasBwrap)("soak smoke (T037)", () => {
           permissionAnswered: number
           permissionUnobserved: number
           nonTerminal: number
+          spawned: number
+          withGroups: number
         }
-        orphans: { groups: number; alive: number[] }
+        orphans: { groups: number; runs: number; recorded: number[]; alive: number[]; live: number[] }
       }
       expect(result.pass).toBe(true)
       expect(result.restarts).toBe(1)
@@ -71,9 +73,29 @@ describe.skipIf(!hasBwrap)("soak smoke (T037)", () => {
       expect(result.runs.permissionAnswered).toBeGreaterThan(0)
       expect(result.runs.permissionUnobserved).toBe(0)
       expect(result.runs.nonTerminal).toBe(0)
+      expect(result.runs.spawned).toBeGreaterThan(0)
+      expect(result.runs.withGroups).toBe(result.runs.spawned)
+      expect(result.orphans.runs).toBe(result.runs.spawned)
       expect(result.orphans.groups).toBeGreaterThan(0)
       expect(result.orphans.alive).toEqual([])
+      expect(result.orphans.live).toEqual([])
     } finally {
+      // The soak kills its own groups, but a killed soak cannot: kill the ones
+      // it recorded before removing the directory.
+      try {
+        const result = JSON.parse(readFileSync(out, "utf8")) as { orphans?: { recorded?: number[] } }
+        for (const pgid of result.orphans?.recorded ?? []) {
+          if (Number.isInteger(pgid) && pgid > 0) {
+            try {
+              process.kill(-pgid, "SIGKILL")
+            } catch {
+              // The group is already gone.
+            }
+          }
+        }
+      } catch {
+        // No result file: the soak was killed before it wrote one.
+      }
       killTree(proc)
       await Promise.race([proc.exited, Bun.sleep(5_000)])
       rmSync(dir, { recursive: true, force: true })

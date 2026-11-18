@@ -23,8 +23,8 @@ complete, cancel, permission allow and permission timeout — and the permission
 mixes go through the hub's `GET /v1/runs/{id}/permissions` and
 `POST /v1/runs/{id}/permissions/{requestId}` routes, so the remote-answer path
 is what is measured. It restarts the node three times, samples `VmRSS` every
-60 s, records the harness process groups and checks them with `kill(-pgid, 0)`,
-and counts runs without a terminal state.
+60 s, records each run's harness process group at spawn and checks it with
+`kill(-pgid, 0)`, and counts runs without a terminal state.
 
 It writes `soak-result.json` and exits non-zero on an orphaned process group, a
 non-terminal run, or a final RSS over 120% of the baseline. For `--hours` runs

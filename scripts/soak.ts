@@ -17,7 +17,16 @@
  * Writes `soak-result.json` and exits non-zero on an orphan, a non-terminal run
  * or a final RSS over 120% of the baseline (SC-005).
  */
-import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { hostname } from "node:os"
 import { join } from "node:path"
 import { randomBytes } from "node:crypto"
@@ -54,6 +63,13 @@ interface Tracked {
   requestId: string | null
   answered: boolean
   unobserved: boolean
+  /** The per-run marker passed to the harness in argv. */
+  marker: string
+  /** The harness wrote its spawn record. */
+  spawned: boolean
+  /** Host process groups recorded for this run's harness. */
+  groups: number[]
+  reachedRunning: boolean
 }
 
 interface RssSample {
@@ -123,34 +139,6 @@ function vmRssKb(pid: number): number {
   }
 }
 
-/** Process groups of this process's children, excluding the hub. */
-function childGroups(hubPid: number): number[] {
-  if (process.platform !== "linux") return []
-  let entries: string[]
-  try {
-    entries = readdirSync("/proc")
-  } catch {
-    return []
-  }
-  const groups: number[] = []
-  for (const entry of entries) {
-    if (!/^\d+$/.test(entry)) continue
-    const pid = Number(entry)
-    if (pid === hubPid) continue
-    try {
-      const stat = readFileSync(`/proc/${entry}/stat`, "utf8")
-      const close = stat.lastIndexOf(")")
-      const fields = stat.slice(close + 2).split(" ")
-      const ppid = Number(fields[1])
-      const pgrp = Number(fields[2])
-      if (ppid === process.pid && Number.isFinite(pgrp) && pgrp > 0) groups.push(pgrp)
-    } catch {
-      // The process exited between readdir and read.
-    }
-  }
-  return groups
-}
-
 const groupAlive = (pgid: number): boolean => {
   try {
     process.kill(-pgid, 0)
@@ -158,6 +146,38 @@ const groupAlive = (pgid: number): boolean => {
   } catch {
     return false
   }
+}
+
+/**
+ * The host process leaders whose command line names the harness entry (and the
+ * run marker, when given). The ACP driver spawns the sandbox `detached`, so the
+ * leader's pid is its pgid, and that is the id a leaked child keeps.
+ */
+function harnessGroupLeaders(entry: string, marker?: string): number[] {
+  if (process.platform !== "linux") return []
+  let entries: string[]
+  try {
+    entries = readdirSync("/proc")
+  } catch {
+    return []
+  }
+  const pids: number[] = []
+  for (const entryName of entries) {
+    if (!/^\d+$/.test(entryName)) continue
+    try {
+      const cmdline = readFileSync(`/proc/${entryName}/cmdline`, "utf8")
+      if (!cmdline.includes(entry)) continue
+      if (marker !== undefined && !cmdline.includes(marker)) continue
+      const pid = Number(entryName)
+      const stat = readFileSync(`/proc/${entryName}/stat`, "utf8")
+      const close = stat.lastIndexOf(")")
+      const pgrp = Number(stat.slice(close + 2).split(" ")[2])
+      if (pgrp === pid) pids.push(pid)
+    } catch {
+      // The process exited between readdir and read.
+    }
+  }
+  return pids
 }
 
 async function main(): Promise<number> {
@@ -172,6 +192,8 @@ async function main(): Promise<number> {
   const root = join(import.meta.dir, "..")
   const work = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "af-soak-"))
   const stateDir = join(work, "node")
+  const harnessDir = join(work, "harness")
+  mkdirSync(harnessDir, { recursive: true })
   const adminToken = randomBytes(32).toString("hex")
   const harnessId = process.env.AGENTICFORM_SOAK_HARNESS ?? "soak"
   const startedAt = new Date()
@@ -205,6 +227,7 @@ async function main(): Promise<number> {
   const tracked: Tracked[] = []
   const samples: RssSample[] = []
   const groups = new Set<number>()
+  const recordedGroups = new Set<number>()
   const failures: string[] = []
   let restartsDone = 0
 
@@ -269,18 +292,15 @@ async function main(): Promise<number> {
       harnessProbeTimeoutMs: 20_000,
       protocolVersion: 1,
     }
+    // The workspace is bound read-write, so the fake agent lives there and needs
+    // no exec bit or extra bind. Its argv carries the per-run marker.
+    const entry = join(work, "soak-harness.ts")
+    const soakDefinition = { id: "soak", profile: "coding" as const, command: process.execPath, args: [entry] }
     const runtime =
       harnessId === "soak"
         ? (() => {
-            // The workspace is bound read-write, so the fake agent lives there
-            // and needs no exec bit or extra bind.
-            const entry = join(work, "soak-harness.ts")
             copyFileSync(join(root, "scripts", "soak-harness.ts"), entry)
-            return createRuntime({
-              harnesses: {
-                soak: { id: "soak", profile: "coding", command: process.execPath, args: [entry] },
-              },
-            })
+            return createRuntime({ harnesses: { soak: soakDefinition } })
           })()
         : createRuntime()
     const isolation = startupSelfTest()
@@ -337,14 +357,15 @@ async function main(): Promise<number> {
       if (!response.ok) return "unknown"
       return ((await response.json()) as { status: string }).status
     }
-    const waitTerminal = async (runId: string, timeoutMs: number): Promise<string> => {
+    const waitTerminal = async (item: Tracked, timeoutMs: number): Promise<string> => {
       const until = Date.now() + timeoutMs
-      let status = await runStatus(runId)
+      let status = await runStatus(item.runId)
       while (!TERMINAL.has(status) && Date.now() < until) {
-        for (const group of childGroups(hub.pid)) groups.add(group)
+        if (status === "running" || status === "leased") item.reachedRunning = true
         await sleep(100)
-        status = await runStatus(runId)
+        status = await runStatus(item.runId)
       }
+      if (status === "running" || status === "leased") item.reachedRunning = true
       return status
     }
     const pendingRequest = async (runId: string, timeoutMs: number): Promise<string | null> => {
@@ -361,7 +382,39 @@ async function main(): Promise<number> {
       return null
     }
 
+    /**
+     * Wait for the harness to record its spawn, then record the host process
+     * group and release it. The harness holds before ACP init, so a fast run
+     * cannot start and exit between two scans.
+     */
+    const recordSpawn = async (
+      marker: string,
+      timeoutMs = 10_000,
+    ): Promise<{ groups: number[]; spawned: boolean }> => {
+      const record = join(harnessDir, `spawn-${marker}.json`)
+      const until = Date.now() + timeoutMs
+      let spawned = false
+      while (Date.now() < until) {
+        if (existsSync(record)) {
+          spawned = true
+          const leaders = harnessGroupLeaders(entry, marker)
+          if (leaders.length > 0) {
+            for (const group of leaders) {
+              groups.add(group)
+              recordedGroups.add(group)
+            }
+            writeFileSync(join(harnessDir, `spawn-${marker}.ready`), "")
+            return { groups: leaders, spawned }
+          }
+        }
+        await sleep(10)
+      }
+      return { groups: [], spawned }
+    }
+
     const submit = async (kind: Kind, index: number): Promise<Tracked> => {
+      const marker = `r${index}-${randomBytes(4).toString("hex")}`
+      if (harnessId === "soak") soakDefinition.args = [entry, marker]
       const prompt = kind === "complete" ? "complete" : kind === "cancel" ? "hang" : "permission"
       const response = await api("POST", "/v1/runs", {
         idempotencyKey: `soak-${index}`,
@@ -374,7 +427,18 @@ async function main(): Promise<number> {
         throw new Error(`submit failed: ${response.status} ${await response.text()}`)
       }
       const { runId } = (await response.json()) as { runId: string }
-      return { runId, kind, status: "queued", requestId: null, answered: false, unobserved: false }
+      return {
+        runId,
+        kind,
+        status: "queued",
+        requestId: null,
+        answered: false,
+        unobserved: false,
+        marker,
+        spawned: false,
+        groups: [],
+        reachedRunning: false,
+      }
     }
 
     const permissionView = async (
@@ -395,7 +459,10 @@ async function main(): Promise<number> {
         const until = Date.now() + 10_000
         while (Date.now() < until) {
           const status = await runStatus(item.runId)
-          if (status === "running" || status === "leased") break
+          if (status === "running" || status === "leased") {
+            item.reachedRunning = true
+            break
+          }
           if (TERMINAL.has(status)) return
           await sleep(50)
         }
@@ -430,6 +497,9 @@ async function main(): Promise<number> {
 
     /** Every mix has one expected outcome; anything else is a failure (SC-005). */
     const verify = async (item: Tracked): Promise<void> => {
+      if (item.groups.length === 0 && (item.reachedRunning || item.status !== "failed")) {
+        failures.push(`${item.kind} ${item.runId}: no harness process group was recorded`)
+      }
       if (item.unobserved) {
         failures.push(`${item.kind} ${item.runId}: no permission request was observed`)
         return
@@ -485,13 +555,6 @@ async function main(): Promise<number> {
     let nextSample = start
     let index = 0
 
-    // Harness children are short-lived, so the scan runs on its own clock and
-    // again on every terminal poll. A run that records no group at all fails
-    // below, so the check can never pass by never looking.
-    const scanTimer = setInterval(() => {
-      for (const group of childGroups(hub.pid)) groups.add(group)
-    }, 50)
-
     sample()
     nextSample = start + 60_000
     while (Date.now() < deadline) {
@@ -509,21 +572,26 @@ async function main(): Promise<number> {
       const item = await submit(kind, index)
       index += 1
       tracked.push(item)
+      const spawn = await recordSpawn(item.marker)
+      item.groups = spawn.groups
+      item.spawned = spawn.spawned
       await act(item)
-      item.status = await waitTerminal(item.runId, 20_000)
+      item.status = await waitTerminal(item, 20_000)
       await verify(item)
       await sleep(GAP_MS)
     }
-    clearInterval(scanTimer)
 
     // Let the last runs settle before counting.
     for (const item of tracked) {
-      if (!TERMINAL.has(item.status)) item.status = await waitTerminal(item.runId, options.settleMs)
+      if (!TERMINAL.has(item.status)) item.status = await waitTerminal(item, options.settleMs)
     }
     sample()
 
     const alive = [...groups].filter(groupAlive)
+    const live = harnessId === "soak" ? harnessGroupLeaders(entry) : []
     const nonTerminal = tracked.filter((item) => !TERMINAL.has(item.status))
+    const spawned = tracked.filter((item) => item.spawned).length
+    const withGroups = tracked.filter((item) => item.groups.length > 0).length
     const baseline = samples.find((item) => item.elapsedMs >= baselineAfterMs) ?? samples.at(-1)
     const final = samples.at(-1) as RssSample
     const peakKb = Math.max(...samples.map((item) => item.nodeKb))
@@ -532,6 +600,10 @@ async function main(): Promise<number> {
     if (tracked.length > 0 && groups.size === 0) {
       failures.push("no harness process group was recorded; the orphan scan did not run")
     }
+    if (spawned !== withGroups) {
+      failures.push(`recorded groups ${withGroups} != spawned runs ${spawned}`)
+    }
+    if (live.length > 0) failures.push(`live harness processes: ${live.join(", ")}`)
     if (alive.length > 0) failures.push(`orphaned process groups: ${alive.join(", ")}`)
     if (nonTerminal.length > 0) {
       failures.push(`non-terminal runs: ${nonTerminal.map((item) => `${item.runId}=${item.status}`).join(", ")}`)
@@ -559,6 +631,8 @@ async function main(): Promise<number> {
         permissionTimeout: count("permission-timeout"),
         permissionAnswered: tracked.filter((item) => item.answered).length,
         permissionUnobserved: tracked.filter((item) => item.unobserved).length,
+        spawned,
+        withGroups,
       },
       rss: {
         samples,
@@ -569,7 +643,7 @@ async function main(): Promise<number> {
         finalKb: final.nodeKb,
         growthPct: Number(growthPct.toFixed(1)),
       },
-      orphans: { groups: groups.size, alive },
+      orphans: { groups: groups.size, runs: withGroups, recorded: [...groups], alive, live },
       pass: failures.length === 0,
       failures,
     }
@@ -577,7 +651,8 @@ async function main(): Promise<number> {
     console.log(
       `soak: ${result.pass ? "pass" : "fail"} — ${tracked.length} runs, ${restartsDone} restarts, ` +
         `RSS ${result.rss.baselineKb}→${result.rss.finalKb} kB (${result.rss.growthPct}%), ` +
-        `${alive.length} orphan groups, ${nonTerminal.length} non-terminal`,
+        `${withGroups}/${spawned} spawned runs recorded, ${alive.length} orphan groups, ` +
+        `${nonTerminal.length} non-terminal`,
     )
     for (const failure of failures) console.error(`soak: ${failure}`)
     return result.pass ? 0 : 1
@@ -585,6 +660,13 @@ async function main(): Promise<number> {
     await heartbeat?.stop()
     await poller?.stop()
     await executor?.stop()
+    for (const group of groups) {
+      try {
+        process.kill(-group, "SIGKILL")
+      } catch {
+        // The group is already gone.
+      }
+    }
     hub.kill()
     await hub.exited
     rmSync(work, { recursive: true, force: true })
