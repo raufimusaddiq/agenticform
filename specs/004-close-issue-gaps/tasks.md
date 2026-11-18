@@ -150,18 +150,18 @@ include manual work on Linux hosts, marked **(manual)**.
 
 ### Tests for User Story 3
 
-- [ ] T032 [P] [US3] Test in `packages/hub/test/runs.test.ts`:
+- [X] T032 [P] [US3] Test in `packages/hub/test/runs.test.ts`:
   - a run without a parent has `depth` 0;
   - a child has `parent.depth + 1`;
   - depth 4 with the default limit fails with `422 depth_exceeded` and inserts no row;
   - an unknown parent is `404 parent_not_found`;
   - `AGENTICFORM_RUN_MAX_DEPTH=0` refuses any child
-- [ ] T033 [P] [US3] Test in `packages/hub/test/runs.test.ts`: the same idempotency key with the same parent returns the existing run, and with a different parent returns `idempotency_conflict` (SC-004)
+- [X] T033 [P] [US3] Test in `packages/hub/test/runs.test.ts`: the same idempotency key with the same parent returns the existing run, and with a different parent returns `idempotency_conflict` (SC-004)
 
 ### Implementation for User Story 3
 
-- [ ] T034 [US3] In `createRun` in `packages/hub/src/runs.ts`, validate `parentRunId`, compute `depth`, refuse past `config.maxDepth` before insert, store `parent_run_id` and `depth`, and add `parentRunId` and `depth` to the run view. Add `parentRunId?: string` to `RunRequest` in `packages/protocol/src/index.ts`
-- [ ] T035 [P] [US3] Pass `parentRunId` through `startRun` in `packages/client/src/index.ts`, `--parent <id>` in `af run start` (`packages/cli/bin/af.ts`), and the `parentRunId` property of the MCP `start_run` tool (`packages/mcp/bin/mcp.ts`)
+- [X] T034 [US3] In `createRun` in `packages/hub/src/runs.ts`, validate `parentRunId`, compute `depth`, refuse past `config.maxDepth` before insert, store `parent_run_id` and `depth`, and add `parentRunId` and `depth` to the run view. Add `parentRunId?: string` to `RunRequest` in `packages/protocol/src/index.ts`
+- [X] T035 [P] [US3] Pass `parentRunId` through `startRun` in `packages/client/src/index.ts`, `--parent <id>` in `af run start` (`packages/cli/bin/af.ts`), and the `parentRunId` property of the MCP `start_run` tool (`packages/mcp/bin/mcp.ts`)
 
 **Checkpoint**: agent-created chains are bounded.
 
