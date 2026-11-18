@@ -75,7 +75,7 @@ const fakeDriver = (onConnect?: () => void): RuntimeDriver => ({
 })
 
 const runtime = (driver: RuntimeDriver = fakeDriver()) =>
-  createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: "fake" } } })
+  createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } } })
 
 /** A run that stays active until cancelled, so fencing can be observed. */
 const blockingDriver = (): { driver: RuntimeDriver; cancelled: () => number; started: Promise<void> } => {
@@ -413,7 +413,7 @@ describe("executor", () => {
       },
     }
     const executor = new Executor({
-      runtime: createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: "fake" } } }),
+      runtime: createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } } }),
     })
     const outcome = await executor.execute(command(), { emit: () => {}, signal: new AbortController().signal })
     expect(outcome.status).toBe("succeeded")

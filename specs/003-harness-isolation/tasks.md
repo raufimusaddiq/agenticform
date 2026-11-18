@@ -63,17 +63,17 @@ with the first story; phase 7 lands with the last.
 
 ## Phase 6: User Story 4 - The heartbeat tells the truth about harnesses (P1)
 
-- [ ] T031 [US4] Add entry-point resolution without network, including the Bun cache check for `bunx` entries (FR-018, FR-019)
-- [ ] T032 [US4] Add the sandboxed ACP handshake probe and the classification table (FR-017, FR-018)
-- [ ] T033 [US4] Add the TTL cache, single-flight and invalidation after a failed run (FR-020, FR-021)
-- [ ] T034 [US4] Advertise only `ready` harnesses and add `harnessReport` to the heartbeat (FR-022)
-- [ ] T035 [US4] Map non-ready harnesses to `harness_missing`, `harness_unauthenticated` and `harness_unavailable` before any child starts (FR-023, FR-024)
-- [ ] T036 [US4] Name the harness and best-known status in the hub's `no_eligible_node` message (FR-025)
-- [ ] T037 [US4] Test: one ready, one `auth_required` and one absent harness produce the three statuses in one heartbeat (SC-004)
-- [ ] T038 [US4] Test: a run for each non-ready harness fails with its named code and spawns no child (FR-023, FR-024, SC-005)
-- [ ] T039 [US4] Test: a probe timeout yields `unknown` and the heartbeat keeps beating (FR-020)
-- [ ] T040 [US4] Test: a login is picked up after the TTL without a restart (FR-021)
-- [ ] T041 [US4] Test: a pinned version absent from the cache is `missing` and nothing is downloaded (FR-019)
+- [x] T031 [US4] Resolve the entry point without network, including the Bun cache check for `bunx` entries; ro-bind the resolved entry point's directory (and its interpreter/runtime dir when it is a script) into the sandbox and put it on the sandbox PATH, derived from the resolved result only, never from run input (FR-018, FR-019)
+- [x] T032 [US4] Add the sandboxed ACP handshake probe and the classification table (FR-017, FR-018)
+- [x] T033 [US4] Add the TTL cache, single-flight and invalidation after a failed run (FR-020, FR-021)
+- [x] T034 [US4] Advertise only `ready` harnesses and add `harnessReport` to the heartbeat (FR-022)
+- [x] T035 [US4] Map non-ready harnesses to `harness_missing`, `harness_unauthenticated` and `harness_unavailable` before any child starts (FR-023, FR-024)
+- [x] T036 [US4] Name the harness and best-known status in the hub's `no_eligible_node` message (FR-025)
+- [x] T037 [US4] Test: one ready, one `auth_required` and one absent harness produce the three statuses in one heartbeat (SC-004)
+- [x] T038 [US4] Test: a run for each non-ready harness fails with its named code and spawns no child (FR-023, FR-024, SC-005)
+- [x] T039 [US4] Test: a probe timeout yields `unknown` and the heartbeat keeps beating (FR-020)
+- [x] T040 [US4] Test: a login is picked up after the TTL without a restart (FR-021)
+- [x] T041 [US4] Test: a pinned version absent from the cache is `missing` and nothing is downloaded (FR-019)
 
 ## Phase 7: Polish
 

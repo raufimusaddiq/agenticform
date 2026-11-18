@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite"
+import type { HarnessReport, HarnessStatus } from "@agenticform/protocol"
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { NodeRow } from "./schema.ts"
 
@@ -28,7 +29,7 @@ export function nodeSupports(node: NodeRow, filter: PlacementFilter): boolean {
 export function pickNode(
   db: Database,
   filter: PlacementFilter,
-): { node: NodeRow | null; capabilityMissing: boolean } {
+): { node: NodeRow | null; capabilityMissing: boolean; bestStatus?: { nodeId: string; status: HarnessStatus } } {
   const all = db.query<NodeRow, []>("SELECT * FROM nodes WHERE status = 'online'").all()
   const candidates = all.filter((node) => (filter.nodeId ? node.id === filter.nodeId : true))
   const eligible = candidates.filter((node) => nodeSupports(node, filter))
@@ -40,7 +41,17 @@ export function pickNode(
         const capabilities = new Set(JSON.parse(node.capabilities) as string[])
         return [...(filter.requires ?? [])].some((capability) => !capabilities.has(capability))
       })
-    return { node: null, capabilityMissing }
+    // FR-025: name the best-known status a node reported for the requested
+    // harness, so the operator sees why nothing was placed.
+    const rank: Record<HarnessStatus, number> = { unauthenticated: 3, unknown: 2, missing: 1, ready: 0 }
+    let best: { nodeId: string; status: HarnessStatus } | undefined
+    for (const node of candidates) {
+      const report = JSON.parse(node.harness_report) as HarnessReport[]
+      const entry = report.find((item) => item.id === filter.harness)
+      if (!entry) continue
+      if (!best || rank[entry.status] > rank[best.status]) best = { nodeId: node.id, status: entry.status }
+    }
+    return { node: null, capabilityMissing, ...(best === undefined ? {} : { bestStatus: best }) }
   }
   eligible.sort((a, b) => {
     if (a.capacity_in_use !== b.capacity_in_use) return a.capacity_in_use - b.capacity_in_use

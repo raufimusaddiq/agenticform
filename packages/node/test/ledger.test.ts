@@ -60,7 +60,7 @@ const countingDriver = (): { driver: RuntimeDriver; connected: () => number } =>
 }
 
 const runtime = (driver: RuntimeDriver) =>
-  createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: "fake" } } })
+  createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } } })
 
 const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => {
   const payload = {

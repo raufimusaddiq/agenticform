@@ -135,6 +135,18 @@ describe("isolation argv", () => {
     expect(binds.filter((path) => !system.includes(path))).toEqual(["/tmp/ws"])
   })
 
+  test("entry-point binds come after the private tmpfs and before the root remount", () => {
+    const entry = temp("af-entry-")
+    const args = sandboxArgs(profileFor("nope"), "/tmp/ws", temp("af-home-"), {}, { entryDirs: [entry] })
+    const tmpfs = args.indexOf("--tmpfs")
+    const bind = args.indexOf(entry)
+    const remount = args.indexOf("--remount-ro")
+    expect(bind).toBeGreaterThan(tmpfs)
+    expect(bind).toBeLessThan(remount)
+    expect(args[bind - 1]).toBe("--ro-bind")
+    expect(args[args.indexOf("PATH") + 1]).toContain(entry)
+  })
+
   test("the workspace is resolved and / and the home root are refused", () => {
     const home = temp("af-home-")
     const target = temp("af-target-")

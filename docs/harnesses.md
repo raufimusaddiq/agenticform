@@ -19,9 +19,24 @@ OpenBot has no documented ACP mode. It would need its own driver, and more than 
 
 ## How the node sees a harness
 
-Planned (spec 003), not implemented yet: the node and heartbeat do not probe
-harnesses or report their status today. The design is
-[`specs/003-harness-isolation`](../specs/003-harness-isolation/spec.md).
+The node probes each configured harness at startup and after the probe cache
+expires (300 s by default). A probe resolves the entry point without network
+access, then runs an ACP `initialize` and `session/new` inside the sandbox. It
+never installs, updates or authenticates a harness, and it reads no credential
+file.
+
+| Status | Meaning | Advertised |
+|---|---|---|
+| `ready` | The entry point resolved and the sandboxed handshake completed | yes |
+| `missing` | The entry point is absent (`not_installed`) or the pinned `bunx` version is not cached (`version_not_cached`) | no |
+| `unauthenticated` | The harness answered `auth_required` | no |
+| `unknown` | The probe timed out or the process exited before the handshake | no |
+
+The heartbeat advertises only `ready` harnesses and reports every configured
+harness with its status and reason. A run for a non-ready harness fails with
+`harness_missing`, `harness_unauthenticated` or `harness_unavailable` before any
+child starts. A failed run invalidates that harness's cache entry, so a login is
+picked up on a later heartbeat without a restart.
 
 ## Custom harnesses
 

@@ -1,8 +1,10 @@
 import { join } from "node:path"
-import type { Runtime } from "@agenticform/runtime"
+import type { HarnessDefinition, Runtime } from "@agenticform/runtime"
+import { createRuntime } from "@agenticform/runtime"
 import { NodeClient, type ClientOptions } from "./client.ts"
 import type { NodeConfig } from "./config.ts"
 import { Executor } from "./executor.ts"
+import { HarnessProber } from "./harness-probe.ts"
 import { startHeartbeat, type HeartbeatLoop } from "./heartbeat.ts"
 import type { NodeIdentity } from "./identity.ts"
 import { startPoller, type Poller } from "./poller.ts"
@@ -36,20 +38,34 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
   const clientOptions: ClientOptions = {}
   if (options.fetch) clientOptions.fetch = options.fetch
   const client = new NodeClient(config, identity, clientOptions)
+  const runtime = options.runtime ?? createRuntime()
+  const harnesses = options.harnesses
+  const configured = (): HarnessDefinition[] => {
+    const all = runtime.harnesses()
+    return harnesses && harnesses.length > 0 ? all.filter((harness) => harnesses.includes(harness.id)) : all
+  }
+  // FR-017..FR-022: probe each configured harness, advertise only the ready
+  // ones, and report every one. The probe runs in the background so a hung
+  // harness cannot stall the heartbeat.
+  const prober = new HarnessProber({
+    definitions: configured,
+    ttlMs: config.harnessProbeTtlMs,
+    timeoutMs: config.harnessProbeTimeoutMs,
+  })
   const executor = new Executor({
-    ...(options.runtime ? { runtime: options.runtime } : {}),
+    runtime,
     ledgerDir: join(config.stateDir, "ledger"),
+    harnessStatus: (id) => prober.status(id),
+    harnessFailed: (id) => prober.invalidate(id),
   })
   const capabilities = options.capabilities ?? []
-  const harnesses = options.harnesses
   const slots = options.slots ?? 1
   const onError = options.onError ?? logError
-  const advertised = (): string[] => {
-    const available = executor.harnesses()
-    return harnesses && harnesses.length > 0
-      ? available.filter((harness) => harnesses.includes(harness))
-      : available
-  }
+  const advertised = (): string[] =>
+    prober
+      .report()
+      .filter((report) => report.status === "ready")
+      .map((report) => report.id)
 
   let heartbeat: HeartbeatLoop | undefined
   let poller: Poller | undefined
@@ -59,18 +75,26 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
     executor,
     start() {
       if (heartbeat || poller) return
+      void prober.refresh()
       heartbeat = startHeartbeat(client, {
         intervalMs: config.heartbeatIntervalMs,
-        body: () => ({
-          protocolVersion: config.protocolVersion,
-          status: "online",
-          harnesses: advertised(),
-          capabilities,
-          capacity: { slots, inUse: executor.activeCount },
-          runtimes: executor.inventory(),
-        }),
+        body: () => {
+          void prober.refresh()
+          return {
+            protocolVersion: config.protocolVersion,
+            status: "online",
+            harnesses: advertised(),
+            capabilities,
+            capacity: { slots, inUse: executor.activeCount },
+            runtimes: executor.inventory(),
+            harnessReport: prober.report(),
+          }
+        },
         onError,
       })
+      // Advertise a harness as soon as its first probe lands, rather than
+      // waiting a whole heartbeat interval.
+      void prober.refresh().then(() => heartbeat?.tick())
       poller = startPoller(client, {
         pollMs: config.pollMs,
         leaseRenewMs: config.leaseRenewMs,

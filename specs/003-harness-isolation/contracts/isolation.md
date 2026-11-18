@@ -43,6 +43,7 @@ bwrap
   --tmpfs /home/agent
   (--bind | --ro-bind) <workspace> <workspace>
   (--bind | --ro-bind) <state-source> <sandbox-home>/<relative> ...
+  --ro-bind <entry-dir> <entry-dir> ...          # resolved entry point, after the tmpfs
   --remount-ro /
   --
   <harness.command> <harness.args...>
@@ -51,8 +52,8 @@ bwrap
 Rules:
 
 - Order is fixed: unshare flags, lifecycle flags, environment, system binds,
-  pseudo-filesystems, private tmpfs, workspace, state paths, root remount, `--`,
-  command.
+  pseudo-filesystems, private tmpfs, workspace, state paths, entry-point binds,
+  root remount, `--`, command.
 - `--unshare-net` MUST NOT appear.
 - `--unshare-cgroup-try` MUST be used, so a kernel without cgroup namespaces does
   not fail the sandbox.
@@ -62,10 +63,16 @@ Rules:
   is bound at its own path.
 - A read-only state path that does not exist is skipped; a read-write one is
   created with mode `0700`.
+- Entry-point binds come after the private `/tmp` and home tmpfs, so a resolved
+  entry point under `/tmp` is not shadowed by the private tmpfs. Only the entry
+  directory is exposed, read-only; the rest of `/tmp` stays private. The entry
+  directory is also prepended to the sandbox `PATH`.
 - The root is remounted read-only after the binds, so a path next to the
   workspace (created for the bind) cannot be written. The workspace, `/tmp`, the
-  home and the state binds are separate mounts and keep their own flags.
-- The argv is built from the profile table only. No run input may add a bind.
+  home, the state binds and the entry-point binds are separate mounts and keep
+  their own flags.
+- The argv is built from the profile table and the resolved entry point only. No
+  run input may add a bind.
 
 ## 3. Environment
 
@@ -73,7 +80,7 @@ The harness environment is exactly:
 
 | Variable | Value |
 |---|---|
-| `PATH` | `/usr/local/bin:/usr/bin:/bin` |
+| `PATH` | the resolved entry-point directories, then `/usr/local/bin:/usr/bin:/bin` |
 | `HOME` | `/home/agent` |
 | `TERM`, `LANG`, `LC_ALL`, `TZ` | copied from the node only when set |
 | profile `env` | the profile's declared entries |

@@ -1,4 +1,5 @@
 import type { RunEventInput, RuntimeInventoryEntry } from "@agenticform/protocol"
+import type { HarnessStatus } from "@agenticform/protocol"
 import {
   createRuntime,
   type Capability,
@@ -9,6 +10,7 @@ import {
 } from "@agenticform/runtime"
 import type { CommandEnvelope } from "@agenticform/protocol"
 import { normaliseEvent } from "./events.ts"
+import { resolveHarness } from "./harness-probe.ts"
 import { IsolationError, profileFor, resolveWorkspace, sandboxHarness } from "./isolation.ts"
 import { CommandLedger } from "./ledger.ts"
 import { NodeState, fingerprintError, payloadGenerationError } from "./state.ts"
@@ -30,6 +32,10 @@ export interface ExecutorOptions {
   ledgerDir?: string
   /** Retention window for terminal receipts. */
   ledgerRetentionMs?: number
+  /** Probe status for a harness; omitted skips the pre-run gate (tests, custom callers). */
+  harnessStatus?: (id: string) => HarnessStatus | undefined
+  /** Called after a failed run so the next heartbeat re-probes that harness. */
+  harnessFailed?: (id: string) => void
 }
 
 interface ActiveRun {
@@ -64,6 +70,8 @@ export class Executor {
   private readonly ledger: CommandLedger
   private readonly active = new Map<string, ActiveRun>()
   private readonly state = new NodeState()
+  private readonly harnessStatus: ((id: string) => HarnessStatus | undefined) | undefined
+  private readonly harnessFailed: ((id: string) => void) | undefined
   private staleCount = 0
 
   constructor(options: ExecutorOptions = {}) {
@@ -72,6 +80,8 @@ export class Executor {
       ...(options.ledgerDir === undefined ? {} : { dir: options.ledgerDir }),
       ...(options.ledgerRetentionMs === undefined ? {} : { retentionMs: options.ledgerRetentionMs }),
     })
+    this.harnessStatus = options.harnessStatus
+    this.harnessFailed = options.harnessFailed
   }
 
   get activeCount(): number {
@@ -216,7 +226,36 @@ export class Executor {
     if (!definition) {
       return {
         status: "failed",
-        error: { code: "unknown_harness", message: `Unknown harness: ${payload.harness}` },
+        error: { code: "harness_missing", message: `Harness is not configured on this node: ${payload.harness}` },
+      }
+    }
+    // FR-023, FR-024: a non-ready harness fails with its named code before any
+    // child starts. The gate is skipped only when no prober is wired (tests).
+    if (this.harnessStatus) {
+      const status = this.harnessStatus(payload.harness)
+      if (status === "missing") {
+        return { status: "failed", error: { code: "harness_missing", message: `Harness is missing: ${payload.harness}` } }
+      }
+      if (status === "unauthenticated") {
+        return {
+          status: "failed",
+          error: { code: "harness_unauthenticated", message: `Harness needs authentication: ${payload.harness}` },
+        }
+      }
+      if (status !== "ready") {
+        return {
+          status: "failed",
+          error: { code: "harness_unavailable", message: `Harness is unavailable: ${payload.harness}` },
+        }
+      }
+    }
+    // T031: resolve the entry point without network, then bind its directory so
+    // a harness installed under the home is reachable inside the sandbox.
+    const resolution = resolveHarness(definition)
+    if (!resolution.ok) {
+      return {
+        status: "failed",
+        error: { code: "harness_missing", message: `Harness is missing: ${payload.harness} (${resolution.reason})` },
       }
     }
 
@@ -255,7 +294,14 @@ export class Executor {
 
     // Every run is sandboxed (FR-001). There is no unsandboxed path: a sandbox
     // that cannot start fails the run instead of falling back.
-    const sandboxed = sandboxHarness(definition, profileFor(payload.harness), workspace)
+    const sandboxed = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor(payload.harness),
+      workspace,
+      undefined,
+      undefined,
+      { entryDirs: resolution.resolved.dirs },
+    )
     const run = this.runtime.run({
       harness: sandboxed,
       cwd: workspace,
@@ -270,7 +316,11 @@ export class Executor {
         const normalised = normaliseEvent(event, command.commandId)
         if (normalised) context.emit(normalised)
       }
-      return outcomeOf(await run.result())
+      const outcome = outcomeOf(await run.result())
+      // FR-021: a failed run invalidates the probe entry, so the next heartbeat
+      // re-probes and a login is picked up without a restart.
+      if (outcome.status === "failed") this.harnessFailed?.(payload.harness)
+      return outcome
     } finally {
       // A newer generation may already own the entry; only the owner deletes it.
       if (this.active.get(command.runId)?.run === run) this.active.delete(command.runId)

@@ -85,7 +85,7 @@ describe("hub config", () => {
     const root = mkdtempSync(join(tmpdir(), "af-db-"))
     const file = join(root, "hub.sqlite")
     const db = openDatabase(file)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 1 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 2 })
     db.exec("PRAGMA user_version = 99")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)

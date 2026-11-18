@@ -114,8 +114,13 @@ export function sandboxArgs(
   workspace: string,
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
-  options: { remountRoot?: boolean | undefined } = {},
+  options: { remountRoot?: boolean | undefined; entryDirs?: readonly string[] | undefined } = {},
 ): string[] {
+  // The entry point is resolved before the sandbox is built (T031). Its
+  // directory is bound read-only and put on PATH, so a harness installed under
+  // the home is reachable without widening the state table. The list comes from
+  // the resolved result only, never from run input.
+  const entryDirs = [...new Set(options.entryDirs ?? [])].filter((dir) => isAbsolute(dir) && existsSync(dir))
   const args = [
     "--unshare-user",
     "--unshare-pid",
@@ -129,7 +134,7 @@ export function sandboxArgs(
     "--clearenv",
     "--setenv",
     "PATH",
-    SANDBOX_PATH,
+    [...entryDirs, SANDBOX_PATH].join(":"),
     "--setenv",
     "HOME",
     SANDBOX_HOME,
@@ -156,6 +161,11 @@ export function sandboxArgs(
       args.push(...dirArgs(dest, fromHome ? SANDBOX_HOME : "/"), "--bind", source, dest)
     }
   }
+  // Entry-point binds come after the private tmpfs mounts and the workspace and
+  // state binds, so a resolved entry anywhere (including under /tmp, which the
+  // private tmpfs would otherwise shadow) is visible. Only the entry directory
+  // is exposed, read-only; the rest of /tmp stays private.
+  for (const dir of entryDirs) args.push("--ro-bind", dir, dir)
   // The root tmpfs is writable by default, so a path next to the workspace
   // (created for the bind) would accept a write. Remounting it read-only makes
   // every unbound path fail with EROFS; the workspace, /tmp, the home and the
@@ -171,11 +181,12 @@ export function sandboxHarness(
   workspace: string,
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
+  options: { entryDirs?: readonly string[] | undefined } = {},
 ): HarnessDefinition {
   return {
     ...definition,
     command: "bwrap",
-    args: [...sandboxArgs(profile, workspace, home, env), "--", definition.command, ...(definition.args ?? [])],
+    args: [...sandboxArgs(profile, workspace, home, env, options), "--", definition.command, ...(definition.args ?? [])],
   }
 }
 

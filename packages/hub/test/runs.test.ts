@@ -44,6 +44,35 @@ describe("placement", () => {
     expect(response.body.error.code).toBe("no_eligible_node")
   })
 
+  test("no_eligible_node names the harness and the best-known status", async () => {
+    hub = startHub()
+    const missing = await enroll(hub, { name: "missing", harnesses: [] })
+    const auth = await enroll(hub, { name: "auth", harnesses: [] })
+    await heartbeat(hub, missing, {
+      harnesses: [],
+      harnessReport: [{ id: "codex", status: "missing", reason: "not_installed" }],
+    })
+    await heartbeat(hub, auth, {
+      harnesses: [],
+      harnessReport: [{ id: "codex", status: "unauthenticated", reason: "auth_required" }],
+    })
+    const response = await createRun(hub, { harness: "codex" })
+    expect(response.status).toBe(422)
+    expect(response.body.error.code).toBe("no_eligible_node")
+    expect(response.body.error.message).toContain("codex")
+    expect(response.body.error.message).toContain("unauthenticated")
+    expect(response.body.error.message).toContain(auth.nodeId)
+  })
+
+  test("no_eligible_node stays plain when no node reported the harness", async () => {
+    hub = startHub()
+    const node = await enroll(hub, { harnesses: [] })
+    await heartbeat(hub, node, { harnesses: [] })
+    const response = await createRun(hub, { harness: "codex" })
+    expect(response.status).toBe(422)
+    expect(response.body.error.message).toBe("no node satisfies codex")
+  })
+
   test("capacity reservations spread a burst across nodes", async () => {
     hub = startHub()
     const first = await enroll(hub, { name: "first" })

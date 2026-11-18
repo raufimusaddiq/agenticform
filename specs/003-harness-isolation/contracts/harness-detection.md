@@ -35,8 +35,10 @@ available.
 
 ### 2.2 Handshake inside the sandbox
 
-Spawn the harness through the isolation contract, perform ACP `initialize` only,
-then close. No session, no prompt, no tool call, no permission request.
+Spawn the harness through the isolation contract, perform ACP `initialize` and
+`session/new`, then close. `session/new` is where a harness reports
+`auth_required`, so it is part of the handshake. No prompt, no tool call, no
+permission request.
 
 | Observation | Status | Reason |
 |---|---|---|

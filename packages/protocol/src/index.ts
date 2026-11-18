@@ -179,5 +179,7 @@ export interface NodeView {
   capabilities: string[]
   labels: Record<string, string>
   capacity: { slots: number; inUse: number }
+  /** Last heartbeat's per-harness probe report, verbatim. Additive and optional. */
+  harnessReport?: HarnessReport[]
   lastHeartbeatAt: string | null
 }
