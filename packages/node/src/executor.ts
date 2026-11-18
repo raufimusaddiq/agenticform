@@ -9,6 +9,7 @@ import {
 } from "@agenticform/runtime"
 import type { CommandEnvelope } from "@agenticform/protocol"
 import { normaliseEvent } from "./events.ts"
+import { NodeState, payloadGenerationError } from "./state.ts"
 
 export interface ExecutionContext {
   emit(event: RunEventInput): void
@@ -27,7 +28,6 @@ export interface ExecutorOptions {
 
 interface ActiveRun {
   run: Run
-  generation: number
   harness: string
   state: string
 }
@@ -56,6 +56,7 @@ function outcomeOf(result: RunResult): ExecutionOutcome {
 export class Executor {
   private readonly runtime: Runtime
   private readonly active = new Map<string, ActiveRun>()
+  private readonly state = new NodeState()
   private staleCount = 0
 
   constructor(options: ExecutorOptions = {}) {
@@ -78,7 +79,7 @@ export class Executor {
   inventory(): RuntimeInventoryEntry[] {
     return [...this.active.entries()].map(([runId, active]) => ({
       runId,
-      generation: active.generation,
+      generation: this.state.currentGeneration(runId) ?? 0,
       runtimeType: active.harness,
       runtimeSessionId: "",
       state: active.state,
@@ -88,11 +89,18 @@ export class Executor {
   async execute(command: CommandEnvelope, context: ExecutionContext): Promise<ExecutionOutcome> {
     // FR-021: a payload generation that disagrees with the envelope is refused
     // before any side effect, for every command type.
-    if (command.payload.generation !== command.generation) {
+    const generationError = payloadGenerationError(command)
+    if (generationError) {
       this.staleCount += 1
+      return { status: "failed", error: { code: "fence_stale", message: generationError } }
+    }
+    // FR-028: a reused command id with a different fingerprint is refused
+    // before it can reach any handler or runtime.
+    const admission = this.state.admit(command)
+    if (admission === "conflict") {
       return {
         status: "failed",
-        error: { code: "fence_stale", message: "payload generation differs from envelope" },
+        error: { code: "idempotency_conflict", message: "command id reused with a different fingerprint" },
       }
     }
     if (command.type === "run.cancel") return this.cancel(command)
@@ -102,7 +110,7 @@ export class Executor {
 
   async cancel(command: CommandEnvelope): Promise<ExecutionOutcome> {
     const active = this.active.get(command.runId)
-    if (active && command.generation < active.generation) {
+    if (active && this.isStale(command)) {
       this.staleCount += 1
       return {
         status: "failed",
@@ -118,7 +126,7 @@ export class Executor {
 
   inspect(command: CommandEnvelope): ExecutionOutcome {
     const active = this.active.get(command.runId)
-    if (active && command.generation < active.generation) {
+    if (active && this.isStale(command)) {
       this.staleCount += 1
       return {
         status: "failed",
@@ -137,13 +145,18 @@ export class Executor {
         status: "inspected",
         runId: command.runId,
         state: active.state,
-        generation: active.generation,
+        generation: this.state.currentGeneration(command.runId),
       },
     }
   }
 
   async stop(): Promise<void> {
     await Promise.allSettled([...this.active.values()].map((active) => active.run.cancel()))
+  }
+
+  private isStale(command: CommandEnvelope): boolean {
+    const current = this.state.currentGeneration(command.runId)
+    return current !== null && command.generation < current
   }
 
   private async start(command: CommandEnvelope, context: ExecutionContext): Promise<ExecutionOutcome> {
@@ -163,7 +176,7 @@ export class Executor {
     for (let guard = 0; guard < 4; guard += 1) {
       const existing = this.active.get(command.runId)
       if (!existing) break
-      if (command.generation <= existing.generation) {
+      if (command.generation <= (this.state.currentGeneration(command.runId) ?? 0)) {
         this.staleCount += 1
         return {
           status: "failed",
@@ -175,11 +188,19 @@ export class Executor {
       if (this.active.get(command.runId) === existing) this.active.delete(command.runId)
     }
     const current = this.active.get(command.runId)
-    if (current && current.generation >= command.generation) {
+    if (current && command.generation <= (this.state.currentGeneration(command.runId) ?? 0)) {
       this.staleCount += 1
       return {
         status: "failed",
         error: { code: "fence_stale", message: "run.start generation is not newer than the active run" },
+      }
+    }
+    // Monotonic: an older generation never replaces the stored one (FR-024).
+    if (!this.state.advance(command.runId, command.generation)) {
+      this.staleCount += 1
+      return {
+        status: "failed",
+        error: { code: "fence_stale", message: "run.start generation is older than the recorded runtime" },
       }
     }
 
@@ -191,12 +212,7 @@ export class Executor {
       ...(Array.isArray(payload.mcpServers) ? { mcpServers: payload.mcpServers as McpServer[] } : {}),
       signal: context.signal,
     })
-    this.active.set(command.runId, {
-      run,
-      generation: command.generation,
-      harness: payload.harness,
-      state: "running",
-    })
+    this.active.set(command.runId, { run, harness: payload.harness, state: "running" })
     try {
       for await (const event of run.events()) {
         const normalised = normaliseEvent(event, command.commandId)
