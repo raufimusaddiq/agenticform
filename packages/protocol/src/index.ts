@@ -103,6 +103,17 @@ export interface IsolationReport {
 export const ISOLATION_PROFILE_MAX_LENGTH = 11
 export const ISOLATION_PROFILE_PATTERN = /^\d{1,3}(\.\d{1,3}){0,2}$/
 
+/**
+ * Bounds on node-supplied strings the hub stores (contracts/http-api.md
+ * §heartbeat). A node is authenticated, but what it stores is still bounded.
+ */
+export const NODE_HARNESSES_MAX_COUNT = 32
+export const NODE_CAPABILITIES_MAX_COUNT = 32
+export const NODE_STRING_MAX_LENGTH = 64
+export const RUNTIME_TYPE_MAX_LENGTH = 64
+export const RUNTIME_SESSION_ID_MAX_LENGTH = 256
+export const RUNTIME_STATE_MAX_LENGTH = 64
+
 /** The `isolation.profile` string for a profile version number. */
 export function isolationProfileVersion(version: number): string {
   return String(version)

@@ -80,6 +80,21 @@ The inventory is process-local: a restarted node sends an empty `runtimes` list
 (N7.5). A runtime with a generation older than the hub's is recorded as stale and
 ignored.
 
+Node-supplied strings are stored, so each is bounded. Over a limit the hub
+returns `400 invalid_input` and stores nothing:
+
+| Field | Limit |
+| --- | --- |
+| `harnesses` | at most 32 entries, each at most 64 characters |
+| `capabilities` | at most 32 entries, each at most 64 characters |
+| `runtimes` | at most 1000 entries |
+| `runtimes[].runtimeType` | at most 64 characters |
+| `runtimes[].runtimeSessionId` | at most 256 characters |
+| `runtimes[].state` | at most 64 characters |
+| `harnessReport` | at most 64 entries, each `id` at most 64 characters |
+
+The same `harnesses` limits apply at enrollment.
+
 ### `GET /v1/node/commands/next` (signed)
 
 `200` → one command; `204` → nothing queued, not an error.
