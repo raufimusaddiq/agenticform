@@ -168,6 +168,20 @@ describe("entry-point resolution", () => {
     expect(resolution.resolved.definition.args?.[0]).toContain(`.bunx-${uid}`)
   })
 
+  test.skipIf(typeof process.getuid !== "function")("another user's bunx cache is not used", () => {
+    const cache = temp("af-cache-")
+    const stale = join(cache, ".bunx-9999", "@scope", "pkg@1.0.0")
+    const pkg = join(stale, "node_modules", "@scope", "pkg")
+    mkdirSync(pkg, { recursive: true })
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@scope/pkg", bin: { pkg: "index.js" } }))
+    writeFileSync(join(pkg, "index.js"), "")
+    const resolution = resolveHarness(
+      { id: "fake", profile: "coding", command: "bunx", args: ["@scope/pkg@1.0.0"] },
+      { cacheRoot: cache, path: dirname(process.execPath) },
+    )
+    expect(resolution).toEqual({ ok: false, status: "missing", reason: "version_not_cached" })
+  })
+
   test("a pinned version absent from the cache is missing/version_not_cached and downloads nothing", () => {
     const cache = temp("af-cache-")
     const resolution = resolveHarness(
@@ -548,6 +562,8 @@ describe("non-ready runs", () => {
   test("a run for a healthy harness does not wait for a hung sibling", async () => {
     let healthyProbes = 0
     let hungProbes = 0
+    let markHung: (() => void) | undefined
+    const hungStarted = new Promise<void>((resolve) => (markHung = resolve))
     const prober = new HarnessProber({
       definitions: () => [
         { id: "hung", profile: "coding", command: "hung" },
@@ -559,6 +575,7 @@ describe("non-ready runs", () => {
       probe: async (definition) => {
         if (definition.id === "hung") {
           hungProbes += 1
+          markHung?.()
           await new Promise(() => {})
         }
         healthyProbes += 1
@@ -567,7 +584,7 @@ describe("non-ready runs", () => {
     })
     // A refresh starts with the hung harness and never finishes.
     void prober.refresh()
-    await Bun.sleep(10)
+    await hungStarted
     const executor = new Executor({
       runtime: createRuntime({
         driver: fakeDriver(() => {}),
@@ -761,6 +778,22 @@ describe("non-ready runs", () => {
     // The state bind points at the custom home, not the process home.
     expect(args).toContain(join(home, ".claude"))
     expect(args).toContain("/home/agent/.claude")
+  })
+
+  test("a cwd equal to the custom home is refused", async () => {
+    const home = temp("af-home-")
+    const executor = new Executor({
+      runtime: createRuntime({
+        harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
+      }),
+      harnessStatus: () => "ready",
+      home,
+    })
+    const outcome = await executor.execute(command("fake", home), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.error?.code).toBe("workspace_missing")
   })
 
   test("a changed entry invalidates the ready cache and re-probes", async () => {

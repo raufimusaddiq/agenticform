@@ -1,4 +1,4 @@
-import { accessSync, closeSync, constants, existsSync, mkdtempSync, openSync, readSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs"
+import { accessSync, closeSync, constants, existsSync, mkdtempSync, openSync, readSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, join } from "node:path"
 import type { HarnessReport, HarnessReportReason, HarnessStatus } from "@agenticform/protocol"
@@ -131,32 +131,15 @@ function splitSpec(spec: string): { name: string; version: string } | null {
 }
 
 /**
- * Bun's cache is `.bunx-<uid>/<pkg>@<version>`. Prefer the current user's dir,
- * then the highest uid; the version is pinned, so a different version is never
- * substituted (a stale dir with another version does not win).
+ * Bun 1.4.4 uses only `~/.bun/install/cache/.bunx-<current uid>/`; never fall
+ * back to another user's cache, because that would run code cached by another
+ * user. The version is pinned, so a different version is not substituted.
  */
 function bunxRoot(cacheRoot: string, name: string, version: string): string | null {
-  let entries: string[]
-  try {
-    entries = readdirSync(cacheRoot)
-  } catch {
-    return null
-  }
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined
-  const candidates = entries
-    .filter((entry) => entry.startsWith(".bunx-"))
-    .map((entry) => ({ entry, uid: Number(entry.slice(".bunx-".length)) }))
-    .filter((candidate) => Number.isFinite(candidate.uid))
-    .sort((a, b) => {
-      if (uid !== undefined && a.uid === uid) return -1
-      if (uid !== undefined && b.uid === uid) return 1
-      return b.uid - a.uid
-    })
-  for (const candidate of candidates) {
-    const root = join(cacheRoot, candidate.entry, `${name}@${version}`)
-    if (existsSync(join(root, "node_modules", name, "package.json"))) return root
-  }
-  return null
+  if (uid === undefined) return null
+  const root = join(cacheRoot, `.bunx-${uid}`, `${name}@${version}`)
+  return existsSync(join(root, "node_modules", name, "package.json")) ? root : null
 }
 
 function resolveBunx(definition: HarnessDefinition, options: ResolveOptions): HarnessResolution {

@@ -26,6 +26,12 @@ const stateDir = mkdtempSync(join(tmpdir(), "af-node-test-"))
 afterEach(() => rmSync(stateDir, { recursive: true, force: true }))
 const hasBwrap = Bun.spawnSync(["sh", "-c", "command -v bwrap"]).exitCode === 0
 
+/** Wait for a condition instead of sleeping a fixed time. */
+const waitUntil = async (condition: () => boolean, timeoutMs = 2_000): Promise<void> => {
+  const start = Date.now()
+  while (!condition() && Date.now() - start < timeoutMs) await Bun.sleep(10)
+}
+
 const config = (hubUrl: string): NodeConfig => ({
   hubUrl,
   stateDir,
@@ -299,16 +305,19 @@ describe("signed client", () => {
   test("aborts an in-flight request through the caller's signal", async () => {
     const controller = new AbortController()
     let fetchSignal: AbortSignal | undefined
+    let markStarted: (() => void) | undefined
+    const started = new Promise<void>((resolve) => (markStarted = resolve))
     const client = new NodeClient(config("http://127.0.0.1:1"), identity(), {
       fetch: (async (_url: string | URL | Request, init?: RequestInit) => {
         fetchSignal = init?.signal ?? undefined
+        markStarted?.()
         return new Promise((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true })
         })
       }) as unknown as typeof fetch,
     })
     const pending = client.complete("cmd-1", { leaseId: "lease-1", status: "succeeded" }, controller.signal)
-    await Bun.sleep(1)
+    await started
     controller.abort(new Error("stop"))
     const error = await pending.catch((caught: unknown) => caught)
     expect(fetchSignal?.aborted).toBe(true)
@@ -824,7 +833,7 @@ describe("poller", () => {
       onError: (error) => errors.push(error),
     })
     await firstStarted
-    await Bun.sleep(30)
+    await waitUntil(() => poller.parked === 1)
     await poller.stop()
     expect(prompts).toBe(1)
     expect(connects).toBe(1)

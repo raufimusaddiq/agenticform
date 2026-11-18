@@ -71,6 +71,12 @@ const runFake = async (
 
 const alive = (marker: string): boolean => Bun.spawnSync(["pgrep", "-f", marker]).exitCode === 0
 
+/** Wait for a condition instead of sleeping a fixed time. */
+const waitUntil = async (condition: () => boolean, timeoutMs = 2_000): Promise<void> => {
+  const start = Date.now()
+  while (!condition() && Date.now() - start < timeoutMs) await Bun.sleep(20)
+}
+
 describe("isolation argv", () => {
   test("follows the fixed order and clears the environment", () => {
     const home = temp("af-home-")
@@ -622,7 +628,7 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
     expect(alive(marker)).toBe(true)
     await run.cancel()
     await run.result()
-    await Bun.sleep(200)
+    await waitUntil(() => !alive(marker))
     expect(alive(marker)).toBe(false)
   })
 

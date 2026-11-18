@@ -264,7 +264,7 @@ export class Executor {
     // resolved path is what gets bound, so a symlink cannot escape (FR-008).
     let workspace: string
     try {
-      workspace = resolveWorkspace(payload.cwd)
+      workspace = resolveWorkspace(payload.cwd, this.home)
     } catch (error) {
       if (error instanceof IsolationError) {
         return { status: "failed", error: { code: error.code, message: error.message } }
