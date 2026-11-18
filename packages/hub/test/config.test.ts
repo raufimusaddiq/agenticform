@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 import { createHub, openDatabase } from "../src/index.ts"
 import { loadConfig, validateConfig, type HubConfig } from "../src/config.ts"
 import { toNodeView } from "../src/nodes.ts"
-import { migrate, SCHEMA, type NodeRow } from "../src/schema.ts"
+import { migrate, SCHEMA, type NodeRow, type RunRow } from "../src/schema.ts"
 import { api, startHub, testConfig } from "./helpers.ts"
 
 const base = (patch: Partial<HubConfig>): HubConfig => ({ ...testConfig(), port: 8787, ...patch })
@@ -88,7 +88,7 @@ describe("hub config", () => {
     const root = mkdtempSync(join(tmpdir(), "af-db-"))
     const file = join(root, "hub.sqlite")
     const db = openDatabase(file)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 3 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 6 })
     db.exec("PRAGMA user_version = 99")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)
@@ -115,9 +115,34 @@ describe("hub config", () => {
     expect(toNodeView(row as NodeRow).isolation).toBeUndefined()
     // Re-running the migration is a no-op.
     migrate(db)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 3 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 6 })
     expect(db.query("SELECT COUNT(*) AS n FROM nodes").get()).toEqual({ n: 1 })
     db.close()
+  })
+
+  test("a version-3 database migrates to 6 without losing a run, and a version-7 one is refused", () => {
+    const root = mkdtempSync(join(tmpdir(), "af-db-"))
+    const file = join(root, "hub.sqlite")
+    const db = new Database(file, { create: true })
+    db.exec(SCHEMA)
+    db.exec("ALTER TABLE nodes ADD COLUMN harness_report TEXT NOT NULL DEFAULT '[]';")
+    db.exec("ALTER TABLE nodes ADD COLUMN isolation TEXT NOT NULL DEFAULT 'null';")
+    db.exec("PRAGMA user_version = 3")
+    db.query(
+      `INSERT INTO runs (id, idempotency_key, request_json, harness, prompt, cwd, status, workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run("r1", "k1", "{}", "codex", "p", "run/r1", "completed", "run/r1", 1, 2)
+    migrate(db)
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 6 })
+    const run = db.query<RunRow, [string]>("SELECT * FROM runs WHERE id = ?").get("r1")
+    expect(run?.status).toBe("completed")
+    expect(run?.parent_run_id).toBeNull()
+    expect(run?.depth).toBe(0)
+    expect(db.query("SELECT COUNT(*) AS n FROM caller_tokens").get()).toEqual({ n: 0 })
+    expect(db.query("SELECT COUNT(*) AS n FROM permission_requests").get()).toEqual({ n: 0 })
+    db.exec("PRAGMA user_version = 7")
+    db.close()
+    expect(() => openDatabase(file)).toThrow(/newer than supported/)
   })
 
   test("the advertised URL uses AGENTICFORM_HUB_URL", () => {

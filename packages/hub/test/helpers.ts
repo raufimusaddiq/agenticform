@@ -22,6 +22,7 @@ export function testConfig(overrides: Partial<HubConfig> = {}): HubConfig {
     pollMs: 1_500,
     recoveryGraceMs: 120_000,
     maxBodyBytes: 1_048_576,
+    maxDepth: 3,
     ...overrides,
   }
 }

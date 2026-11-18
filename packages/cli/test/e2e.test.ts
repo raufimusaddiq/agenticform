@@ -322,4 +322,34 @@ describe("thin clients over the hub HTTP API", () => {
     expect(viaEnv.code).toBe(0)
     expect(parse(viaEnv.out)[0].name).toBe("e2e-node")
   })
+
+  test("a runs token drives the CLI and is refused on owner routes", async () => {
+    const nodeId = await enrollOnlineNode()
+    const issued = (await (
+      await admin("POST", "/v1/tokens", { name: "cli-runs", scope: "runs" })
+    ).json()) as { id: string; token: string }
+    const runsEnv = { AGENTICFORM_ADMIN_TOKEN: "", AGENTICFORM_TOKEN: issued.token }
+
+    const started = await cli(
+      ["run", "start", "--key", "runs-token-1", "--harness", "codex", "--prompt", "fix tests", "--node", nodeId],
+      runsEnv,
+    )
+    expect(started.code).toBe(0)
+    const runId = parse(started.out).runId as string
+
+    expect(parse((await cli(["run", "get", runId], runsEnv)).out).status).toBe("queued")
+    expect(parse((await cli(["run", "cancel", runId], runsEnv)).out).status).toBe("cancelled")
+    const followed = await cli(["run", "events", runId, "--follow"], runsEnv)
+    expect(followed.code).toBe(0)
+    expect(followed.out).toContain("run.finished")
+
+    const refused = await cli(["token", "list"], runsEnv)
+    expect(refused.code).toBe(1)
+    expect(refused.out).toContain("forbidden")
+
+    // The admin token still lists tokens.
+    const listed = await cli(["token", "list"])
+    expect(listed.code).toBe(0)
+    expect(parse(listed.out).some((token: { name: string }) => token.name === "cli-runs")).toBe(true)
+  })
 })

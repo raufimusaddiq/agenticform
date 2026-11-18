@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS run_events (
 );
 `
 
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 6
 
 /** Ordered migrations. Append a new entry and bump SCHEMA_VERSION for each change. */
 export const MIGRATIONS: readonly { version: number; sql: string }[] = [
@@ -114,6 +114,39 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
   {
     version: 3,
     sql: "ALTER TABLE nodes ADD COLUMN isolation TEXT NOT NULL DEFAULT 'null';",
+  },
+  {
+    version: 4,
+    sql: `CREATE TABLE IF NOT EXISTS caller_tokens (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      digest TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at INTEGER
+    );`,
+  },
+  {
+    version: 5,
+    sql: `CREATE TABLE IF NOT EXISTS permission_requests (
+      run_id TEXT NOT NULL REFERENCES runs(id),
+      generation INTEGER NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      title TEXT,
+      kind TEXT,
+      status TEXT NOT NULL,
+      decision TEXT,
+      requested_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      decided_at INTEGER,
+      PRIMARY KEY (run_id, generation, tool_call_id)
+    );`,
+  },
+  {
+    version: 6,
+    sql: `ALTER TABLE runs ADD COLUMN parent_run_id TEXT REFERENCES runs(id);
+      ALTER TABLE runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0;`,
   },
 ]
 
@@ -182,6 +215,31 @@ export interface RunRow {
   disconnected_at: number | null
   created_at: number
   updated_at: number
+  parent_run_id: string | null
+  depth: number
+}
+
+export interface CallerTokenRow {
+  id: string
+  name: string
+  scope: string
+  digest: string
+  created_at: number
+  last_used_at: number | null
+  revoked_at: number | null
+}
+
+export interface PermissionRequestRow {
+  run_id: string
+  generation: number
+  tool_call_id: string
+  title: string | null
+  kind: string | null
+  status: string
+  decision: string | null
+  requested_at: number
+  expires_at: number
+  decided_at: number | null
 }
 
 export interface CommandRow {

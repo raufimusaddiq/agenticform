@@ -26,8 +26,8 @@ include manual work on Linux hosts, marked **(manual)**.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add the error codes `forbidden`, `name_taken`, `permission_resolved`, `permission_expired`, `permission_unsupported`, `parent_not_found` and `depth_exceeded` to the error-code union in `packages/protocol/src/index.ts`, and map their HTTP statuses (403, 409, 409, 409, 409, 404, 422) in `packages/hub/src/errors.ts`
-- [ ] T002 [P] Add `AGENTICFORM_RUN_MAX_DEPTH` (integer, default 3, minimum 0; reject a non-integer at startup) to `packages/hub/src/config.ts`, and document it and `AGENTICFORM_TOKEN` in the environment table in `README.md`
+- [X] T001 Add the error codes `forbidden`, `name_taken`, `permission_resolved`, `permission_expired`, `permission_unsupported`, `parent_not_found` and `depth_exceeded` to the error-code union in `packages/protocol/src/index.ts`, and map their HTTP statuses (403, 409, 409, 409, 409, 404, 422) in `packages/hub/src/errors.ts`
+- [X] T002 [P] Add `AGENTICFORM_RUN_MAX_DEPTH` (integer, default 3, minimum 0; reject a non-integer at startup) to `packages/hub/src/config.ts`, and document it and `AGENTICFORM_TOKEN` in the environment table in `README.md`
 
 ---
 
@@ -35,13 +35,13 @@ include manual work on Linux hosts, marked **(manual)**.
 
 **Purpose**: the migrations every story needs. No story starts until they are in.
 
-- [ ] T003 Append migrations 4, 5 and 6 to `MIGRATIONS` in `packages/hub/src/schema.ts` and bump `SCHEMA_VERSION` to 6. Copy the columns exactly from `data-model.md`:
+- [X] T003 Append migrations 4, 5 and 6 to `MIGRATIONS` in `packages/hub/src/schema.ts` and bump `SCHEMA_VERSION` to 6. Copy the columns exactly from `data-model.md`:
   - `caller_tokens`: `id` TEXT PK, `name` TEXT NOT NULL, `scope` TEXT NOT NULL, `digest` TEXT NOT NULL, `created_at`, `last_used_at` NULL, `revoked_at` NULL
   - `permission_requests`: PK `(run_id, generation, tool_call_id)`, FK `runs(id)`, `status` IN (`pending`,`answered`,`resolved`,`timed_out`,`cancelled`), `decision` IN (`allow`,`deny`) or NULL
   - `runs`: `parent_run_id TEXT NULL REFERENCES runs(id)` and `depth INTEGER NOT NULL DEFAULT 0`
 
   Add `CallerTokenRow` and `PermissionRequestRow`, and extend `RunRow`.
-- [ ] T004 Test in `packages/hub/test/config.test.ts`: a version-3 database migrates to 6 with no data loss on existing runs, and a version-7 database is refused
+- [X] T004 Test in `packages/hub/test/config.test.ts`: a version-3 database migrates to 6 with no data loss on existing runs, and a version-7 database is refused
 
 **Checkpoint**: the schema is ready, and US1, US2 and US3 can start in parallel after T003.
 
@@ -55,32 +55,32 @@ include manual work on Linux hosts, marked **(manual)**.
 
 ### Tests for User Story 1
 
-- [ ] T005 [P] [US1] Contract test in `packages/hub/test/tokens.test.ts`, a table over every caller route in plan.md §"Principal and route guard" × {admin, runs, revoked runs, none}: allowed routes return their normal status; a `runs` token on an admin route returns `403 forbidden` with no state change; revoked or no token returns `401 unauthorized`; a route missing from the table is admin-only
-- [ ] T006 [P] [US1] Test in `packages/hub/test/tokens.test.ts`, token lifecycle:
+- [X] T005 [P] [US1] Contract test in `packages/hub/test/tokens.test.ts`, a table over every caller route in plan.md §"Principal and route guard" × {admin, runs, revoked runs, none}: allowed routes return their normal status; a `runs` token on an admin route returns `403 forbidden` with no state change; revoked or no token returns `401 unauthorized`; a route missing from the table is admin-only
+- [X] T006 [P] [US1] Test in `packages/hub/test/tokens.test.ts`, token lifecycle:
   - issue returns `afc_<id>_<secret>` once;
   - `GET /v1/tokens` never includes `token` or `digest`;
   - name must be 1–64 chars, unique among active tokens (`name_taken`), and scope other than `runs` is `invalid_input`;
   - revoke is idempotent;
   - `last_used_at` is written at most once per 60 s
-- [ ] T007 [P] [US1] Test in `packages/hub/test/tokens.test.ts`: an SSE follow with a `runs` token receives `event: error` `{"code":"unauthorized"}` and closes within 30 s of revoke (FR-003, SC-002)
-- [ ] T008 [P] [US1] Test in `packages/hub/test/tokens.test.ts`: a token secret appears in no event row, no captured log line, and no UI asset served by the hub (FR-004)
+- [X] T007 [P] [US1] Test in `packages/hub/test/tokens.test.ts`: an SSE follow with a `runs` token receives `event: error` `{"code":"unauthorized"}` and closes within 30 s of revoke (FR-003, SC-002)
+- [X] T008 [P] [US1] Test in `packages/hub/test/tokens.test.ts`: a token secret appears in no event row, no captured log line, and no UI asset served by the hub (FR-004)
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Create `packages/hub/src/tokens.ts`, following research R1:
+- [X] T009 [US1] Create `packages/hub/src/tokens.ts`, following research R1:
   - `issueToken(db, name, scope)`: id is 12 base32 chars, secret is 32 random bytes in base64url; store hex SHA-256 of the whole token;
   - `listTokens(db)`;
   - `revokeToken(db, id)`;
   - `authenticateToken(db, token, now)`: parse `afc_<id>_<secret>`, look up by id, `timingSafeEqual` on the digest, reject `revoked_at`, update `last_used_at` at most once per 60 s
-- [ ] T010 [US1] In `packages/hub/src/server.ts`:
+- [X] T010 [US1] In `packages/hub/src/server.ts`:
   - replace `authenticateBearer` with `authenticate(config, db, headers): Principal` (admin first, unchanged compare; then `authenticateToken`);
   - add the route-to-scope table from plan.md §"Principal and route guard", default admin-only;
   - wire `POST /v1/tokens`, `GET /v1/tokens` and `POST /v1/tokens/{id}/revoke` (admin only)
-- [ ] T011 [US1] In `sse()` in `packages/hub/src/server.ts`, re-run `authenticate` at each keepalive, and on failure send `event: error` `data: {"code":"unauthorized"}` and close (research R3)
-- [ ] T012 [P] [US1] Add `issueToken`, `listTokens` and `revokeToken` to `packages/client/src/index.ts`. The client reads `AGENTICFORM_ADMIN_TOKEN`, else `AGENTICFORM_TOKEN`, from the environment only
-- [ ] T013 [P] [US1] Add `af token issue <name>`, `af token list` and `af token revoke <id>` to `packages/cli/bin/af.ts`. Accept the token from `AGENTICFORM_ADMIN_TOKEN` or `AGENTICFORM_TOKEN` only, never as an argument
-- [ ] T014 [P] [US1] Make `packages/mcp/bin/mcp.ts` accept `AGENTICFORM_TOKEN` when `AGENTICFORM_ADMIN_TOKEN` is unset, and return the hub's `forbidden` error unchanged
-- [ ] T015 [US1] Test in `packages/cli/test` and `packages/mcp/test`: with only `AGENTICFORM_TOKEN` set to a `runs` token, `start_run`/`af run start`, follow and cancel succeed against a real hub, and `af token list` fails with `forbidden` (SC-001)
+- [X] T011 [US1] In `sse()` in `packages/hub/src/server.ts`, re-run `authenticate` at each keepalive, and on failure send `event: error` `data: {"code":"unauthorized"}` and close (research R3)
+- [X] T012 [P] [US1] Add `issueToken`, `listTokens` and `revokeToken` to `packages/client/src/index.ts`. The client reads `AGENTICFORM_ADMIN_TOKEN`, else `AGENTICFORM_TOKEN`, from the environment only
+- [X] T013 [P] [US1] Add `af token issue <name>`, `af token list` and `af token revoke <id>` to `packages/cli/bin/af.ts`. Accept the token from `AGENTICFORM_ADMIN_TOKEN` or `AGENTICFORM_TOKEN` only, never as an argument
+- [X] T014 [P] [US1] Make `packages/mcp/bin/mcp.ts` accept `AGENTICFORM_TOKEN` when `AGENTICFORM_ADMIN_TOKEN` is unset, and return the hub's `forbidden` error unchanged
+- [X] T015 [US1] Test in `packages/cli/test` and `packages/mcp/test`: with only `AGENTICFORM_TOKEN` set to a `runs` token, `start_run`/`af run start`, follow and cancel succeed against a real hub, and `af token list` fails with `forbidden` (SC-001)
 
 **Checkpoint**: US1 is shippable; callers no longer need the admin token.
 
