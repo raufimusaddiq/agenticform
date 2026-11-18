@@ -73,14 +73,14 @@ in `docs/node-hub-invariants.md` gets a test task.
 
 ## Phase 6: User Story 4 - Durable receipts (P2)
 
-- [ ] T045 [US4] Implement the atomic ledger with `STARTED` before effect in `packages/node/src/ledger.ts` (FR-029)
-- [ ] T046 [US4] Cache terminal results and serve them on re-lease (FR-030)
-- [ ] T047 [US4] Refuse ambiguous `STARTED` replay with a visible failure (FR-031)
-- [ ] T048 [US4] Bound ledger growth without touching `STARTED` (FR-032)
-- [ ] T049 [US4] Test: kill the node after `STARTED`, restart, re-deliver — no second effect (SC-005)
-- [ ] T050 [US4] Test: lost completion then re-lease returns the cached result (FR-030)
+- [x] T045 [US4] Implement the atomic ledger with `STARTED` before effect in `packages/node/src/ledger.ts` (FR-029)
+- [x] T046 [US4] Cache terminal results and serve them on re-lease (FR-030)
+- [x] T047 [US4] Refuse ambiguous `STARTED` replay with a visible failure (FR-031)
+- [x] T048 [US4] Bound ledger growth without touching `STARTED` (FR-032)
+- [x] T049 [US4] Test: kill the node after `STARTED`, restart, re-deliver — no second effect (SC-005)
+- [x] T050 [US4] Test: lost completion then re-lease returns the cached result (FR-030)
 - [x] T051 [US4] Test: duplicate identical completion is a no-op; conflicting duplicate is rejected (FR-027)
-- [ ] T052 [US4] Test: compaction drops old terminal entries and retains `STARTED` (FR-032)
+- [x] T052 [US4] Test: compaction drops old terminal entries and retains `STARTED` (FR-032)
 
 ## Phase 7: User Story 5 - Health and recovery (P3)
 

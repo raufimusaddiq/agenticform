@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { createPublicKey, verify } from "node:crypto"
+import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { CommandEnvelope, EventBatchResponse, RunEventInput } from "@agenticform/protocol"
 import { canonicalString } from "@agenticform/protocol/canonical"
 import {
@@ -19,9 +21,12 @@ import { createNode } from "../src/node.ts"
 import { startPoller } from "../src/poller.ts"
 import { fingerprintOf } from "../src/state.ts"
 
+const stateDir = mkdtempSync(join(tmpdir(), "af-node-test-"))
+afterEach(() => rmSync(stateDir, { recursive: true, force: true }))
+
 const config = (hubUrl: string): NodeConfig => ({
   hubUrl,
-  stateDir: tmpdir(),
+  stateDir,
   heartbeatIntervalMs: 15_000,
   pollMs: 1_500,
   leaseRenewMs: 300_000,

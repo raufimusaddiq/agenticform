@@ -1,3 +1,4 @@
+import { join } from "node:path"
 import type { Runtime } from "@agenticform/runtime"
 import { NodeClient, type ClientOptions } from "./client.ts"
 import type { NodeConfig } from "./config.ts"
@@ -35,7 +36,10 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
   const clientOptions: ClientOptions = {}
   if (options.fetch) clientOptions.fetch = options.fetch
   const client = new NodeClient(config, identity, clientOptions)
-  const executor = new Executor(options.runtime ? { runtime: options.runtime } : {})
+  const executor = new Executor({
+    ...(options.runtime ? { runtime: options.runtime } : {}),
+    ledgerDir: join(config.stateDir, "ledger"),
+  })
   const capabilities = options.capabilities ?? []
   const harnesses = options.harnesses
   const slots = options.slots ?? 1
