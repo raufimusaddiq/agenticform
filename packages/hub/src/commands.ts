@@ -11,6 +11,7 @@ import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
 import { insertEvent, hubEventKey, nextSeq } from "./events.ts"
+import { cancelPending } from "./permissions.ts"
 import type { CommandRow, NodeRow, RunRow } from "./schema.ts"
 
 function toEnvelope(row: CommandRow): CommandEnvelope {
@@ -29,6 +30,8 @@ function toEnvelope(row: CommandRow): CommandEnvelope {
 /**
  * Enqueue is keyed by `(run_id, idempotency_key)` (N5.1). A repeat with the same
  * body returns the existing row; a differing body is an idempotency conflict.
+ * `keySuffix` narrows the key for a command that can occur more than once per
+ * generation, such as `permission.answer` (T024).
  */
 export function enqueueCommand(
   db: Database,
@@ -36,8 +39,9 @@ export function enqueueCommand(
   type: CommandType,
   payload: Record<string, unknown>,
   now = Date.now(),
+  keySuffix = "",
 ): CommandRow {
-  const idempotencyKey = `run:${run.id}:${type}:${run.generation}`
+  const idempotencyKey = `run:${run.id}:${type}${keySuffix}:${run.generation}`
   const body = { ...payload, generation: run.generation }
   const payloadJson = JSON.stringify(body)
   const fingerprint = commandFingerprint(type, idempotencyKey, run.generation, payloadJson)
@@ -223,12 +227,16 @@ export function completeCommand(
       )
       .run(target, resultJson, errorJson, now, command.id)
     if (updated.changes !== 1) fail("lease_not_held", "command is not leased")
-    // A node-reported cancel ends the run as `cancelled`. `run.inspect` never changes run status.
-    if (command.type !== "run.inspect") {
+    // A node-reported cancel ends the run as `cancelled`. `run.inspect` and
+    // `permission.answer` never change run status.
+    if (command.type !== "run.inspect" && command.type !== "permission.answer") {
       const runStatus = command.type === "run.cancel" ? "cancelled" : terminalStatus(body)
       db.query(
         "UPDATE runs SET status = ?, result_json = ?, error_json = ?, updated_at = ? WHERE id = ? AND generation = ?",
       ).run(runStatus, resultJson, errorJson, now, run.id, command.generation)
+      // Run end cancels every open permission request in the same transaction
+      // (FR-011).
+      cancelPending(db, run.id, now)
       insertEvent(db, run.id, {
         key: hubEventKey("finished", command.generation),
         type: "run.finished",

@@ -241,6 +241,22 @@ describe("MCP boundary validation", () => {
       client.close()
     }
   })
+
+  test("permission tools are advertised and validated", async () => {
+    const client = mcp()
+    try {
+      const listed = await client.request("tools/list")
+      const names = listed.result.tools.map((entry: { name: string }) => entry.name)
+      expect(names).toContain("list_permissions")
+      expect(names).toContain("answer_permission")
+      expect(toolError(await client.call("list_permissions", {}))).toContain("runId is required")
+      expect(
+        toolError(await client.call("answer_permission", { runId: "r1", requestId: "call_7", decision: "maybe" })),
+      ).toContain("decision must be allow or deny")
+    } finally {
+      client.close()
+    }
+  })
 })
 
 describe("MCP list_events follow is bounded", () => {

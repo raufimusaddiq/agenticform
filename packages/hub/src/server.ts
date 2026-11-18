@@ -15,6 +15,7 @@ import { HubError, fail } from "./errors.ts"
 import { appendEvents, listEvents } from "./events.ts"
 import { heartbeat, listNodes, setNodeStatus, sweepHealth } from "./nodes.ts"
 import { cleanupNonces } from "./nonces.ts"
+import { answerPermission, listPermissions } from "./permissions.ts"
 import { cancelRun, createRun, getRun, recoverRun, runView } from "./runs.ts"
 import { openDatabase } from "./schema.ts"
 import { authenticateMachine } from "./signatures.ts"
@@ -98,7 +99,12 @@ function requireBody(body: unknown): Record<string, unknown> {
   return body as Record<string, unknown>
 }
 
-const COMMAND_TYPES = new Set<CommandType>(["run.start", "run.cancel", "run.inspect"])
+const COMMAND_TYPES = new Set<CommandType>([
+  "run.start",
+  "run.cancel",
+  "run.inspect",
+  "permission.answer",
+])
 
 /** Optional `types` filter so a full node can still lease cancels and inspects. */
 function parseCommandTypes(value: string | null): CommandType[] | undefined {
@@ -234,6 +240,18 @@ export function createHub(config: HubConfig): Hub {
         }
         if (request.method === "POST" && action === "recover") {
           return json(runView(db, recoverRun(db, config, runId)))
+        }
+      }
+      const permissionAction = /^\/v1\/runs\/([^/]+)\/permissions(?:\/([^/]+))?$/.exec(path)
+      if (permissionAction) {
+        const runId = permissionAction[1] as string
+        const requestId = permissionAction[2]
+        if (request.method === "GET" && requestId === undefined) {
+          return json({ permissions: listPermissions(db, runId) })
+        }
+        if (request.method === "POST" && requestId !== undefined) {
+          const body = await readJson<{ decision?: unknown }>(request, config.maxBodyBytes)
+          return json(answerPermission(db, runId, decodeURIComponent(requestId), body.decision))
         }
       }
       fail("not_found", "route not found")

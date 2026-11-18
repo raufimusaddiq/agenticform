@@ -6,6 +6,7 @@ import type { HubConfig } from "./config.ts"
 import { enqueueCommand } from "./commands.ts"
 import { fail } from "./errors.ts"
 import { insertEvent, hubEventKey, nextSeq } from "./events.ts"
+import { cancelPending } from "./permissions.ts"
 import { pickNode } from "./placement.ts"
 import type { NodeRow, RunRow } from "./schema.ts"
 
@@ -208,6 +209,8 @@ export function cancelRun(
         run.id,
         run.generation,
       )
+      // The old generation can no longer receive an answer (FR-011).
+      cancelPending(db, run.id, now)
       const updated = getRun(db, run.id)
       enqueueCommand(db, updated, "run.cancel", {}, now)
       return updated
@@ -228,6 +231,7 @@ export function cancelRun(
     db.query(
       "UPDATE runtime_assignments SET state = 'fenced', updated_at = ? WHERE run_id = ? AND generation = ?",
     ).run(now, run.id, run.generation)
+    cancelPending(db, run.id, now)
     if (["queued", "leased", "running"].includes(run.status) && run.node_id) {
       db.query("UPDATE nodes SET capacity_in_use = MAX(capacity_in_use - 1, 0) WHERE id = ?").run(run.node_id)
     }

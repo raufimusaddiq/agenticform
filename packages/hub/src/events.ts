@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite"
 import type { EventBatch, EventBatchResponse, RunEventWire } from "@agenticform/protocol"
 import { fail } from "./errors.ts"
+import { recordRequested, recordResolved } from "./permissions.ts"
 import type { CommandRow, EventRow, RunRow } from "./schema.ts"
 
 const TERMINAL = new Set(["completed", "failed", "cancelled", "disconnected"])
@@ -66,6 +67,13 @@ export function appendEvents(
       // a key like `c1:1` without colliding with the fenced-out generation.
       const key = `g${command.generation}:${event.key}`
       accepted += insertEvent(db, run.id, { ...event, key }) > 0 ? 1 : 0
+      // The permission state machine follows the events that the harness already
+      // sent, in the same transaction as the insert (T025).
+      if (event.type === "permission.requested") {
+        recordRequested(db, run.id, command.generation, event.data, now)
+      } else if (event.type === "permission.resolved") {
+        recordResolved(db, run.id, command.generation, event.data, now)
+      }
     }
     if (command.status === "leased") {
       db.query("UPDATE commands SET status = 'running', updated_at = ? WHERE id = ?").run(now, command.id)

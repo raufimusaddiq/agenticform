@@ -78,6 +78,30 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "list_permissions",
+    description: "List a run's permission requests and their status.",
+    inputSchema: {
+      type: "object",
+      properties: { runId: { type: "string" } },
+      required: ["runId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "answer_permission",
+    description: "Allow or deny a pending permission request. Owner only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string" },
+        requestId: { type: "string" },
+        decision: { type: "string", enum: ["allow", "deny"] },
+      },
+      required: ["runId", "requestId", "decision"],
+      additionalProperties: false,
+    },
+  },
 ] as const
 
 function client(): HubClient {
@@ -226,6 +250,17 @@ async function call(name: string, args: Record<string, unknown>, requestId: unkn
       return hub.getRun(requireString(args, "runId"))
     case "cancel_run":
       return hub.cancelRun(requireString(args, "runId"))
+    case "list_permissions":
+      return hub.listPermissions(requireString(args, "runId"))
+    case "answer_permission": {
+      const decision = args.decision
+      if (decision !== "allow" && decision !== "deny") throw new Error("decision must be allow or deny")
+      return hub.answerPermission(
+        requireString(args, "runId"),
+        requireString(args, "requestId"),
+        decision,
+      )
+    }
     case "list_events": {
       const runId = requireString(args, "runId")
       const after = normalizeAfter(args.after ?? 0)

@@ -17,6 +17,8 @@ const USAGE = `usage: af <command>
   af run get <runId>
   af run events <runId> [--after <seq>] [--follow]
   af run cancel <runId>
+  af run permissions <runId>
+  af run answer <runId> <requestId> allow|deny
   af token issue <name>
   af token list
   af token revoke <id>
@@ -145,6 +147,23 @@ async function main(argv: string[]): Promise<void> {
       ...(gitBacked === undefined ? {} : { gitBacked }),
     }
     return print(await client().createRun(request))
+  }
+
+  if (group === "run" && action === "permissions") {
+    const rest = argv.slice(2)
+    rejectUnknownFlags(rest, [])
+    const runId = rest[0]
+    if (!runId) throw new Error("af run permissions <runId>")
+    return print(await client().listPermissions(runId))
+  }
+
+  if (group === "run" && action === "answer") {
+    const rest = argv.slice(2)
+    rejectUnknownFlags(rest, [])
+    const [runId, requestId, decision] = rest
+    if (!runId || !requestId) throw new Error("af run answer <runId> <requestId> allow|deny")
+    if (decision !== "allow" && decision !== "deny") throw new Error("decision must be allow or deny")
+    return print(await client().answerPermission(runId, requestId, decision))
   }
 
   if (group !== "run" || !action || !id || !["get", "events", "cancel"].includes(action)) {

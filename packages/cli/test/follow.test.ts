@@ -92,6 +92,36 @@ const server = Bun.serve({
         createdAt: new Date().toISOString(),
       })
     }
+    if (url.pathname === "/v1/runs/r1/permissions") {
+      return Response.json({
+        permissions: [
+          {
+            requestId: "call_7",
+            generation: 1,
+            title: "Write file",
+            kind: "edit",
+            options: ["allow", "deny"],
+            status: "pending",
+            decision: null,
+            requestedAt: new Date().toISOString(),
+            expiresAt: new Date().toISOString(),
+          },
+        ],
+      })
+    }
+    if (url.pathname === "/v1/runs/r1/permissions/call_7" && request.method === "POST") {
+      return Response.json({
+        requestId: "call_7",
+        generation: 1,
+        title: "Write file",
+        kind: "edit",
+        options: ["allow", "deny"],
+        status: "answered",
+        decision: "allow",
+        requestedAt: new Date().toISOString(),
+        expiresAt: new Date().toISOString(),
+      })
+    }
     return new Response("not found", { status: 404 })
   },
 })
@@ -200,5 +230,31 @@ describe("af run events --follow", () => {
     expect(result.code).toBe(1)
     expect(result.err).toContain("unknown flag --bogus")
     expect(result.err).toContain("usage: af")
+  })
+})
+
+describe("af run permissions and answer", () => {
+  test("lists a run's permission requests", async () => {
+    const result = await cli(["run", "permissions", "r1"])
+    expect(result.code).toBe(0)
+    expect(JSON.parse(result.out)[0].requestId).toBe("call_7")
+  })
+
+  test("answers a request", async () => {
+    const result = await cli(["run", "answer", "r1", "call_7", "allow"])
+    expect(result.code).toBe(0)
+    expect(JSON.parse(result.out).status).toBe("answered")
+  })
+
+  test("rejects a decision that is not allow or deny", async () => {
+    const result = await cli(["run", "answer", "r1", "call_7", "maybe"])
+    expect(result.code).toBe(1)
+    expect(result.err).toContain("decision must be allow or deny")
+  })
+
+  test("requires a run id", async () => {
+    const result = await cli(["run", "permissions"])
+    expect(result.code).toBe(1)
+    expect(result.err).toContain("af run permissions <runId>")
   })
 })

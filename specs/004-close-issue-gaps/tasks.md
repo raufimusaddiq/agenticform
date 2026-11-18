@@ -94,22 +94,22 @@ include manual work on Linux hosts, marked **(manual)**.
 
 ### Tests for User Story 2
 
-- [ ] T016 [P] [US2] Test in `packages/hub/test/permissions.test.ts`, state machine from data-model.md:
+- [X] T016 [P] [US2] Test in `packages/hub/test/permissions.test.ts`, state machine from data-model.md:
   - `permission.requested` creates `pending` with `expires_at = requested_at + 300000`;
   - an admin answer moves it to `answered` and enqueues one `permission.answer`;
   - `permission.resolved` moves `answered` to `resolved`, and `pending` to `timed_out` after expiry or `resolved` before it;
   - nothing leaves a terminal state
-- [ ] T017 [P] [US2] Test in `packages/hub/test/permissions.test.ts`, refusals:
+- [X] T017 [P] [US2] Test in `packages/hub/test/permissions.test.ts`, refusals:
   - `runs` token → `403 forbidden`;
   - decision not `allow`/`deny` → `invalid_input`;
   - second answer → `permission_resolved`;
   - after `expiresAt` → `permission_expired`;
   - node without `permissions.remote` → `permission_unsupported`;
   - old generation → `not_found`
-- [ ] T018 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: two concurrent answers to one request; exactly one returns 200 and exactly one command is enqueued (SC-003)
-- [ ] T019 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: cancel, failure, disconnect and generation fence each mark every `pending` or `answered` row of the run `cancelled`, in the same transaction as the run status change (FR-011)
-- [ ] T020 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: event append refuses a `permission.requested` whose `toolCallId` is over 128 chars, `title` over 256 or `kind` over 64, with `invalid_input` (FR-013)
-- [ ] T021 [P] [US2] Real-process test in `packages/node/test/permissions.test.ts`, using the `permission` mode of `packages/runtime/test/fake-agent.ts` through a real hub and node:
+- [X] T018 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: two concurrent answers to one request; exactly one returns 200 and exactly one command is enqueued (SC-003)
+- [X] T019 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: cancel, failure, disconnect and generation fence each mark every `pending` or `answered` row of the run `cancelled`, in the same transaction as the run status change (FR-011)
+- [X] T020 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: event append refuses a `permission.requested` whose `toolCallId` is over 128 chars, `title` over 256 or `kind` over 64, with `invalid_input` (FR-013)
+- [X] T021 [P] [US2] Real-process test in `packages/node/test/permissions.test.ts`, using the `permission` mode of `packages/runtime/test/fake-agent.ts` through a real hub and node:
   - allow reaches the agent;
   - deny reaches the agent;
   - no answer is denied at a shortened `permissionTimeoutMs`;
@@ -118,25 +118,25 @@ include manual work on Linux hosts, marked **(manual)**.
 
 ### Implementation for User Story 2
 
-- [ ] T022 [US2] In `packages/protocol/src/index.ts`, add `"permission.answer"` to `CommandType`, the payload `{ toolCallId, decision, generation, fingerprint }`, and `PermissionRequestView` exactly as in `contracts/http-api.md` §3
-- [ ] T023 [US2] Create `packages/hub/src/permissions.ts`:
+- [X] T022 [US2] In `packages/protocol/src/index.ts`, add `"permission.answer"` to `CommandType`, the payload `{ toolCallId, decision, generation, fingerprint }`, and `PermissionRequestView` exactly as in `contracts/http-api.md` §3
+- [X] T023 [US2] Create `packages/hub/src/permissions.ts`:
   - `recordRequested`, `recordResolved` and `cancelPending(db, runId)`;
   - `listPermissions(db, runId)`, current generation, options `["allow","deny"]`;
   - `answerPermission(db, runId, requestId, decision, now)`: a single `UPDATE … WHERE status='pending' AND expires_at > ?`, then enqueue, then insert the `permission.answered` event `{ requestId, decision, by: "admin" }`, all in one transaction
-- [ ] T024 [US2] In `packages/hub/src/commands.ts`:
+- [X] T024 [US2] In `packages/hub/src/commands.ts`:
   - give `enqueueCommand` an optional idempotency key suffix, producing `run:{id}:permission.answer:{toolCallId}:{generation}`;
   - make `permission.answer` completion never change run status (like `run.inspect`);
   - call `cancelPending` wherever a run reaches a terminal status
-- [ ] T025 [US2] In `appendEvents` in `packages/hub/src/events.ts`, call `recordRequested`/`recordResolved` for `permission.requested`/`permission.resolved` events, with the length bounds from T020
-- [ ] T026 [US2] Wire `GET /v1/runs/{id}/permissions` (admin and runs) and `POST /v1/runs/{id}/permissions/{requestId}` (admin only) in `packages/hub/src/server.ts`, and add both to the route table from T010
-- [ ] T027 [US2] In `packages/node/src/executor.ts`:
+- [X] T025 [US2] In `appendEvents` in `packages/hub/src/events.ts`, call `recordRequested`/`recordResolved` for `permission.requested`/`permission.resolved` events, with the length bounds from T020
+- [X] T026 [US2] Wire `GET /v1/runs/{id}/permissions` (admin and runs) and `POST /v1/runs/{id}/permissions/{requestId}` (admin only) in `packages/hub/src/server.ts`, and add both to the route table from T010
+- [X] T027 [US2] In `packages/node/src/executor.ts`:
   - pass `onPermission` to `runtime.run`, registering a waiter in a map keyed by `runId:generation:toolCallId`;
   - handle `permission.answer` by resolving the waiter (`{ applied: true }`) or completing `{ applied: false }`;
   - drop waiters when the run ends
-- [ ] T028 [US2] In `packages/node/src/poller.ts`, lease `permission.answer` in the control lane with `run.cancel` and `run.inspect`. In `packages/node/src/node.ts`, add `permissions.remote` to the heartbeat capabilities
-- [ ] T029 [P] [US2] Add `listPermissions` and `answerPermission` to `packages/client/src/index.ts`; add `af run permissions <id>` and `af run answer <id> <requestId> allow|deny` to `packages/cli/bin/af.ts`; add the MCP tools `list_permissions` and `answer_permission` to `packages/mcp/bin/mcp.ts`
-- [ ] T030 [P] [US2] Show pending requests with Allow and Deny buttons on the run view in `packages/hub/src/ui/app.js`, using the existing bearer flow; extend `packages/hub/test/ui.test.ts`
-- [ ] T031 [US2] Amend `specs/002-node-hub/spec.md` Scope to note that remote permission answers are added by spec 004, and update `docs/architecture.md` with the permission flow diagram from plan.md
+- [X] T028 [US2] In `packages/node/src/poller.ts`, lease `permission.answer` in the control lane with `run.cancel` and `run.inspect`. In `packages/node/src/node.ts`, add `permissions.remote` to the heartbeat capabilities
+- [X] T029 [P] [US2] Add `listPermissions` and `answerPermission` to `packages/client/src/index.ts`; add `af run permissions <id>` and `af run answer <id> <requestId> allow|deny` to `packages/cli/bin/af.ts`; add the MCP tools `list_permissions` and `answer_permission` to `packages/mcp/bin/mcp.ts`
+- [X] T030 [P] [US2] Show pending requests with Allow and Deny buttons on the run view in `packages/hub/src/ui/app.js`, using the existing bearer flow; extend `packages/hub/test/ui.test.ts`
+- [X] T031 [US2] Amend `specs/002-node-hub/spec.md` Scope to note that remote permission answers are added by spec 004, and update `docs/architecture.md` with the permission flow diagram from plan.md
 
 **Checkpoint**: harnesses that ask before acting can do useful work remotely.
 
