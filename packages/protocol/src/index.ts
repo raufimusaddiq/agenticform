@@ -139,7 +139,7 @@ export interface HeartbeatResponse {
   commandsPollMs: number
 }
 
-export type CommandType = "run.start" | "run.cancel" | "run.inspect"
+export type CommandType = "run.start" | "run.cancel" | "run.inspect" | "permission.answer"
 
 export interface CommandPayload {
   fingerprint: string
@@ -149,6 +149,8 @@ export interface CommandPayload {
   prompt?: string
   requires?: string[]
   mcpServers?: unknown[]
+  toolCallId?: string
+  decision?: "allow" | "deny"
   [key: string]: unknown
 }
 
@@ -234,6 +236,27 @@ export interface CallerTokenView {
 /** The issue response: the only place the token itself appears. */
 export interface IssuedCallerToken extends CallerTokenView {
   token: string
+}
+
+/**
+ * The runtime's deny-on-silence clock, shared so the hub's `expires_at` and the
+ * node's `permissionTimeoutMs` cannot drift (contracts/http-api.md §3).
+ */
+export const PERMISSION_TIMEOUT_MS = 300_000
+
+export type PermissionStatus = "pending" | "answered" | "resolved" | "timed_out" | "cancelled"
+
+/** A permission request as listed. `requestId` is the ACP `toolCallId`. */
+export interface PermissionRequestView {
+  requestId: string
+  generation: number
+  title: string | null
+  kind: string | null
+  options: ("allow" | "deny")[]
+  status: PermissionStatus
+  decision: "allow" | "deny" | null
+  requestedAt: string
+  expiresAt: string
 }
 
 export interface RunEventWire {  seq: number

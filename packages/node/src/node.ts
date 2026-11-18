@@ -106,7 +106,7 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
     ...(options.env === undefined ? {} : { env: options.env }),
     isolation,
   })
-  const capabilities = options.capabilities ?? []
+  const capabilities = [...new Set([...(options.capabilities ?? []), "permissions.remote"])]
   const slots = options.slots ?? 1
   const onError = options.onError ?? logError
   const advertised = (): string[] =>

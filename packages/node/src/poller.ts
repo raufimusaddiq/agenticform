@@ -1,7 +1,10 @@
-import type { CommandEnvelope, CompletionRequest } from "@agenticform/protocol"
+import type { CommandEnvelope, CommandType, CompletionRequest } from "@agenticform/protocol"
 import { NodeClientError, type NodeClient } from "./client.ts"
 import { EventBatcher } from "./events.ts"
 import type { ExecutionOutcome, Executor } from "./executor.ts"
+
+/** Commands that never need a start slot, so they stay deliverable when full. */
+const CONTROL_COMMANDS: readonly CommandType[] = ["run.cancel", "run.inspect", "permission.answer"]
 
 export interface PollerOptions {
   pollMs: number
@@ -156,12 +159,13 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
   const tick = async (): Promise<void> => {
     if (stopped) return
     // Reserve a start slot before leasing, so a full node never leases a
-    // run.start it cannot run. When full, ask only for non-start commands.
+    // run.start it cannot run. When full, ask only for control commands, so a
+    // permission answer is never blocked by a full start slot (T028).
     const free = running < slots
     if (free) running += 1
     let command: CommandEnvelope | null
     try {
-      command = await client.nextCommand(free ? undefined : ["run.cancel", "run.inspect"])
+      command = await client.nextCommand(free ? undefined : CONTROL_COMMANDS)
     } catch (error) {
       if (free) release()
       throw error

@@ -1,9 +1,12 @@
 import type { RunEventInput, RuntimeInventoryEntry } from "@agenticform/protocol"
 import type { HarnessStatus } from "@agenticform/protocol"
+import { PERMISSION_TIMEOUT_MS } from "@agenticform/protocol"
 import {
   createRuntime,
   type Capability,
   type McpServer,
+  type PermissionDecision,
+  type PermissionRequest,
   type Run,
   type RunResult,
   type Runtime,
@@ -54,6 +57,8 @@ export interface ExecutorOptions {
    * (FR-014).
    */
   isolation: SelfTestResult
+  /** The runtime's deny-on-silence clock. Default 300 s, shared with the hub. */
+  permissionTimeoutMs?: number
 }
 
 interface ActiveRun {
@@ -92,6 +97,11 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | undefin
 }
 
 const STDERR_SCAN_BYTES = 4096
+
+/** A waiter is scoped to one run generation, so an old answer can never apply. */
+function waiterKey(runId: string, generation: number, toolCallId: string): string {
+  return `${runId}:${generation}:${toolCallId}`
+}
 
 /**
  * A sandbox that cannot start fails the run; there is no unsandboxed retry
@@ -141,6 +151,9 @@ export class Executor {
   private readonly home: string | undefined
   private readonly env: Record<string, string | undefined> | undefined
   private readonly isolation: SelfTestResult
+  private readonly permissionTimeoutMs: number
+  /** Waiters for a remote answer, keyed `runId:generation:toolCallId`. Memory only. */
+  private readonly permissionWaiters = new Map<string, (decision: PermissionDecision) => void>()
   private staleCount = 0
 
   constructor(options: ExecutorOptions) {
@@ -158,6 +171,7 @@ export class Executor {
     this.home = options.home
     this.env = options.env
     this.isolation = options.isolation
+    this.permissionTimeoutMs = options.permissionTimeoutMs ?? PERMISSION_TIMEOUT_MS
   }
 
   get activeCount(): number {
@@ -222,6 +236,7 @@ export class Executor {
   private async dispatch(command: CommandEnvelope, context: ExecutionContext): Promise<ExecutionOutcome> {
     if (command.type === "run.cancel") return this.cancel(command)
     if (command.type === "run.inspect") return this.inspect(command)
+    if (command.type === "permission.answer") return this.answerPermission(command)
     return this.start(command, context)
   }
 
@@ -269,6 +284,50 @@ export class Executor {
 
   async stop(): Promise<void> {
     await Promise.allSettled([...this.active.values()].map((active) => active.run.cancel()))
+  }
+
+  /**
+   * Resolve a waiting permission (T027). An answer for an unknown or already
+   * settled request is not an error: the harness is simply not told twice
+   * (node-protocol.md §3, FR-009).
+   */
+  answerPermission(command: CommandEnvelope): ExecutionOutcome {
+    if (this.isStale(command)) {
+      this.staleCount += 1
+      return {
+        status: "failed",
+        error: { code: "fence_stale", message: "command generation is older than the active run" },
+      }
+    }
+    const { toolCallId, decision } = command.payload
+    if (typeof toolCallId !== "string" || (decision !== "allow" && decision !== "deny")) {
+      return { status: "failed", error: { code: "invalid_input", message: "toolCallId and decision are required" } }
+    }
+    const key = waiterKey(command.runId, command.generation, toolCallId)
+    const resolve = this.permissionWaiters.get(key)
+    if (!resolve) return { status: "succeeded", result: { applied: false } }
+    this.permissionWaiters.delete(key)
+    resolve(decision)
+    return { status: "succeeded", result: { applied: true } }
+  }
+
+  /** The `onPermission` handler: wait for the hub, never longer than the runtime's own clock. */
+  private waitForPermission(
+    runId: string,
+    generation: number,
+    request: PermissionRequest,
+  ): Promise<PermissionDecision> {
+    const key = waiterKey(runId, generation, request.toolCallId)
+    return new Promise<PermissionDecision>((resolve) => {
+      this.permissionWaiters.set(key, resolve)
+    })
+  }
+
+  private dropWaiters(runId: string, generation: number): void {
+    const prefix = `${runId}:${generation}:`
+    for (const key of this.permissionWaiters.keys()) {
+      if (key.startsWith(prefix)) this.permissionWaiters.delete(key)
+    }
   }
 
   private isStale(command: CommandEnvelope): boolean {
@@ -460,6 +519,8 @@ export class Executor {
       prompt: payload.prompt,
       ...(Array.isArray(payload.requires) ? { requires: payload.requires as Capability[] } : {}),
       ...(Array.isArray(payload.mcpServers) ? { mcpServers: payload.mcpServers as McpServer[] } : {}),
+      onPermission: (request) => this.waitForPermission(command.runId, command.generation, request),
+      permissionTimeoutMs: this.permissionTimeoutMs,
       signal: context.signal,
     })
     this.active.set(command.runId, { run, harness: payload.harness, state: "running" })
@@ -467,6 +528,11 @@ export class Executor {
       for await (const event of run.events()) {
         const normalised = normaliseEvent(event, command.commandId)
         if (normalised) context.emit(normalised)
+        // The harness settled the request itself (answered, timed out or
+        // cancelled), so a later answer must not report `applied: true`.
+        if (event.type === "permission.resolved") {
+          this.permissionWaiters.delete(waiterKey(command.runId, command.generation, event.toolCallId))
+        }
       }
       const outcome = outcomeOf(await run.result())
       // FR-021: a failed run invalidates the probe entry, so the next heartbeat
@@ -486,6 +552,8 @@ export class Executor {
     } finally {
       // A newer generation may already own the entry; only the owner deletes it.
       if (this.active.get(command.runId)?.run === run) this.active.delete(command.runId)
+      // The run is over: no waiter survives it (node-protocol.md §2).
+      this.dropWaiters(command.runId, command.generation)
     }
   }
 }

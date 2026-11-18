@@ -57,7 +57,9 @@ export class IsolationError extends Error {
 
 /** The in-sandbox path a state entry is bound at (contracts/isolation.md §2). */
 const sandboxDest = (path: string): string =>
-  path.startsWith("~/") ? join(SANDBOX_HOME, path.slice(1)) : path
+  // POSIX join: the sandbox path is always `/home/agent/...`, even on a host
+  // whose `path.join` would use backslashes.
+  path.startsWith("~/") ? `${SANDBOX_HOME}${path.slice(1)}` : path
 
 /**
  * A profile `env` value is a fixed literal, never run input (FR-009a, FR-009c).

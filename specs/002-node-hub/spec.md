@@ -15,6 +15,11 @@ contract. It does not add the `client` SDK, CLI or MCP server; they are thin
 clients of the same API in a later spec. It does not add orchestration,
 projects, tasks, approvals, policy or messaging (constitution I).
 
+Remote permission answers are added by spec 004 (`specs/004-close-issue-gaps/`):
+a node advertises `permissions.remote`, the hub records each request and only
+the admin token answers it. The runtime's `permissionTimeoutMs` stays the only
+deny clock.
+
 The behaviour reference is `docs/node-hub-invariants.md` (T-2). Rules there are
 binding inputs, not suggestions; requirement ids below map to them.
 

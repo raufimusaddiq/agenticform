@@ -196,6 +196,7 @@ describe("thin clients over the hub HTTP API", () => {
       const listed = await server.request("tools/list")
       expect(listed.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
         "list_nodes", "start_run", "get_run", "list_events", "cancel_run",
+        "list_permissions", "answer_permission",
       ])
       const mcpStart = await server.request("tools/call", { name: "start_run", arguments: request })
       expect(JSON.parse(mcpStart.result.content[0].text).runId).toBe(viaHttp.runId)

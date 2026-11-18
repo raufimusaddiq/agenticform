@@ -3,6 +3,7 @@ import type {
   ErrorCode,
   IssuedCallerToken,
   NodeView,
+  PermissionRequestView,
   RunEventWire,
   RunRequest,
   RunStatus,
@@ -14,6 +15,7 @@ export type {
   ErrorCode,
   IssuedCallerToken,
   NodeView,
+  PermissionRequestView,
   RunEventWire,
   RunRequest,
   RunStatus,
@@ -197,6 +199,27 @@ export class HubClient {
 
   cancelRun(runId: string): Promise<RunView> {
     return this.request<RunView>("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`)
+  }
+
+  async listPermissions(runId: string): Promise<PermissionRequestView[]> {
+    const body = await this.request<{ permissions: PermissionRequestView[] } | undefined>(
+      "GET",
+      `/v1/runs/${encodeURIComponent(runId)}/permissions`,
+    )
+    return body?.permissions ?? []
+  }
+
+  /** Answer a pending request. Only the admin token may call this (FR-008). */
+  answerPermission(
+    runId: string,
+    requestId: string,
+    decision: "allow" | "deny",
+  ): Promise<PermissionRequestView> {
+    return this.request<PermissionRequestView>(
+      "POST",
+      `/v1/runs/${encodeURIComponent(runId)}/permissions/${encodeURIComponent(requestId)}`,
+      { decision },
+    )
   }
 
   async getEvents(

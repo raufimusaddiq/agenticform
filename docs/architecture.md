@@ -43,11 +43,33 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 
 ## Safety rules
 
-- Permission requests are denied unless a caller allows them. Only one-time grants are selected.
+- Permission requests are denied unless the owner allows them. Only one-time grants are selected.
 - Unknown capabilities count as absent.
 - Prompts are never retried automatically, because a lost reply is ambiguous.
 - Harness stderr stays out of events, because it may contain sensitive output.
 - The remote path carries outbound-only nodes, fenced runtime identity, single-use nonces, idempotency and isolation. See [node/hub invariants](node-hub-invariants.md).
+
+## Permissions
+
+A harness that asks before acting waits for the owner, not for the node. The
+runtime's `permissionTimeoutMs` (300 s) is the only clock that denies.
+
+```text
+harness ──session/request_permission──▶ runtime ──onPermission──▶ node executor
+node: emit permission.requested {toolCallId,title,kind} ──event batch──▶ hub
+hub:  INSERT permission_requests (pending, expires_at = requested_at + 300 s)
+owner ──POST /v1/runs/{id}/permissions/{toolCallId} {decision}──▶ hub
+hub:  UPDATE ... SET status='answered' WHERE status='pending'  (exactly one wins)
+      enqueue permission.answer {toolCallId, decision}
+node ──lease (control lane)──▶ executor resolves the waiter ──▶ runtime ──▶ harness
+runtime emits permission.resolved ──▶ hub marks the row resolved (or timed_out)
+```
+
+Only the admin token answers; a `runs` token may read the list. A node that does
+not advertise `permissions.remote` is refused with `permission_unsupported`
+rather than emulated. A duplicate answer completes `{ applied: false }`, so the
+harness is never told twice. Run end cancels every open request in the same
+transaction as the status change, and a node restart never re-asks.
 
 ## Isolation
 
