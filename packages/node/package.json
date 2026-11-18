@@ -13,6 +13,7 @@
     "start": "bun run bin/node.ts"
   },
   "dependencies": {
-    "@agenticform/protocol": "workspace:*"
+    "@agenticform/protocol": "workspace:*",
+    "@agenticform/runtime": "workspace:*"
   }
 }
