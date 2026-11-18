@@ -10,7 +10,7 @@ export interface PlacementFilter {
   labels?: Readonly<Record<string, string>>
 }
 
-export function nodeSupports(node: NodeRow, filter: PlacementFilter): boolean {
+function nodeSupports(node: NodeRow, filter: PlacementFilter): boolean {
   if (node.status !== "online") return false
   if (!SUPPORTED_PROTOCOL_VERSIONS.includes(node.protocol_version)) return false
   const harnesses = JSON.parse(node.harnesses) as string[]

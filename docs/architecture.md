@@ -13,10 +13,6 @@ client ─────► hub ◄───── node (machine A) ─► harness
 runtime: used by node, and on its own for local runs
 ```
 
-`runtime`, `node`, `hub`, `client`, the CLI and the MCP server exist. The
-distributed path is implemented; the sections below describe how it fits
-together.
-
 ## Layers
 
 **`runtime`** starts a harness, negotiates capabilities, runs turns and normalises events. It works alone, with no server.

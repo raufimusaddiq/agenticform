@@ -230,7 +230,7 @@ export function heartbeat(
 }
 
 /** Fence and disconnect every active run on a node. Caller supplies the transaction. */
-export function disconnectRuns(db: Database, nodeId: string, reason: string, now: number): number {
+function disconnectRuns(db: Database, nodeId: string, reason: string, now: number): number {
   const runs = db
     .query<RunRow, [string]>("SELECT * FROM runs WHERE node_id = ?")
     .all(nodeId)

@@ -13,7 +13,7 @@ import { fail } from "./errors.ts"
 import { insertEvent, hubEventKey, nextSeq } from "./events.ts"
 import type { CommandRow, NodeRow, RunRow } from "./schema.ts"
 
-export function toEnvelope(row: CommandRow): CommandEnvelope {
+function toEnvelope(row: CommandRow): CommandEnvelope {
   return {
     commandId: row.id,
     type: row.type as CommandType,
