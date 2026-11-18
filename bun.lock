@@ -10,34 +10,14 @@
         "typescript": "5.9.3",
       },
     },
-    "packages/runtime": {
-      "name": "@agenticform/runtime",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agentclientprotocol/sdk": "2.4.0",
-      },
-    },
-    "packages/protocol": {
-      "name": "@agenticform/protocol",
-      "version": "0.1.0",
-    },
-    "packages/hub": {
-      "name": "@agenticform/hub",
+    "packages/cli": {
+      "name": "@agenticform/cli",
       "version": "0.1.0",
       "bin": {
-        "agenticform-hub": "./bin/hub.ts",
+        "af": "./bin/af.ts",
       },
       "dependencies": {
-        "@agenticform/protocol": "workspace:*",
-      },
-    },
-    "packages/node": {
-      "name": "@agenticform/node",
-      "version": "0.1.0",
-      "bin": {
-        "agenticform-node": "./bin/node.ts",
-      },
-      "dependencies": {
+        "@agenticform/client": "workspace:*",
         "@agenticform/protocol": "workspace:*",
       },
     },
@@ -48,14 +28,13 @@
         "@agenticform/protocol": "workspace:*",
       },
     },
-    "packages/cli": {
-      "name": "@agenticform/cli",
+    "packages/hub": {
+      "name": "@agenticform/hub",
       "version": "0.1.0",
       "bin": {
-        "af": "./bin/af.ts",
+        "agenticform-hub": "./bin/hub.ts",
       },
       "dependencies": {
-        "@agenticform/client": "workspace:*",
         "@agenticform/protocol": "workspace:*",
       },
     },
@@ -69,23 +48,45 @@
         "@agenticform/client": "workspace:*",
       },
     },
+    "packages/node": {
+      "name": "@agenticform/node",
+      "version": "0.1.0",
+      "bin": {
+        "agenticform-node": "./bin/node.ts",
+      },
+      "dependencies": {
+        "@agenticform/protocol": "workspace:*",
+        "@agenticform/runtime": "workspace:*",
+      },
+    },
+    "packages/protocol": {
+      "name": "@agenticform/protocol",
+      "version": "0.1.0",
+    },
+    "packages/runtime": {
+      "name": "@agenticform/runtime",
+      "version": "0.1.0",
+      "dependencies": {
+        "@agentclientprotocol/sdk": "2.4.0",
+      },
+    },
   },
   "packages": {
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@2.4.0", "", { "peerDependencies": { "@modelcontextprotocol/server": "^2.4.0", "zod": "^3.25.76 || ^4.0.0" }, "optionalPeers": ["@modelcontextprotocol/server"] }, "sha512-7qJ8nnyj7WesC5ve185ioTpB2/svQoeGV4HA4nLEhgDUrcmBe54/08VcXc/oL4p14tDbxxECZzdYmUYQ+4l+Wg=="],
 
-    "@agenticform/runtime": ["@agenticform/runtime@workspace:packages/runtime"],
-
-    "@agenticform/protocol": ["@agenticform/protocol@workspace:packages/protocol"],
-
-    "@agenticform/hub": ["@agenticform/hub@workspace:packages/hub"],
-
-    "@agenticform/node": ["@agenticform/node@workspace:packages/node"],
+    "@agenticform/cli": ["@agenticform/cli@workspace:packages/cli"],
 
     "@agenticform/client": ["@agenticform/client@workspace:packages/client"],
 
-    "@agenticform/cli": ["@agenticform/cli@workspace:packages/cli"],
+    "@agenticform/hub": ["@agenticform/hub@workspace:packages/hub"],
 
     "@agenticform/mcp": ["@agenticform/mcp@workspace:packages/mcp"],
+
+    "@agenticform/node": ["@agenticform/node@workspace:packages/node"],
+
+    "@agenticform/protocol": ["@agenticform/protocol@workspace:packages/protocol"],
+
+    "@agenticform/runtime": ["@agenticform/runtime@workspace:packages/runtime"],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
