@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-05
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Seamless use of multiple harnesses and machines, packaged like a library that orchestrators, applications and agents can use. Target harnesses include Claude Code, Codex, OpenCode, Pi, omp, DeepSeek Harness, OpenClaw, Hermes and OpenBot."
 

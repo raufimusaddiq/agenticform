@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-18
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Remote execution: an outbound-only node daemon that runs the local `runtime`, and a hub that enrolls nodes, places runs, fences runtime identity, and exposes one HTTP API. Consume the invariants recorded in `docs/node-hub-invariants.md`."
 

@@ -390,8 +390,19 @@ describe("executor", () => {
     expect(events[0]?.key).toBe("cmd-1:1")
   })
 
-  test("refuses a payload generation that differs from the envelope", async () => {
+  test("fails a run whose working directory is missing, before the harness starts", async () => {
     let connected = 0
+    const executor = new Executor({ runtime: runtime(fakeDriver(() => (connected += 1))) })
+    const outcome = await executor.execute(
+      command({ payload: { ...command().payload, cwd: join(stateDir, "absent") } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    expect(outcome.status).toBe("failed")
+    expect(outcome.error?.code).toBe("workspace_missing")
+    expect(connected).toBe(0)
+  })
+
+  test("refuses a payload generation that differs from the envelope", async () => {    let connected = 0
     const executor = new Executor({ runtime: runtime(fakeDriver(() => (connected += 1))) })
     const outcome = await executor.execute(
       command({ payload: { ...command().payload, generation: 2 } }),

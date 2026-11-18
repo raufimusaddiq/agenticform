@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import type { RunEventInput, RuntimeInventoryEntry } from "@agenticform/protocol"
 import {
   createRuntime,
@@ -198,6 +199,14 @@ export class Executor {
     }
     if (typeof payload.prompt !== "string" || !payload.prompt) {
       return { status: "failed", error: { code: "invalid_input", message: "prompt is required" } }
+    }
+    // spec.md: a missing working directory fails the run before the harness
+    // starts, rather than letting the harness fail with an opaque error.
+    if (!existsSync(payload.cwd)) {
+      return {
+        status: "failed",
+        error: { code: "workspace_missing", message: `workspace is missing: ${payload.cwd}` },
+      }
     }
 
     // Re-entry for the same run: an equal or older generation is stale; a newer

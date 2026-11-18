@@ -95,7 +95,7 @@ in `docs/node-hub-invariants.md` gets a test task.
 
 ## Phase 8: Polish
 
-- [ ] T061 [P] Add an end-to-end example with a fake hub and fake agent under `packages/node/examples`
-- [ ] T062 Measure idle hub and node memory on the 1 CPU / 2 GB host and record the number in README
-- [ ] T063 Review every named error code against `contracts/http-api.md` and remove unused ones
-- [ ] T064 Amend `docs/architecture.md` and README package status after implementation lands
+- [x] T061 [P] Add an end-to-end example with a fake hub and fake agent under `packages/node/examples`
+- [x] T062 Measure idle hub and node memory on the 1 CPU / 2 GB host and record the number in README
+- [x] T063 Review every named error code against `contracts/http-api.md` and remove unused ones
+- [x] T064 Amend `docs/architecture.md` and README package status after implementation lands
