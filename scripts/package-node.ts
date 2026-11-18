@@ -12,14 +12,16 @@
  * The heartbeat target is a fake hub: it accepts the signed request without
  * verifying it, so the measurement is the node's own startup, not a database.
  */
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, relative } from "node:path"
+import { join, relative, sep } from "node:path"
 import { generateKeyPair, saveIdentity } from "../packages/node/src/identity.ts"
 
 const ROOT = join(import.meta.dir, "..")
 const WORKSPACE_PACKAGES = ["node", "protocol", "runtime"] as const
-const ALLOWED_TOP = new Set(["package.json", "bun.lock", "node_modules", "packages"])
+/** The only node_modules entries the node may ship: bun's store and its deps. */
+const ALLOWED_NODE_MODULES = new Set([".bun", "zod"])
+const ALLOWED_SCOPES = new Set(["@agenticform", "@agentclientprotocol"])
 
 interface Variant {
   name: "compiled" | "install"
@@ -33,25 +35,64 @@ const fail = (message: string): never => {
   process.exit(1)
 }
 
-/** Every file under `dir`, relative and sorted. */
-function listFiles(dir: string): string[] {
-  const files: string[] = []
-  const walk = (current: string): void => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = join(current, entry.name)
-      if (entry.isDirectory()) walk(path)
-      else if (entry.isFile()) files.push(relative(dir, path))
-    }
+/** Every entry under `dir`, relative and sorted. Symlinks are not followed. */
+function walkEntries(dir: string, base = dir): { path: string; isDirectory: boolean }[] {
+  const entries: { path: string; isDirectory: boolean }[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    entries.push({ path: relative(base, path).split(sep).join("/"), isDirectory: entry.isDirectory() })
+    if (entry.isDirectory()) entries.push(...walkEntries(path, base))
   }
-  walk(dir)
-  return files.sort()
+  return entries.sort((a, b) => a.path.localeCompare(b.path))
 }
 
 const sizeOf = (dir: string): number =>
-  listFiles(dir).reduce((total, file) => total + statSync(join(dir, file)).size, 0)
+  walkEntries(dir).reduce((total, entry) => {
+    if (entry.isDirectory) return total
+    try {
+      return total + statSync(join(dir, entry.path)).size
+    } catch {
+      return total
+    }
+  }, 0)
 
 const formatBytes = (bytes: number): string =>
   bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MiB` : `${(bytes / 1024).toFixed(0)} KiB`
+
+const allowedNodeModules = (name: string): boolean =>
+  ALLOWED_NODE_MODULES.has(name) || ALLOWED_SCOPES.has(name.split("/")[0] ?? "")
+
+/**
+ * The install tree may hold only the node, its workspace deps and their deps.
+ * Directories are allowed when something allowed lives under them, and the
+ * package trees are complete, so a stray test file fails the check.
+ */
+function allowedPath(path: string, isDirectory: boolean): boolean {
+  const parts = path.split("/")
+  if (path === "package.json") return !isDirectory
+  if (path === "packages" || path === "node_modules") return isDirectory
+  if (parts[0] === "packages") {
+    const name = parts[1]
+    if (name === undefined || !(WORKSPACE_PACKAGES as readonly string[]).includes(name)) return false
+    if (parts.length === 2) return isDirectory
+    if (parts[2] === "package.json") return parts.length === 3 && !isDirectory
+    if (parts[2] === "src" || parts[2] === "bin") return true
+    if (parts[2] === "node_modules") {
+      const rest = parts.slice(3)
+      if (rest.length === 0) return isDirectory
+      const pkg = rest[0]?.startsWith("@") ? `${rest[0]}/${rest[1]}` : rest[0]
+      return pkg !== undefined && allowedNodeModules(pkg)
+    }
+    return false
+  }
+  if (parts[0] === "node_modules") {
+    const rest = parts.slice(1)
+    if (rest.length === 0) return true
+    const pkg = rest[0]?.startsWith("@") ? `${rest[0]}/${rest[1]}` : rest[0]
+    return pkg !== undefined && allowedNodeModules(pkg)
+  }
+  return false
+}
 
 /** A hub that answers the node's first heartbeat and nothing else. */
 function fakeHub(): { url: string; firstHeartbeat: () => number | null; stop: () => void } {
@@ -130,10 +171,23 @@ async function buildCompiled(work: string): Promise<Variant> {
   const [stderr, code] = await Promise.all([new Response(build.stderr).text(), build.exited])
   if (code !== 0) fail(`bun build --compile failed: ${stderr.trim()}`)
 
-  const contents = listFiles(outDir)
-  if (contents.length !== 1) fail(`the compiled build has extra contents: ${contents.join(", ")}`)
+  const contents = walkEntries(outDir).map((entry) => entry.path)
+  if (contents.length !== 1 || contents[0] !== "agenticform-node") {
+    fail(`the compiled build has extra contents: ${contents.join(", ")}`)
+  }
   const startMs = await coldStart([binary, "run"], outDir, join(work, "compiled-state"))
   return { name: "compiled", contents, sizeBytes: sizeOf(outDir), startMs }
+}
+
+/** Copy only what the node needs to run: package.json, src and bin. */
+function copyPackage(name: string, dest: string): void {
+  const source = join(ROOT, "packages", name)
+  mkdirSync(dest, { recursive: true })
+  cpSync(join(source, "package.json"), join(dest, "package.json"))
+  for (const dir of ["src", "bin"]) {
+    const from = join(source, dir)
+    if (existsSync(from)) cpSync(from, join(dest, dir), { recursive: true })
+  }
 }
 
 async function buildInstall(work: string): Promise<Variant> {
@@ -152,9 +206,7 @@ async function buildInstall(work: string): Promise<Variant> {
       2,
     )}\n`,
   )
-  for (const name of WORKSPACE_PACKAGES) {
-    cpSync(join(ROOT, "packages", name), join(tree, "packages", name), { recursive: true })
-  }
+  for (const name of WORKSPACE_PACKAGES) copyPackage(name, join(tree, "packages", name))
   const install = Bun.spawn(["bun", "install", "--production"], {
     cwd: tree,
     stdout: "pipe",
@@ -163,12 +215,14 @@ async function buildInstall(work: string): Promise<Variant> {
   const [stderr, code] = await Promise.all([new Response(install.stderr).text(), install.exited])
   if (code !== 0) fail(`bun install --production failed: ${stderr.trim()}`)
 
-  const top = readdirSync(tree)
-  const extraTop = top.filter((entry) => !ALLOWED_TOP.has(entry))
-  if (extraTop.length > 0) fail(`the install tree has extra top-level entries: ${extraTop.join(", ")}`)
-  const packages = readdirSync(join(tree, "packages"))
-  const extraPackages = packages.filter((entry) => !(WORKSPACE_PACKAGES as readonly string[]).includes(entry))
-  if (extraPackages.length > 0) fail(`the install tree has extra packages: ${extraPackages.join(", ")}`)
+  const entries = walkEntries(tree)
+  const extra = entries
+    .filter((entry) => !allowedPath(entry.path, entry.isDirectory))
+    .map((entry) => entry.path)
+  if (extra.length > 0) {
+    const shown = extra.slice(0, 10).join(", ")
+    fail(`the install tree has extra contents: ${shown}${extra.length > 10 ? ` (+${extra.length - 10})` : ""}`)
+  }
 
   const startMs = await coldStart(
     ["bun", join(tree, "packages", "node", "bin", "node.ts"), "run"],
@@ -177,7 +231,7 @@ async function buildInstall(work: string): Promise<Variant> {
   )
   return {
     name: "install",
-    contents: [...top, ...packages.map((entry) => `packages/${entry}`)],
+    contents: entries.filter((entry) => !entry.isDirectory && !entry.path.includes("/")).map((entry) => entry.path),
     sizeBytes: sizeOf(tree),
     startMs,
   }

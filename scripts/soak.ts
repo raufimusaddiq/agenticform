@@ -44,12 +44,14 @@ interface Options {
   minutes: number | null
   restarts: number
   out: string
+  settleMs: number
 }
 
 interface Tracked {
   runId: string
   kind: Kind
   status: string
+  requestId: string | null
   answered: boolean
   unobserved: boolean
 }
@@ -61,17 +63,18 @@ interface RssSample {
   hubKb: number
 }
 
-const usage = `usage: bun scripts/soak.ts [--hours N] [--minutes N] [--restarts N] [--out FILE]
+const usage = `usage: bun scripts/soak.ts [--hours N] [--minutes N] [--restarts N] [--out FILE] [--settle-ms N]
 
-  --hours     duration in hours (default 4)
-  --minutes   duration in minutes; overrides --hours (smoke mode)
-  --restarts  node restarts during the run (default 3)
-  --out       result file (default soak-result.json)
+  --hours      duration in hours (default 4)
+  --minutes    duration in minutes; overrides --hours (smoke mode)
+  --restarts   node restarts during the run (default 3)
+  --out        result file (default soak-result.json)
+  --settle-ms  bound on the final wait for terminal runs (default 60000)
 
   AGENTICFORM_SOAK_HARNESS  use a real catalog harness instead of the fake agent`
 
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { hours: 4, minutes: null, restarts: 3, out: "soak-result.json" }
+  const options: Options = { hours: 4, minutes: null, restarts: 3, out: "soak-result.json", settleMs: 60_000 }
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index]
     const value = argv[index + 1]
@@ -79,7 +82,13 @@ function parseArgs(argv: readonly string[]): Options {
       console.log(usage)
       process.exit(0)
     }
-    if (flag === "--hours" || flag === "--minutes" || flag === "--restarts" || flag === "--out") {
+    if (
+      flag === "--hours" ||
+      flag === "--minutes" ||
+      flag === "--restarts" ||
+      flag === "--out" ||
+      flag === "--settle-ms"
+    ) {
       if (value === undefined) throw new Error(`${flag} needs a value`)
       index += 1
       if (flag === "--out") {
@@ -91,6 +100,7 @@ function parseArgs(argv: readonly string[]): Options {
       if (flag === "--hours") options.hours = number
       if (flag === "--minutes") options.minutes = number
       if (flag === "--restarts") options.restarts = Math.floor(number)
+      if (flag === "--settle-ms") options.settleMs = Math.floor(number)
       continue
     }
     throw new Error(`unknown argument: ${flag}\n\n${usage}`)
@@ -167,7 +177,10 @@ async function main(): Promise<number> {
   const startedAt = new Date()
   const start = Date.now()
   const deadline = start + durationMs
-  const warmupMs = Math.min(60_000, Math.max(5_000, Math.floor(durationMs / 10)))
+  // SC-005 compares the end with the first hour. A smoke run has no hour, so it
+  // keeps a short warm-up instead.
+  const baselineAfterMs =
+    options.minutes === null ? 3_600_000 : Math.min(60_000, Math.max(5_000, Math.floor(durationMs / 10)))
 
   const hub = Bun.spawn(["bun", join(root, "packages", "hub", "bin", "hub.ts")], {
     cwd: root,
@@ -183,7 +196,7 @@ async function main(): Promise<number> {
       AGENTICFORM_LEASE_SECONDS: "60",
     },
     stdout: "pipe",
-    stderr: "pipe",
+    stderr: "ignore",
   })
 
   let heartbeat: HeartbeatLoop | undefined
@@ -328,6 +341,7 @@ async function main(): Promise<number> {
       const until = Date.now() + timeoutMs
       let status = await runStatus(runId)
       while (!TERMINAL.has(status) && Date.now() < until) {
+        for (const group of childGroups(hub.pid)) groups.add(group)
         await sleep(100)
         status = await runStatus(runId)
       }
@@ -360,7 +374,20 @@ async function main(): Promise<number> {
         throw new Error(`submit failed: ${response.status} ${await response.text()}`)
       }
       const { runId } = (await response.json()) as { runId: string }
-      return { runId, kind, status: "queued", answered: false, unobserved: false }
+      return { runId, kind, status: "queued", requestId: null, answered: false, unobserved: false }
+    }
+
+    const permissionView = async (
+      runId: string,
+      requestId: string | null,
+    ): Promise<{ status: string; decision: string | null } | null> => {
+      if (requestId === null) return null
+      const response = await api("GET", `/v1/runs/${runId}/permissions`)
+      if (!response.ok) return null
+      const body = (await response.json()) as {
+        permissions: { requestId: string; status: string; decision: string | null }[]
+      }
+      return body.permissions.find((item) => item.requestId === requestId) ?? null
     }
 
     const act = async (item: Tracked): Promise<void> => {
@@ -382,6 +409,7 @@ async function main(): Promise<number> {
           await api("POST", `/v1/runs/${item.runId}/cancel`)
           return
         }
+        item.requestId = requestId
         const response = await api("POST", `/v1/runs/${item.runId}/permissions/${encodeURIComponent(requestId)}`, {
           decision: "allow",
         })
@@ -394,6 +422,39 @@ async function main(): Promise<number> {
         if (requestId === null) {
           item.unobserved = true
           await api("POST", `/v1/runs/${item.runId}/cancel`)
+          return
+        }
+        item.requestId = requestId
+      }
+    }
+
+    /** Every mix has one expected outcome; anything else is a failure (SC-005). */
+    const verify = async (item: Tracked): Promise<void> => {
+      if (item.unobserved) {
+        failures.push(`${item.kind} ${item.runId}: no permission request was observed`)
+        return
+      }
+      if (item.kind === "complete" && item.status !== "completed") {
+        failures.push(`complete ${item.runId}: ended ${item.status}`)
+      }
+      if (item.kind === "cancel" && item.status !== "cancelled") {
+        failures.push(`cancel ${item.runId}: ended ${item.status}`)
+      }
+      if (item.kind === "permission-allow") {
+        if (!item.answered) failures.push(`permission-allow ${item.runId}: the answer was not accepted`)
+        if (item.status !== "completed") failures.push(`permission-allow ${item.runId}: ended ${item.status}`)
+        const view = await permissionView(item.runId, item.requestId)
+        if (view?.decision !== "allow") {
+          failures.push(`permission-allow ${item.runId}: decision is ${view?.decision ?? "missing"}`)
+        }
+      }
+      if (item.kind === "permission-timeout") {
+        if (item.status !== "completed") failures.push(`permission-timeout ${item.runId}: ended ${item.status}`)
+        const view = await permissionView(item.runId, item.requestId)
+        if (view === null || (view.decision !== "deny" && view.status !== "timed_out")) {
+          failures.push(
+            `permission-timeout ${item.runId}: decision is ${view?.decision ?? "missing"} (${view?.status ?? "missing"})`,
+          )
         }
       }
     }
@@ -424,11 +485,12 @@ async function main(): Promise<number> {
     let nextSample = start
     let index = 0
 
-    // Harness children are short-lived, so the scan runs on its own clock
-    // rather than once per run.
+    // Harness children are short-lived, so the scan runs on its own clock and
+    // again on every terminal poll. A run that records no group at all fails
+    // below, so the check can never pass by never looking.
     const scanTimer = setInterval(() => {
       for (const group of childGroups(hub.pid)) groups.add(group)
-    }, 200)
+    }, 50)
 
     sample()
     nextSample = start + 60_000
@@ -449,23 +511,27 @@ async function main(): Promise<number> {
       tracked.push(item)
       await act(item)
       item.status = await waitTerminal(item.runId, 20_000)
+      await verify(item)
       await sleep(GAP_MS)
     }
     clearInterval(scanTimer)
 
     // Let the last runs settle before counting.
     for (const item of tracked) {
-      if (!TERMINAL.has(item.status)) item.status = await waitTerminal(item.runId, 60_000)
+      if (!TERMINAL.has(item.status)) item.status = await waitTerminal(item.runId, options.settleMs)
     }
     sample()
 
     const alive = [...groups].filter(groupAlive)
     const nonTerminal = tracked.filter((item) => !TERMINAL.has(item.status))
-    const baseline = samples.find((item) => item.elapsedMs >= warmupMs) ?? samples[0]
+    const baseline = samples.find((item) => item.elapsedMs >= baselineAfterMs) ?? samples.at(-1)
     const final = samples.at(-1) as RssSample
     const peakKb = Math.max(...samples.map((item) => item.nodeKb))
     const growthPct = baseline && baseline.nodeKb > 0 ? ((final.nodeKb - baseline.nodeKb) / baseline.nodeKb) * 100 : 0
 
+    if (tracked.length > 0 && groups.size === 0) {
+      failures.push("no harness process group was recorded; the orphan scan did not run")
+    }
     if (alive.length > 0) failures.push(`orphaned process groups: ${alive.join(", ")}`)
     if (nonTerminal.length > 0) {
       failures.push(`non-terminal runs: ${nonTerminal.map((item) => `${item.runId}=${item.status}`).join(", ")}`)
@@ -497,6 +563,8 @@ async function main(): Promise<number> {
       rss: {
         samples,
         baselineKb: baseline?.nodeKb ?? 0,
+        baselineAt: baseline?.at ?? null,
+        baselineElapsedMs: baseline?.elapsedMs ?? null,
         peakKb,
         finalKb: final.nodeKb,
         growthPct: Number(growthPct.toFixed(1)),
