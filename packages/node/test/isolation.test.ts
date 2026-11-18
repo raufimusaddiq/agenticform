@@ -289,7 +289,20 @@ describe("config directory", () => {
     ).toThrow(/absolute/)
     expect(() =>
       validateProfile("bad", { rw: ["~/.claude"], ro: [], env: { CLAUDE_CONFIG_DIR: "/home/agent/.other" } }),
-    ).toThrow(/state dir/)
+    ).toThrow(/rw state dir/)
+    // The match is unconditional: an absolute path outside the sandbox home is
+    // not a declared state entry either.
+    expect(() =>
+      validateProfile("bad", { rw: ["~/.claude"], ro: [], env: { CLAUDE_CONFIG_DIR: "/etc/claude" } }),
+    ).toThrow(/rw state dir/)
+    // A read-only state entry is not a config dir.
+    expect(() =>
+      validateProfile("bad", {
+        rw: ["~/.claude"],
+        ro: ["~/.config/claude"],
+        env: { CLAUDE_CONFIG_DIR: "/home/agent/.config/claude" },
+      }),
+    ).toThrow(/rw state dir/)
     // The argv builder refuses the harness, so no child starts.
     const bad = { bad: { rw: ["~/.claude"], ro: [], env: { CLAUDE_CONFIG_DIR: "/home/agent/.other" } } }
     expect(() =>
@@ -330,6 +343,19 @@ describe("config directory", () => {
     expect((error as IsolationError).code).toBe("state_dir_unusable")
   })
 
+  test("a dangling symlink at the config dir path is state_dir_unusable", () => {
+    const home = temp("af-home-")
+    symlinkSync(join(home, "absent-target"), join(home, ".claude"))
+    let error: unknown
+    try {
+      sandboxArgs(profileFor("claude"), "/tmp/ws", home, {})
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(IsolationError)
+    expect((error as IsolationError).code).toBe("state_dir_unusable")
+  })
+
   test("another rw state dir is not refused by the config-dir check", () => {
     const home = temp("af-home-")
     const dir = join(home, ".local", "share", "opencode")
@@ -341,6 +367,22 @@ describe("config directory", () => {
     } finally {
       chmodSync(dir, 0o700)
     }
+  })
+
+  test("a create failure on a non-config rw dir is not state_dir_unusable", () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".local", "share", "opencode")
+    mkdirSync(dirname(dir), { recursive: true })
+    writeFileSync(dir, "not a directory")
+    let error: unknown
+    try {
+      sandboxArgs(profileFor("opencode"), "/tmp/ws", home, {})
+    } catch (caught) {
+      error = caught
+    }
+    // Previous behaviour: the raw mkdir error, not a new fail-closed refusal.
+    expect(error).toBeDefined()
+    expect(error).not.toBeInstanceOf(IsolationError)
   })
 })
 

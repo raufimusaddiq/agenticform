@@ -61,18 +61,18 @@ const sandboxDest = (path: string): string =>
 
 /**
  * A profile `env` value is a fixed literal, never run input (FR-009a, FR-009c).
- * It must be absolute, and a value under the sandbox home must be the in-sandbox
- * path of a state entry the same profile declares. A profile that breaks either
- * rule is refused and no child starts.
+ * It must be absolute and must be the in-sandbox path of a `rw` state entry the
+ * same profile declares — anywhere, not only under the sandbox home. A profile
+ * that breaks either rule is refused and no child starts.
  */
 export function validateProfile(harness: string, entry: TableEntry | undefined): void {
-  const state = [...(entry?.rw ?? []), ...(entry?.ro ?? [])].map(sandboxDest)
+  const writable = new Set((entry?.rw ?? []).map(sandboxDest))
   for (const [name, value] of Object.entries(entry?.env ?? {})) {
     if (!isAbsolute(value)) {
       throw new Error(`profile ${harness}: env ${name} must be an absolute path: ${value}`)
     }
-    if (isUnder(value, SANDBOX_HOME) && !state.includes(value)) {
-      throw new Error(`profile ${harness}: env ${name} names no declared state dir: ${value}`)
+    if (!writable.has(value)) {
+      throw new Error(`profile ${harness}: env ${name} names no declared rw state dir: ${value}`)
     }
   }
 }
@@ -258,9 +258,9 @@ export function entryBinds(
 }
 
 /**
- * A missing state dir is created `0700`. Creation can fail in ways an errno
- * check would miss (a file or dangling symlink at the path, a parent the node
- * cannot write), so every failure is the same fail-closed error.
+ * Create the config directory `0700`. Only called for the dir a profile `env`
+ * value names, where every failure is fail-closed: an errno check would miss a
+ * file or dangling symlink at the path and a parent the node cannot write.
  */
 function ensureStateDir(path: string): void {
   try {
@@ -345,11 +345,14 @@ export function sandboxArgs(
       mode: entry.mode,
     }
   })
-  // The state dirs a profile `env` value names: the only ones whose usability
-  // is checked (FR-009b). `profileFor` guarantees a value matches a state entry;
-  // a caller-built profile may not, so an unmatched value checks nothing.
+  // The state dirs a profile `env` value names: the only ones whose creation and
+  // usability are checked (FR-009b). `profileFor` guarantees a value matches a
+  // rw state entry; a caller-built profile may not, so an unmatched value checks
+  // nothing.
   const envValues = new Set(Object.values(profile.env ?? {}))
-  const configDirs = new Set(stateBinds.filter((bind) => envValues.has(bind.dest)).map((bind) => bind.dest))
+  const configDirs = new Set(
+    stateBinds.filter((bind) => bind.mode === "rw" && envValues.has(bind.dest)).map((bind) => bind.dest),
+  )
   const args = [
     "--unshare-user",
     "--unshare-pid",
@@ -383,10 +386,15 @@ export function sandboxArgs(
       if (!existsSync(bind.source)) continue
       args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--ro-bind", bind.source, bind.dest)
     } else {
-      ensureStateDir(bind.source)
-      // FR-009b names the dir a profile `env` value points at, not every rw
-      // state dir: another dir keeps the previous create-and-continue behaviour.
-      if (configDirs.has(bind.dest)) assertStateDirUsable(bind.source)
+      // Only the dir a profile `env` value names is pre-checked: its creation
+      // and usability failures are `state_dir_unusable` (FR-009b). Another rw
+      // state dir keeps the previous create-and-continue behaviour.
+      if (configDirs.has(bind.dest)) {
+        ensureStateDir(bind.source)
+        assertStateDirUsable(bind.source)
+      } else {
+        mkdirSync(bind.source, { recursive: true, mode: 0o700 })
+      }
       args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--bind", bind.source, bind.dest)
     }
   }

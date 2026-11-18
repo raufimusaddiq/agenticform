@@ -69,8 +69,9 @@ checks that it is a directory the node user can read, write and traverse. An
 unusable directory is `unknown` with reason `state_dir_unusable`: the harness is
 not advertised and a run fails with `harness_unavailable`, because [CC] exits 0
 and silently starts with an empty config when its directory is unusable. Only
-the directory named by a profile `env` value is checked; another `rw` state
-directory is created and bound as before.
+the directory named by a profile `env` value is checked, and that value must
+name one of the profile's own writable state directories; another `rw` state
+directory is created and bound as before, with no new refusal.
 
 Operator migration, once, so the interactive harness and the sandboxed one read
 the same file:
