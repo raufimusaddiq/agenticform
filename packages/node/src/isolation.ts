@@ -125,7 +125,11 @@ export function sandboxArgs(
   workspace: string,
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
-  options: { remountRoot?: boolean | undefined; entryDirs?: readonly string[] | undefined } = {},
+  options: {
+    remountRoot?: boolean | undefined
+    entryDirs?: readonly string[] | undefined
+    entryFiles?: readonly string[] | undefined
+  } = {},
 ): string[] {
   const homeRoot = realpathOr(home)
   const workspaceRoot = realpathOr(workspace)
@@ -143,8 +147,7 @@ export function sandboxArgs(
   // The entry point is resolved before the sandbox is built (T031). Refuse a
   // directory that would expose the whole machine or the home (the same guard
   // as resolveWorkspace), and skip one already covered by the workspace or a
-  // state bind. A temp root is allowed as an entry dir because the probe
-  // workspace lives there; the workspace is re-bound after the entry binds.
+  // state bind.
   const entryDirs = [...new Set(options.entryDirs ?? [])].filter((dir) => {
     if (!isAbsolute(dir) || !existsSync(dir)) return false
     const resolved = realpathOr(dir)
@@ -154,13 +157,21 @@ export function sandboxArgs(
     if (isUnder(homeRoot, resolved)) {
       throw new IsolationError("entry_dir_unsafe", `entry directory is an ancestor of the home: ${dir}`)
     }
-    if (resolved !== workspaceRoot && isUnder(workspaceRoot, resolved) && !tempRoots.includes(resolved)) {
-      throw new IsolationError("entry_dir_unsafe", `entry directory is an ancestor of the workspace: ${dir}`)
-    }
     if (isUnder(resolved, workspaceRoot) || stateSources.some((source) => isUnder(resolved, source))) {
       return false
     }
     return true
+  })
+  // A temp root or an ancestor of the workspace must not be bound whole: that
+  // would expose every sibling (and break the private /tmp). Bind only the
+  // resolved entry file(s) for those dirs.
+  const unsafeDirs = entryDirs
+    .map(realpathOr)
+    .filter((dir) => tempRoots.includes(dir) || isUnder(workspaceRoot, dir))
+  const entryFiles = [...new Set(options.entryFiles ?? [])].filter((file) => {
+    if (!isAbsolute(file) || !existsSync(file)) return false
+    const resolved = realpathOr(file)
+    return unsafeDirs.some((dir) => isUnder(resolved, dir))
   })
   const args = [
     "--unshare-user",
@@ -201,9 +212,15 @@ export function sandboxArgs(
   }
   // Entry-point binds come after the private tmpfs mounts and the workspace and
   // state binds, so a resolved entry anywhere (including under /tmp, which the
-  // private tmpfs would otherwise shadow) is visible. Only the entry directory
-  // is exposed, read-only; the rest of /tmp stays private.
-  for (const dir of entryDirs) args.push("--ro-bind", dir, dir)
+  // private tmpfs would otherwise shadow) is visible. A safe entry directory is
+  // bound whole, read-only. A temp root or an ancestor of the workspace is not:
+  // only the resolved entry file(s) are bound, so siblings stay invisible and
+  // the private /tmp is preserved.
+  for (const dir of entryDirs) {
+    if (unsafeDirs.includes(realpathOr(dir))) continue
+    args.push("--ro-bind", dir, dir)
+  }
+  for (const file of entryFiles) args.push("--ro-bind", file, file)
   // An entry dir can be an ancestor of the workspace or a state dir (for
   // example a binary in /var/tmp with a probe workspace under /var/tmp).
   // Re-bind both after the entry binds so the read-only entry mount cannot
@@ -228,7 +245,7 @@ export function sandboxHarness(
   workspace: string,
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
-  options: { entryDirs?: readonly string[] | undefined } = {},
+  options: { entryDirs?: readonly string[] | undefined; entryFiles?: readonly string[] | undefined } = {},
 ): HarnessDefinition {
   return {
     ...definition,

@@ -235,7 +235,7 @@ describe.skipIf(!hasBwrap)("probe: real bwrap", () => {
 describe("probe classification", () => {
   const resolved = (definition: HarnessDefinition) => () => ({
     ok: true as const,
-    resolved: { definition, dirs: [] },
+    resolved: { definition, dirs: [], files: [] },
   })
 
   test("a spawn failure is missing/spawn_failed", async () => {
@@ -467,7 +467,7 @@ describe("non-ready runs", () => {
         harnesses: { fake: { id: "fake", profile: "coding", command: "/agent" } },
       }),
       harnessStatus: () => "ready",
-      harnessEntry: () => ({ definition: { id: "fake", profile: "coding", command: "/agent" }, dirs: ["/"] }),
+      harnessEntry: () => ({ definition: { id: "fake", profile: "coding", command: "/agent" }, dirs: ["/"], files: [] }),
     })
     const outcome = await executor.execute(command("fake", temp("af-ws-")), {
       emit: () => {},
@@ -566,7 +566,7 @@ describe("non-ready runs", () => {
         harnesses: { fake: { id: "fake", profile: "coding", command: "/unresolvable" } },
       }),
       harnessStatus: () => "ready",
-      harnessEntry: () => ({ definition: { id: "fake", profile: "coding", command: "/unresolvable" }, dirs: [dir] }),
+      harnessEntry: () => ({ definition: { id: "fake", profile: "coding", command: "/unresolvable" }, dirs: [dir], files: [] }),
     })
     const outcome = await executor.execute(command("fake", temp("af-ws-")), {
       emit: () => {},

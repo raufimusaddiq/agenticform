@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { createRuntime, type RunEvent } from "@agenticform/runtime"
+import { resolveHarness } from "../src/harness-probe.ts"
 import {
   IsolationError,
   profileFor,
@@ -262,18 +263,20 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       const home = temp("af-home-", "/tmp")
       const resolved = resolveWorkspace(workspace, home)
       const inside = join(workspace, "inside.txt")
+      const resolution = resolveHarness({
+        id: "fake",
+        profile: "coding",
+        command: entry,
+        args: [JSON.stringify({ scenario: "writes", writes: [inside] })],
+      })
+      if (!resolution.ok) throw new Error("entry did not resolve")
       const definition = sandboxHarness(
-        {
-          id: "fake",
-          profile: "coding",
-          command: entry,
-          args: [JSON.stringify({ scenario: "writes", writes: [inside] })],
-        },
+        resolution.resolved.definition,
         profileFor("fake"),
         resolved,
         home,
         process.env,
-        { entryDirs: [entryDir, bunDir] },
+        { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
       )
       const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
       const result = await run.result()
@@ -282,6 +285,44 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       rmSync(entry, { force: true })
     }
   })
+
+  for (const root of ["/tmp", "/var/tmp"]) {
+    test(`a sibling in ${root} is not visible when the entry is directly in ${root}`, async () => {
+      const entry = join(root, `af-entry-${randomUUID()}.ts`)
+      const sibling = join(root, `af-sibling-${randomUUID()}`)
+      writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+      writeFileSync(sibling, "secret")
+      try {
+        const workspace = temp("af-ws-")
+        // Keep the home off the entry's temp root so the home guard does not
+        // refuse the entry dir before the file-only bind is exercised.
+        const home = temp("af-home-", root === "/tmp" ? "/var/tmp" : "/tmp")
+        const resolved = resolveWorkspace(workspace, home)
+        const resolution = resolveHarness({
+          id: "fake",
+          profile: "coding",
+          command: entry,
+          args: [JSON.stringify({ scenario: "writes", reads: [sibling] })],
+        })
+        if (!resolution.ok) throw new Error("entry did not resolve")
+        const definition = sandboxHarness(
+          resolution.resolved.definition,
+          profileFor("fake"),
+          resolved,
+          home,
+          process.env,
+          { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+        )
+        const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+        const result = await run.result()
+        expect(result.status).toBe("completed")
+        expect(result.text).toBe(`read:${sibling}=ENOENT`)
+      } finally {
+        rmSync(entry, { force: true })
+        rmSync(sibling, { force: true })
+      }
+    })
+  }
 
   test("a symlinked workspace binds its target and the target's parent stays read-only", async () => {
     const root = temp("af-link-")

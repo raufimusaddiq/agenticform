@@ -356,7 +356,7 @@ export class Executor {
         workspace,
         undefined,
         undefined,
-        { entryDirs: resolved.dirs },
+        { entryDirs: resolved.dirs, entryFiles: resolved.files },
       )
     } catch (error) {
       if (error instanceof IsolationError && error.code === "entry_dir_unsafe") {

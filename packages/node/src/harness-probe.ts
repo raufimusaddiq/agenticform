@@ -16,6 +16,8 @@ export interface ResolvedHarness {
   definition: HarnessDefinition
   /** Absolute directories to bind read-only and put on the sandbox PATH. */
   dirs: string[]
+  /** The entry file and its interpreter, for a dir that must not be bound whole. */
+  files: string[]
 }
 
 export type HarnessResolution =
@@ -95,14 +97,18 @@ function resolveDirect(definition: HarnessDefinition, options: ResolveOptions): 
     return missing("not_installed")
   }
   const dirs = [dirname(found), dirname(real)]
+  const files = [found, real]
   const interpreter = interpreterOf(real)
   if (interpreter) {
     const resolved = findOnPath(interpreter, path)
     if (resolved) {
       try {
-        dirs.push(dirname(realpathSync(resolved)))
+        const realInterpreter = realpathSync(resolved)
+        dirs.push(dirname(realInterpreter))
+        files.push(resolved, realInterpreter)
       } catch {
         dirs.push(dirname(resolved))
+        files.push(resolved)
       }
     }
   }
@@ -111,6 +117,7 @@ function resolveDirect(definition: HarnessDefinition, options: ResolveOptions): 
     resolved: {
       definition: { ...definition, command: found, args: [...(definition.args ?? [])] },
       dirs: unique(dirs),
+      files: unique(files),
     },
   }
 }
@@ -166,15 +173,17 @@ function resolveBunx(definition: HarnessDefinition, options: ResolveOptions): Ha
   } catch {
     // Keep the path we found.
   }
+  const script = join(packageDir, bin)
   return {
     ok: true,
     resolved: {
       definition: {
         ...definition,
         command: bunReal,
-        args: [join(packageDir, bin), ...(definition.args ?? []).slice(1)],
+        args: [script, ...(definition.args ?? []).slice(1)],
       },
       dirs: unique([dirname(bunReal), join(root, "node_modules")]),
+      files: unique([bunReal, script]),
     },
   }
 }
@@ -247,7 +256,7 @@ export async function probeHarness(definition: HarnessDefinition, options: Probe
       workspace,
       options.home ?? homedir(),
       options.env ?? process.env,
-      { entryDirs: resolution.resolved.dirs },
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
     )
     const connection = await bounded(
       driver.connect(
