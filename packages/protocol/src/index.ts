@@ -76,6 +76,7 @@ export const HARNESS_REPORT_REASONS = [
   "process_exited",
   "protocol_unsupported",
   "capability_missing",
+  "state_dir_unusable",
   "agent_error",
 ] as const
 

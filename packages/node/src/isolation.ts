@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import type { HarnessDefinition } from "@agenticform/runtime"
@@ -13,22 +13,29 @@ export type WorkspaceMode = "write" | "read-only"
 export type StateMode = "rw" | "ro"
 
 export interface IsolationProfile {
-  version: 1
+  version: 2
   workspace: WorkspaceMode
   state: { path: string; mode: StateMode }[]
   env?: Record<string, string>
 }
 
-export const PROFILE_VERSION = 1
+export const PROFILE_VERSION = 2 as const
 export const SANDBOX_HOME = "/home/agent"
 export const SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
 
 const SYSTEM_PATHS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/etc", "/run"]
 const COPIED_ENV = ["TERM", "LANG", "LC_ALL", "TZ"]
 
+export interface TableEntry {
+  rw: readonly string[]
+  ro: readonly string[]
+  /** Fixed literals; a path value must be the in-sandbox path of a state entry. */
+  env?: Readonly<Record<string, string>>
+}
+
 /** Verified mount table (T023); evidence in specs/003-harness-isolation/research.md. */
-const TABLE: Readonly<Record<string, { rw: readonly string[]; ro: readonly string[] }>> = {
-  claude: { rw: ["~/.claude"], ro: [] },
+const TABLE: Readonly<Record<string, TableEntry>> = {
+  claude: { rw: ["~/.claude"], ro: [], env: { CLAUDE_CONFIG_DIR: "/home/agent/.claude" } },
   codex: { rw: ["~/.codex"], ro: [] },
   opencode: { rw: ["~/.local/share/opencode"], ro: ["~/.config/opencode"] },
   omp: { rw: ["~/.omp"], ro: [] },
@@ -40,7 +47,7 @@ const TABLE: Readonly<Record<string, { rw: readonly string[]; ro: readonly strin
 
 export class IsolationError extends Error {
   constructor(
-    readonly code: "workspace_missing" | "isolation_unavailable",
+    readonly code: "workspace_missing" | "isolation_unavailable" | "state_dir_unusable",
     message: string,
   ) {
     super(message)
@@ -48,9 +55,36 @@ export class IsolationError extends Error {
   }
 }
 
+/** The in-sandbox path a state entry is bound at (contracts/isolation.md §2). */
+const sandboxDest = (path: string): string =>
+  path.startsWith("~/") ? join(SANDBOX_HOME, path.slice(1)) : path
+
+/**
+ * A profile `env` value is a fixed literal, never run input (FR-009a, FR-009c).
+ * It must be absolute, and a value under the sandbox home must be the in-sandbox
+ * path of a state entry the same profile declares. A profile that breaks either
+ * rule is refused and no child starts.
+ */
+export function validateProfile(harness: string, entry: TableEntry | undefined): void {
+  const state = [...(entry?.rw ?? []), ...(entry?.ro ?? [])].map(sandboxDest)
+  for (const [name, value] of Object.entries(entry?.env ?? {})) {
+    if (!isAbsolute(value)) {
+      throw new Error(`profile ${harness}: env ${name} must be an absolute path: ${value}`)
+    }
+    if (isUnder(value, SANDBOX_HOME) && !state.includes(value)) {
+      throw new Error(`profile ${harness}: env ${name} names no declared state dir: ${value}`)
+    }
+  }
+}
+
 /** The profile for a harness id; an unknown harness gets an empty profile (FR-010). */
-export function profileFor(harness: string, workspace: WorkspaceMode = "write"): IsolationProfile {
-  const entry = TABLE[harness]
+export function profileFor(
+  harness: string,
+  workspace: WorkspaceMode = "write",
+  table: Readonly<Record<string, TableEntry>> = TABLE,
+): IsolationProfile {
+  const entry = table[harness]
+  validateProfile(harness, entry)
   return {
     version: PROFILE_VERSION,
     workspace,
@@ -60,6 +94,7 @@ export function profileFor(harness: string, workspace: WorkspaceMode = "write"):
           ...entry.ro.map((path) => ({ path, mode: "ro" as const })),
         ]
       : [],
+    ...(entry?.env ? { env: { ...entry.env } } : {}),
   }
 }
 
@@ -88,6 +123,10 @@ export function resolveWorkspace(cwd: string, home: string = homedir()): string 
 }
 
 const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`)
+
+// The table is validated once at load: a bad `env` value is a startup error,
+// not a run-time surprise (FR-009a).
+for (const [id, entry] of Object.entries(TABLE)) validateProfile(id, entry)
 
 const realpathOr = (path: string): string => {
   try {
@@ -218,6 +257,29 @@ export function entryBinds(
   }
 }
 
+/**
+ * A missing state dir is created `0700`; an existing one must be a directory the
+ * node user can read and write. Claude Code silently starts with an empty config
+ * when its config dir is unusable, so the node pre-checks instead of trusting the
+ * harness exit status (FR-009b, SC-007).
+ */
+export function assertStateDirUsable(path: string): void {
+  let stats
+  try {
+    stats = statSync(path)
+  } catch {
+    throw new IsolationError("state_dir_unusable", `state dir is missing: ${path}`)
+  }
+  if (!stats.isDirectory()) {
+    throw new IsolationError("state_dir_unusable", `state dir is not a directory: ${path}`)
+  }
+  try {
+    accessSync(path, constants.R_OK | constants.W_OK | constants.X_OK)
+  } catch {
+    throw new IsolationError("state_dir_unusable", `state dir is not readable and writable: ${path}`)
+  }
+}
+
 /** `--dir` for each ancestor the sandbox root does not already provide. */
 function dirArgs(dest: string, root: string): string[] {
   const rel = relative(root, dest)
@@ -302,6 +364,7 @@ export function sandboxArgs(
       args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--ro-bind", bind.source, bind.dest)
     } else {
       mkdirSync(bind.source, { recursive: true, mode: 0o700 })
+      assertStateDirUsable(bind.source)
       args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--bind", bind.source, bind.dest)
     }
   }

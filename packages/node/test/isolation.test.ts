@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
@@ -15,6 +15,7 @@ import {
   resetStartupSelfTest,
   selfTest,
   startupSelfTest,
+  validateProfile,
   type IsolationProfile,
   type WorkspaceMode,
 } from "../src/isolation.ts"
@@ -114,7 +115,7 @@ describe("isolation argv", () => {
   test("a read-write state path is created 0700 and an absent read-only path is skipped", () => {
     const home = temp("af-home-")
     const profile: IsolationProfile = {
-      version: 1,
+      version: 2,
       workspace: "write",
       state: [
         { path: "~/.newstate", mode: "rw" },
@@ -248,6 +249,72 @@ describe("isolation argv", () => {
     expect(() => resolveWorkspace("/", home)).toThrow()
     expect(() => resolveWorkspace(home, home)).toThrow()
     expect(() => resolveWorkspace(join(home, "absent"), home)).toThrow()
+  })
+})
+
+const isRoot = typeof process.getuid === "function" && process.getuid() === 0
+
+describe("config directory", () => {
+  test("two consecutive claude runs share .claude.json", async () => {
+    const home = temp("af-home-")
+    const workspace = temp("af-ws-")
+    const first = {
+      hasCompletedOnboarding: true,
+      projects: { [workspace]: { hasTrustDialogAccepted: true } },
+      mcpServers: { sentinel: { command: "sentinel" } },
+    }
+    const one = await runFake("claude", { scenario: "config", config: first }, { workspace, home })
+    expect(one.result.status).toBe("completed")
+    const two = await runFake("claude", { scenario: "config", config: { lastCost: 1 } }, { workspace, home })
+    const seen = JSON.parse(two.result.text) as { dir: string; config: Record<string, unknown> }
+    expect(seen.dir).toBe("/home/agent/.claude")
+    expect(seen.config).toMatchObject(first)
+    expect(seen.config.lastCost).toBe(1)
+  })
+
+  test(".claude.json lives inside the bound state dir and no file bind is used", async () => {
+    const home = temp("af-home-")
+    const workspace = temp("af-ws-")
+    await runFake("claude", { scenario: "config", config: { a: 1 } }, { workspace, home })
+    expect(existsSync(join(home, ".claude", ".claude.json"))).toBe(true)
+    expect(existsSync(join(home, ".claude.json"))).toBe(false)
+    const args = sandboxArgs(profileFor("claude"), workspace, home, {})
+    expect(args[args.indexOf("CLAUDE_CONFIG_DIR") + 1]).toBe("/home/agent/.claude")
+    expect(args).not.toContain(join(home, ".claude.json"))
+  })
+
+  test("a relative or unmatched env value is rejected at table load", () => {
+    expect(() =>
+      validateProfile("bad", { rw: ["~/.claude"], ro: [], env: { CLAUDE_CONFIG_DIR: "relative/cfg" } }),
+    ).toThrow(/absolute/)
+    expect(() =>
+      validateProfile("bad", { rw: ["~/.claude"], ro: [], env: { CLAUDE_CONFIG_DIR: "/home/agent/.other" } }),
+    ).toThrow(/state dir/)
+    // The argv builder refuses the harness, so no child starts.
+    const bad = { bad: { rw: ["~/.claude"], ro: [], env: { CLAUDE_CONFIG_DIR: "/home/agent/.other" } } }
+    expect(() =>
+      sandboxHarness(
+        { id: "bad", profile: "coding", command: process.execPath },
+        profileFor("bad", "write", bad),
+        "/tmp/ws",
+        temp("af-home-"),
+      ),
+    ).toThrow()
+    expect(() =>
+      validateProfile("claude", { rw: ["~/.claude"], ro: [], env: { CLAUDE_CONFIG_DIR: "/home/agent/.claude" } }),
+    ).not.toThrow()
+  })
+
+  test.skipIf(isRoot)("a missing dir is created 0700; a mode 000 dir is state_dir_unusable", () => {
+    const home = temp("af-home-")
+    sandboxArgs(profileFor("claude"), "/tmp/ws", home, {})
+    expect(statSync(join(home, ".claude")).mode & 0o777).toBe(0o700)
+    chmodSync(join(home, ".claude"), 0o000)
+    try {
+      expect(() => sandboxArgs(profileFor("claude"), "/tmp/ws", home, {})).toThrow(IsolationError)
+    } finally {
+      chmodSync(join(home, ".claude"), 0o700)
+    }
   })
 })
 

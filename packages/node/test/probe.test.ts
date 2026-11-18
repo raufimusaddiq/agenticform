@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { CommandEnvelope, HarnessStatus, HeartbeatRequest } from "@agenticform/protocol"
@@ -861,6 +861,45 @@ describe("non-ready runs", () => {
     expect(outcome.status).toBe("succeeded")
     expect(probes).toBe(1)
     expect(captured?.args).toContain(a2)
+  })
+})
+
+describe("config directory", () => {
+  const isRoot = typeof process.getuid === "function" && process.getuid() === 0
+
+  test.skipIf(isRoot)("an unusable config dir is unknown/state_dir_unusable and no child starts", async () => {
+    const home = temp("af-home-")
+    mkdirSync(join(home, ".claude"), { recursive: true })
+    chmodSync(join(home, ".claude"), 0o000)
+    try {
+      const report = await probeHarness(
+        { id: "claude", profile: "coding", command: process.execPath },
+        { timeoutMs: 1_000, home },
+      )
+      expect(report).toEqual({ id: "claude", status: "unknown", reason: "state_dir_unusable" })
+
+      let connected = 0
+      const executor = new Executor({
+        isolation: SANDBOX,
+        home,
+        runtime: createRuntime({
+          driver: fakeDriver(() => (connected += 1)),
+          harnesses: { claude: { id: "claude", profile: "coding", command: process.execPath } },
+        }),
+        harnessStatus: () => "ready",
+      })
+      const outcome = await executor.execute(command("claude", temp("af-ws-")), {
+        emit: () => {},
+        signal: new AbortController().signal,
+      })
+      expect(outcome).toEqual({
+        status: "failed",
+        error: { code: "harness_unavailable", message: "Harness is unavailable: claude" },
+      })
+      expect(connected).toBe(0)
+    } finally {
+      chmodSync(join(home, ".claude"), 0o700)
+    }
   })
 })
 

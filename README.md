@@ -122,6 +122,25 @@ state directory, wait two seconds after it reports ready, then read `VmRSS` from
 `/proc/<pid>/status`. The node is higher because it loads `runtime` and the ACP
 driver. These are idle figures; a run adds the harness process.
 
+## Claude Code config directory
+
+The node runs `claude` with `CLAUDE_CONFIG_DIR=/home/agent/.claude` inside the
+sandbox, so `.claude.json` and `.credentials.json` live in the bound `~/.claude`
+directory instead of the home root. The value is a fixed catalog constant, never
+run input or the node's environment.
+
+To make your interactive `claude` read the same file, migrate once:
+
+1. Stop any running `claude`.
+2. `mv ~/.claude.json ~/.claude/.claude.json` (keep a copy if unsure).
+3. `export CLAUDE_CONFIG_DIR=~/.claude` in your shell profile.
+
+Skipping it does not break runs; the two harnesses then keep separate files and
+trust and MCP edits stop crossing over. A config directory the node cannot read
+and write is reported as `state_dir_unusable` and a run for `claude` fails with
+`harness_unavailable` before any child starts. Linux only: on macOS credentials
+stay in the keychain and the config directory is not claimed to carry them.
+
 ## Isolation cost
 
 Measured 2026-11-18 on a 2 vCPU / 7.6 GB host, pinned to one CPU with `taskset`,

@@ -354,21 +354,21 @@ describe("isolation report", () => {
     hub = startHub()
     const node = await enroll(hub)
     const response = await heartbeat(hub, node, {
-      isolation: { mode: "bwrap", profile: "1", selfTest: "pass" },
+      isolation: { mode: "bwrap", profile: "2", selfTest: "pass" },
     })
     expect(response.status).toBe(200)
     const view = await fetch(`${hub.url}/v1/nodes`, {
       headers: { authorization: `Bearer ${hub.config.adminToken}` },
     })
     const body = (await view.json()) as { nodes: { isolation?: unknown }[] }
-    expect(body.nodes[0]?.isolation).toEqual({ mode: "bwrap", profile: "1", selfTest: "pass" })
+    expect(body.nodes[0]?.isolation).toEqual({ mode: "bwrap", profile: "2", selfTest: "pass" })
   })
 
   test("an unknown mode is rejected", async () => {
     hub = startHub()
     const node = await enroll(hub)
     const response = await heartbeat(hub, node, {
-      isolation: { mode: "chroot", profile: "1", selfTest: "pass" },
+      isolation: { mode: "chroot", profile: "2", selfTest: "pass" },
     })
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe("invalid_input")
@@ -390,7 +390,7 @@ describe("isolation report", () => {
     hub = startHub()
     const node = await enroll(hub)
     const response = await heartbeat(hub, node, {
-      isolation: { mode: "bwrap", profile: "1", selfTest: "fail" },
+      isolation: { mode: "bwrap", profile: "2", selfTest: "fail" },
     })
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe("invalid_input")
@@ -400,7 +400,7 @@ describe("isolation report", () => {
     hub = startHub()
     const node = await enroll(hub)
     const response = await heartbeat(hub, node, {
-      isolation: { mode: "none", profile: "1", selfTest: "pass" },
+      isolation: { mode: "none", profile: "2", selfTest: "pass" },
     })
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe("invalid_input")
@@ -411,7 +411,7 @@ describe("isolation report", () => {
     const node = await enroll(hub)
     const response = await heartbeat(hub, node, {
       harnesses: ["codex"],
-      isolation: { mode: "none", profile: "1", selfTest: "fail" },
+      isolation: { mode: "none", profile: "2", selfTest: "fail" },
     })
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe("invalid_input")
@@ -423,7 +423,7 @@ describe("isolation report", () => {
     const response = await heartbeat(hub, node, {
       harnesses: [],
       harnessReport: [{ id: "codex", status: "ready" }],
-      isolation: { mode: "none", profile: "1", selfTest: "fail" },
+      isolation: { mode: "none", profile: "2", selfTest: "fail" },
     })
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe("invalid_input")
@@ -435,7 +435,7 @@ describe("isolation report", () => {
     const response = await heartbeat(hub, node, {
       harnesses: [],
       harnessReport: [{ id: "codex", status: "unknown", reason: "spawn_failed" }],
-      isolation: { mode: "none", profile: "1", selfTest: "fail" },
+      isolation: { mode: "none", profile: "2", selfTest: "fail" },
     })
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe("invalid_input")
@@ -446,7 +446,7 @@ describe("isolation report", () => {
     const node = await enroll(hub)
     const response = await heartbeat(hub, node, {
       harnesses: [],
-      isolation: { mode: "none", profile: "1", selfTest: "fail" },
+      isolation: { mode: "none", profile: "2", selfTest: "fail" },
     })
     expect(response.status).toBe(200)
   })

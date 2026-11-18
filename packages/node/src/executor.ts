@@ -433,14 +433,27 @@ export class Executor {
     // dirs degrade to file-only binds, so the argv builder does not throw.
     // Home and env come from the same source as the prober, so state binds and
     // entry resolution agree.
-    const sandboxed = sandboxHarness(
-      resolved.definition,
-      profileFor(payload.harness),
-      workspace,
-      this.home,
-      this.env,
-      { entryDirs: resolved.dirs, entryFiles: resolved.files },
-    )
+    let sandboxed: ReturnType<typeof sandboxHarness>
+    try {
+      sandboxed = sandboxHarness(
+        resolved.definition,
+        profileFor(payload.harness),
+        workspace,
+        this.home,
+        this.env,
+        { entryDirs: resolved.dirs, entryFiles: resolved.files },
+      )
+    } catch (error) {
+      // FR-009b: an unusable config dir is `harness_unavailable`, and no child
+      // starts. The probe reports the same reason as `unknown`.
+      if (error instanceof IsolationError && error.code === "state_dir_unusable") {
+        return {
+          status: "failed",
+          error: { code: "harness_unavailable", message: `Harness is unavailable: ${payload.harness}` },
+        }
+      }
+      throw error
+    }
     const run = this.runtime.run({
       harness: sandboxed,
       cwd: workspace,
