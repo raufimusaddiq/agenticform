@@ -201,6 +201,8 @@ export interface RunRequest {
   labels?: Record<string, string>
   /** Recovery needs a GIT-backed workspace. Defaults to true. */
   gitBacked?: boolean
+  /** The run that started this one. Depth is parent.depth + 1. */
+  parentRunId?: string
 }
 
 export type RunStatus =
@@ -221,6 +223,8 @@ export interface RunView {
   result?: unknown
   error?: { code: string; message: string } | null
   lastSeq?: number
+  parentRunId: string | null
+  depth: number
 }
 
 /** A caller token as listed. The secret is never part of a view (FR-004). */

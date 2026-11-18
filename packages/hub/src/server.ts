@@ -207,7 +207,7 @@ export function createHub(config: HubConfig): Hub {
         return json(setNodeStatus(db, nodeId as string, action === "disable" ? "disabled" : "revoked"))
       }
       if (request.method === "POST" && path === "/v1/runs") {
-        const result = createRun(db, await readJson<RunRequest>(request, config.maxBodyBytes))
+        const result = createRun(db, await readJson<RunRequest>(request, config.maxBodyBytes), config)
         return json(runView(db, result.run), result.created ? 201 : 200)
       }
       const runAction = /^\/v1\/runs\/([^/]+)(?:\/(events|cancel|recover))?$/.exec(path)
