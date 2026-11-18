@@ -41,6 +41,34 @@
         "@agenticform/protocol": "workspace:*",
       },
     },
+    "packages/client": {
+      "name": "@agenticform/client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@agenticform/protocol": "workspace:*",
+      },
+    },
+    "packages/cli": {
+      "name": "@agenticform/cli",
+      "version": "0.1.0",
+      "bin": {
+        "af": "./bin/af.ts",
+      },
+      "dependencies": {
+        "@agenticform/client": "workspace:*",
+        "@agenticform/protocol": "workspace:*",
+      },
+    },
+    "packages/mcp": {
+      "name": "@agenticform/mcp",
+      "version": "0.1.0",
+      "bin": {
+        "agenticform-mcp": "./bin/mcp.ts",
+      },
+      "dependencies": {
+        "@agenticform/client": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@2.4.0", "", { "peerDependencies": { "@modelcontextprotocol/server": "^2.4.0", "zod": "^3.25.76 || ^4.0.0" }, "optionalPeers": ["@modelcontextprotocol/server"] }, "sha512-7qJ8nnyj7WesC5ve185ioTpB2/svQoeGV4HA4nLEhgDUrcmBe54/08VcXc/oL4p14tDbxxECZzdYmUYQ+4l+Wg=="],
@@ -52,6 +80,12 @@
     "@agenticform/hub": ["@agenticform/hub@workspace:packages/hub"],
 
     "@agenticform/node": ["@agenticform/node@workspace:packages/node"],
+
+    "@agenticform/client": ["@agenticform/client@workspace:packages/client"],
+
+    "@agenticform/cli": ["@agenticform/cli@workspace:packages/cli"],
+
+    "@agenticform/mcp": ["@agenticform/mcp@workspace:packages/mcp"],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

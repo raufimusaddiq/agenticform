@@ -44,14 +44,24 @@ bun packages/runtime/examples/run.ts codex . "Summarise this repository"
 | `runtime` | Local runs, ACP driver, events, capabilities | Available |
 | `node` | Daemon on each machine, isolation, recovery | Planned |
 | `hub` | Connection point, placement, fencing, HTTP API | Planned |
-| `client` | TypeScript SDK for the HTTP API | Planned |
-| CLI, MCP | Thin clients of the HTTP API | Planned |
+| `client` | TypeScript SDK for the HTTP API | Available |
+| CLI, MCP | Thin clients of the HTTP API | Available |
 
 ## Hub configuration
 
 The hub reads its configuration from the environment and refuses to start on unsafe values: the admin token must be at least 32 characters, and a non-local public URL must be HTTPS and a clean origin.
 
 The hub also serves a small operator UI at `/` from the same origin. It asks for the admin token in the browser, keeps it in `sessionStorage`, and sends it only in the `Authorization` header; the token never appears in a URL, the page, or a log.
+
+The CLI (`af`) and the MCP server (`agenticform-mcp`) are thin clients of the same API. Both read `AGENTICFORM_HUB_URL` and `AGENTICFORM_ADMIN_TOKEN` from the environment and never accept the token as an argument.
+
+```bash
+af nodes
+af run start --key job-1 --harness codex --prompt "Fix the failing tests"
+af run get <runId>
+af run events <runId> --follow
+af run cancel <runId>
+```
 
 | Variable | Default | Purpose |
 |---|---|---|
