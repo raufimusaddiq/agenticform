@@ -434,11 +434,13 @@ describe("poller", () => {
     await done
     expect(attempts).toBe(3)
     expect(
-      errors.some((error) => error instanceof Error && error.message === "completion still pending after retries"),
-    ).toBe(true)
+      errors.filter(
+        (error) => error instanceof Error && error.message === "completion still pending after retries",
+      ),
+    ).toHaveLength(1)
   })
 
-  test("serialises run.start when slots is one", async () => {
+  test("reserves a slot before leasing and polls only non-start commands when full", async () => {
     let concurrent = 0
     let maxConcurrent = 0
     const driver: RuntimeDriver = {
@@ -449,7 +451,7 @@ describe("poller", () => {
           async prompt() {
             concurrent += 1
             maxConcurrent = Math.max(maxConcurrent, concurrent)
-            await Bun.sleep(20)
+            await Bun.sleep(30)
             concurrent -= 1
             return { stopReason: "end_turn" }
           },
@@ -468,9 +470,12 @@ describe("poller", () => {
     ]
     let index = 0
     let completed = 0
+    const polls: (readonly string[] | undefined)[] = []
     const done = new Promise<void>((resolve) => {
       const client = {
-        async nextCommand() {
+        async nextCommand(types?: readonly string[]) {
+          polls.push(types)
+          if (types && types.length > 0) return null
           return commands[index++] ?? null
         },
         async appendEvents(_commandId: string, batch: { events: RunEventInput[] }) {
@@ -496,5 +501,7 @@ describe("poller", () => {
     await done
     expect(maxConcurrent).toBe(1)
     expect(completed).toBe(2)
+    expect(polls.some((types) => types?.includes("run.cancel"))).toBe(true)
+    expect(polls.filter((types) => types === undefined).length).toBeGreaterThanOrEqual(2)
   })
 })

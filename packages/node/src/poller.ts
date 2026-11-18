@@ -19,10 +19,12 @@ export interface Poller {
 
 /**
  * Pulls commands and runs them concurrently, so a `run.cancel` can be leased
- * while a `run.start` is still executing. `run.start` is gated on the local
- * slot count, so a node never runs more starts than it advertises. Each command
- * renews its own lease and flushes its own event batch; a lost completion is
- * left to lease expiry and redelivery (the ledger makes that safe in a later task).
+ * while a `run.start` is still executing. A start slot is reserved before
+ * polling; when every slot is busy the node asks the hub only for
+ * `run.cancel`/`run.inspect`, so it never leases a `run.start` it cannot run
+ * while cancels and inspects stay deliverable. Each command renews its own
+ * lease and flushes its own event batch; a lost completion is left to lease
+ * expiry and redelivery (the ledger makes that safe in a later task).
  */
 export function startPoller(client: NodeClient, options: PollerOptions): Poller {
   let stopped = false
@@ -89,7 +91,7 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
     throw new Error("completion still pending after retries")
   }
 
-  const handle = async (command: CommandEnvelope): Promise<void> => {
+  const handle = async (command: CommandEnvelope, reserved = false): Promise<void> => {
     const controller = new AbortController()
     const batcher = new EventBatcher({
       send: (events) => client.appendEvents(command.commandId, { leaseId: command.leaseId, events }),
@@ -101,10 +103,10 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
 
     try {
       const isStart = command.type === "run.start"
-      let acquired = false
+      let acquired = reserved
       let outcome: ExecutionOutcome
       try {
-        if (isStart) {
+        if (isStart && !acquired) {
           await acquire(controller.signal)
           acquired = true
         }
@@ -123,12 +125,8 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
       }
 
       await batcher.close().catch((error) => options.onError?.(error))
-      try {
-        await complete(command, outcome, batcher)
-      } catch (error) {
-        options.onError?.(error)
-        throw error
-      }
+      // A completion failure is surfaced once by the caller (tick), not here.
+      await complete(command, outcome, batcher)
     } finally {
       clearInterval(renew)
     }
@@ -136,9 +134,24 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
 
   const tick = async (): Promise<void> => {
     if (stopped) return
-    const command = await client.nextCommand()
-    if (!command) return
-    const task = handle(command)
+    // Reserve a start slot before leasing, so a full node never leases a
+    // run.start it cannot run. When full, ask only for non-start commands.
+    const free = running < slots
+    if (free) running += 1
+    let command: CommandEnvelope | null
+    try {
+      command = await client.nextCommand(free ? undefined : ["run.cancel", "run.inspect"])
+    } catch (error) {
+      if (free) release()
+      throw error
+    }
+    if (!command) {
+      if (free) release()
+      return
+    }
+    const reserved = free && command.type === "run.start"
+    if (free && !reserved) release()
+    const task = handle(command, reserved)
       .catch((error) => options.onError?.(error))
       .finally(() => inflight.delete(task))
     inflight.add(task)

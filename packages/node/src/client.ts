@@ -1,6 +1,7 @@
 import { createPrivateKey, randomBytes, sign, type KeyObject } from "node:crypto"
 import type {
   CommandEnvelope,
+  CommandType,
   CompletionRequest,
   EventBatch,
   EventBatchResponse,
@@ -71,8 +72,9 @@ export class NodeClient {
     return this.request<HeartbeatResponse>("POST", "/v1/node/heartbeat", body) as Promise<HeartbeatResponse>
   }
 
-  async nextCommand(): Promise<CommandEnvelope | null> {
-    return this.request<CommandEnvelope>("GET", "/v1/node/commands/next")
+  async nextCommand(types?: readonly CommandType[]): Promise<CommandEnvelope | null> {
+    const query = types && types.length > 0 ? `?types=${encodeURIComponent(types.join(","))}` : ""
+    return this.request<CommandEnvelope>("GET", `/v1/node/commands/next${query}`)
   }
 
   renew(commandId: string): Promise<{ leasedUntil: string }> {

@@ -405,3 +405,22 @@ describe("completion idempotency", () => {
     expect(events.body.events.at(-1).data.status).toBe("cancelled")
   })
 })
+
+describe("command type filter", () => {
+  test("a full node can ask for cancels and inspects without leasing a start", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node)
+    await createRun(hub)
+
+    const filtered = await signedFetch(hub, node, "GET", "/v1/node/commands/next?types=run.cancel,run.inspect")
+    expect(filtered.status).toBe(204)
+
+    const start = await signedFetch(hub, node, "GET", "/v1/node/commands/next?types=run.start")
+    expect(start.status).toBe(200)
+    expect(((await start.json()) as { type: string }).type).toBe("run.start")
+
+    const invalid = await signedFetch(hub, node, "GET", "/v1/node/commands/next?types=bogus")
+    expect(invalid.status).toBe(400)
+  })
+})
