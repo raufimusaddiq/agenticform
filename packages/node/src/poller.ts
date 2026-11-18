@@ -92,13 +92,16 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
     inflight.add(task)
   }
 
+  let backoff = options.pollMs
   const loop = async (): Promise<void> => {
     try {
       await tick()
+      backoff = options.pollMs
     } catch (error) {
       options.onError?.(error)
+      backoff = Math.min(Math.max(backoff, 1_000) * 2, 30_000)
     }
-    if (!stopped) timer = setTimeout(() => void loop(), options.pollMs)
+    if (!stopped) timer = setTimeout(() => void loop(), backoff)
   }
   void loop()
 
