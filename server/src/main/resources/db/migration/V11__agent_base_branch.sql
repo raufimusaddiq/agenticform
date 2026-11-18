@@ -1,1 +1,0 @@
-ALTER TABLE agents ADD COLUMN base_branch VARCHAR(255);

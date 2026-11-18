@@ -51,7 +51,7 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 - Unknown capabilities count as absent.
 - Prompts are never retried automatically, because a lost reply is ambiguous.
 - Harness stderr stays out of events, because it may contain sensitive output.
-- The remote path carries outbound-only nodes, fenced runtime identity, single-use nonces, idempotency and isolation. See the [legacy distributed fabric notes](legacy/distributed-agent-fabric.md).
+- The remote path carries outbound-only nodes, fenced runtime identity, single-use nonces, idempotency and isolation. See [node/hub invariants](node-hub-invariants.md).
 
 ## Process lifecycle
 
@@ -60,3 +60,9 @@ Each run owns one child process, which leads its own process group, so wrappers 
 Runs keep their events in memory. Durability belongs to `node` and `hub`: the
 node writes a command ledger before any effect, and the hub keeps runs, commands
 and events in SQLite with WAL.
+
+## History
+
+An earlier Java control plane, Go node and React UI were removed once the Bun
+packages covered their behaviour. They are not part of this repository; their
+code and documentation remain in git history at commit `14a1464`.

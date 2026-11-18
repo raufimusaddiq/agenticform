@@ -3,6 +3,10 @@
 Behaviour reference only. Source: legacy Java control plane (`server/`) and Go node
 (`node/`), pinned at commit `14a146450af4d497d310d6aedb602ae9942db960`.
 
+The `server/`, `web/`, `node/` and `docs/legacy/` trees were removed from the
+working tree after these invariants were ported; every path cited below resolves
+at that commit, e.g. `git show 14a1464:node/cmd/agenticform-node/main.go`.
+
 This file records the security and durability rules the future `node` and `hub`
 packages must keep. It is an input to the Spec Kit *specify* step, not a design;
 the resulting spec is [`specs/002-node-hub`](../specs/002-node-hub/spec.md).
