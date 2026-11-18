@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Hub } from "../src/index.ts"
+import { insertEvent } from "../src/events.ts"
 import { authenticateToken, issueToken } from "../src/tokens.ts"
 import { api, enroll, heartbeat, startHub } from "./helpers.ts"
 
@@ -213,6 +214,61 @@ describe("follow under revocation (T007)", () => {
       expect(text).toContain('"code":"unauthorized"')
       expect(Date.now() - started).toBeLessThan(30_000)
     } finally {
+      controller.abort()
+      hub.stop()
+    }
+  }, 20_000)
+
+  test("a busy run still loses its stream within 30 s of revocation", async () => {
+    const hub = startHub()
+    const controller = new AbortController()
+    let appending: ReturnType<typeof setInterval> | undefined
+    try {
+      const { runId } = await onlineRun(hub)
+      const issued = await issue(hub, "busy-follow")
+      const response = await fetch(`${hub.url}/v1/runs/${runId}/events?stream=sse`, {
+        headers: { authorization: `Bearer ${issued.token}`, accept: "text/event-stream" },
+        signal: controller.signal,
+      })
+      expect(response.status).toBe(200)
+      const reader = (response.body as ReadableStream<Uint8Array>).getReader()
+      const started = Date.now()
+      let text = ""
+      let seq = 0
+      // Events every second: the idle counter never reaches a keepalive.
+      appending = setInterval(() => {
+        seq += 1
+        insertEvent(hub.db, runId, {
+          key: `busy:${seq}`,
+          type: "message.delta",
+          at: new Date().toISOString(),
+          data: { seq },
+        })
+      }, 1_000)
+      const reading = (async () => {
+        const decoder = new TextDecoder()
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) return
+          text += decoder.decode(value, { stream: true })
+          if (text.includes('"code":"unauthorized"')) return
+        }
+      })()
+      await Bun.sleep(1_200)
+      expect((await api(hub, "POST", `/v1/tokens/${issued.id}/revoke`)).status).toBe(200)
+      await reading
+      clearInterval(appending)
+      appending = undefined
+
+      expect(text).toContain("message.delta")
+      expect(text).toContain("event: error")
+      expect(text).toContain('"code":"unauthorized"')
+      expect(Date.now() - started).toBeLessThan(30_000)
+      // Nothing follows the error frame.
+      const marker = '"code":"unauthorized"'
+      expect(text.slice(text.indexOf(marker) + marker.length)).not.toContain("data:")
+    } finally {
+      if (appending !== undefined) clearInterval(appending)
       controller.abort()
       hub.stop()
     }

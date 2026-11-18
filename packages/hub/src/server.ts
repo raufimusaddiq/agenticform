@@ -315,7 +315,7 @@ function sse(
   const stream = new ReadableStream({
     async start(controller) {
       let cursor = after
-      let idle = 0
+      let lastCheck = Date.now()
       const close = () => {
         try {
           controller.close()
@@ -326,6 +326,18 @@ function sse(
       try {
         controller.enqueue(encoder.encode(": connected\n\n"))
         while (!signal.aborted) {
+          // Wall-clock, not idle ticks: a run that keeps emitting events must
+          // still lose its stream within 30 s of revocation (R3, FR-003).
+          if (Date.now() - lastCheck >= 5_000) {
+            lastCheck = Date.now()
+            if (!authorized()) {
+              controller.enqueue(
+                encoder.encode(`event: error\ndata: ${JSON.stringify({ code: "unauthorized" })}\n\n`),
+              )
+              return close()
+            }
+            controller.enqueue(encoder.encode(": keepalive\n\n"))
+          }
           const events = listEvents(db, runId, cursor)
           for (const event of events) {
             if (signal.aborted) return close()
@@ -336,18 +348,6 @@ function sse(
           const run = getRun(db, runId)
           if (["completed", "failed", "cancelled"].includes(run.status) && events.length === 0) {
             return close()
-          }
-          if (events.length > 0) idle = 0
-          idle += 1
-          if (idle % 20 === 0) {
-            // A revoked token ends the stream within one keepalive (R3, FR-003).
-            if (!authorized()) {
-              controller.enqueue(
-                encoder.encode(`event: error\ndata: ${JSON.stringify({ code: "unauthorized" })}\n\n`),
-              )
-              return close()
-            }
-            controller.enqueue(encoder.encode(": keepalive\n\n"))
           }
           await Bun.sleep(250)
         }
