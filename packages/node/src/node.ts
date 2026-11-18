@@ -7,6 +7,7 @@ import { Executor } from "./executor.ts"
 import { HarnessProber } from "./harness-probe.ts"
 import { startHeartbeat, type HeartbeatLoop } from "./heartbeat.ts"
 import type { NodeIdentity } from "./identity.ts"
+import { PROFILE_VERSION, startupSelfTest, type SelfTestResult } from "./isolation.ts"
 import { startPoller, type Poller } from "./poller.ts"
 
 export interface NodeOptions {
@@ -21,6 +22,8 @@ export interface NodeOptions {
   home?: string
   /** Environment used to resolve harness entry points; defaults to the process env. */
   env?: Record<string, string | undefined>
+  /** Startup self-test result; defaults to the process-wide one (FR-013). */
+  isolation?: SelfTestResult
 }
 
 export interface Node {
@@ -62,7 +65,12 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
   const client = new NodeClient(config, identity, clientOptions)
   const runtime = options.runtime ?? createRuntime()
   const harnesses = options.harnesses
+  // FR-013, FR-014: prove the sandbox shape once at startup. Without it the node
+  // advertises nothing and probes nothing, so no harness child is ever spawned.
+  const isolation = options.isolation ?? startupSelfTest()
+  const sandboxed = isolation.mode !== "none"
   const configured = (): HarnessDefinition[] => {
+    if (!sandboxed) return []
     const all = runtime.harnesses()
     return harnesses && harnesses.length > 0 ? all.filter((harness) => harnesses.includes(harness.id)) : all
   }
@@ -88,6 +96,7 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
     probeWaitMs: config.harnessProbeTimeoutMs + 5_000,
     ...(options.home === undefined ? {} : { home: options.home }),
     ...(options.env === undefined ? {} : { env: options.env }),
+    isolation,
   })
   const capabilities = options.capabilities ?? []
   const slots = options.slots ?? 1
@@ -125,6 +134,7 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
             capacity: { slots, inUse: executor.activeCount },
             runtimes: executor.inventory(),
             harnessReport: prober.report(),
+            isolation: { mode: isolation.mode, profile: String(PROFILE_VERSION), selfTest: isolation.selfTest },
           }
         },
         onError,

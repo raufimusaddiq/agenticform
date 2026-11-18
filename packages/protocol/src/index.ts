@@ -201,5 +201,7 @@ export interface NodeView {
   capacity: { slots: number; inUse: number }
   /** Last heartbeat's per-harness probe report, verbatim. Additive and optional. */
   harnessReport?: HarnessReport[]
+  /** Last heartbeat's isolation report, verbatim. Additive and optional. */
+  isolation?: IsolationReport
   lastHeartbeatAt: string | null
 }

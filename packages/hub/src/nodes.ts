@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite"
-import type { HarnessReport, HarnessReportReason, HeartbeatRequest, HeartbeatResponse, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
+import type { HarnessReport, HarnessReportReason, HeartbeatRequest, HeartbeatResponse, IsolationReport, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
 import { HARNESS_REPORT_REASON_SET, SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
@@ -43,6 +43,23 @@ function validateReport(report: unknown): HarnessReport[] {
       ...(item.reason === undefined ? {} : { reason: item.reason as HarnessReportReason }),
     }
   })
+}
+
+const ISOLATION_MODES = new Set(["bwrap", "sandbox-exec", "none"])
+
+/** FR-016: the mode, profile version and self-test outcome, nothing else. */
+function validateIsolation(isolation: unknown): IsolationReport | null {
+  if (isolation === undefined || isolation === null) return null
+  const item = isolation as Partial<IsolationReport>
+  if (typeof item !== "object" || Array.isArray(item)) fail("invalid_input", "isolation must be an object")
+  if (typeof item.mode !== "string" || !ISOLATION_MODES.has(item.mode)) {
+    fail("invalid_input", "isolation.mode must be bwrap, sandbox-exec or none")
+  }
+  if (typeof item.profile !== "string" || !item.profile) fail("invalid_input", "isolation.profile must be a string")
+  if (item.selfTest !== "pass" && item.selfTest !== "fail") {
+    fail("invalid_input", "isolation.selfTest must be pass or fail")
+  }
+  return { mode: item.mode as IsolationReport["mode"], profile: item.profile, selfTest: item.selfTest }
 }
 
 function validateInventory(runtimes: unknown): RuntimeInventoryEntry[] {
@@ -106,6 +123,7 @@ export function heartbeat(
   }
   const inventory = body.runtimes === undefined ? [] : validateInventory(body.runtimes)
   const report = body.harnessReport === undefined ? [] : validateReport(body.harnessReport)
+  const isolation = validateIsolation(body.isolation)
   const capabilities = Array.isArray(body.capabilities) ? body.capabilities : []
   const slots = body.capacity?.slots ?? node.capacity_slots
   const active = db
@@ -118,7 +136,8 @@ export function heartbeat(
   const write = db.transaction((): void => {
     db.query(
       `UPDATE nodes SET status = 'online', protocol_version = ?, harnesses = ?, capabilities = ?,
-         capacity_slots = ?, capacity_in_use = ?, inventory = ?, harness_report = ?, last_heartbeat_at = ?
+         capacity_slots = ?, capacity_in_use = ?, inventory = ?, harness_report = ?, isolation = ?,
+         last_heartbeat_at = ?
        WHERE id = ?`,
     ).run(
       body.protocolVersion,
@@ -128,6 +147,7 @@ export function heartbeat(
       used,
       JSON.stringify(inventory),
       JSON.stringify(report),
+      JSON.stringify(isolation),
       now,
       node.id,
     )
@@ -239,6 +259,7 @@ export function listNodes(db: Database): NodeView[] {
 }
 
 export function toNodeView(node: NodeRow): NodeView {
+  const isolation = JSON.parse(node.isolation) as IsolationReport | null
   return {
     nodeId: node.id,
     name: node.name,
@@ -249,6 +270,7 @@ export function toNodeView(node: NodeRow): NodeView {
     labels: JSON.parse(node.labels) as Record<string, string>,
     capacity: { slots: node.capacity_slots, inUse: node.capacity_in_use },
     harnessReport: JSON.parse(node.harness_report) as HarnessReport[],
+    ...(isolation === null ? {} : { isolation }),
     lastHeartbeatAt: node.last_heartbeat_at === null ? null : new Date(node.last_heartbeat_at).toISOString(),
   }
 }

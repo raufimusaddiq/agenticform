@@ -88,13 +88,13 @@ describe("hub config", () => {
     const root = mkdtempSync(join(tmpdir(), "af-db-"))
     const file = join(root, "hub.sqlite")
     const db = openDatabase(file)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 2 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 3 })
     db.exec("PRAGMA user_version = 99")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)
   })
 
-  test("migration 2 adds harness_report without losing a v1 node row", () => {
+  test("migrations add harness_report and isolation without losing a v1 node row", () => {
     const root = mkdtempSync(join(tmpdir(), "af-db-"))
     const file = join(root, "hub.sqlite")
     const db = new Database(file, { create: true })
@@ -110,10 +110,12 @@ describe("hub config", () => {
     migrate(db)
     const row = db.query<NodeRow, [string]>("SELECT * FROM nodes WHERE id = ?").get("n1")
     expect(row?.harness_report).toBe("[]")
+    expect(row?.isolation).toBe("null")
     expect(toNodeView(row as NodeRow).harnessReport).toEqual([])
+    expect(toNodeView(row as NodeRow).isolation).toBeUndefined()
     // Re-running the migration is a no-op.
     migrate(db)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 2 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 3 })
     expect(db.query("SELECT COUNT(*) AS n FROM nodes").get()).toEqual({ n: 1 })
     db.close()
   })

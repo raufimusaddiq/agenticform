@@ -284,3 +284,29 @@ describe("harness report validation", () => {
     expect(response.status).toBe(200)
   })
 })
+
+describe("isolation report", () => {
+  test("a valid report is stored and returned on the node view", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      isolation: { mode: "bwrap", profile: "1", selfTest: "pass" },
+    })
+    expect(response.status).toBe(200)
+    const view = await fetch(`${hub.url}/v1/nodes`, {
+      headers: { authorization: `Bearer ${hub.config.adminToken}` },
+    })
+    const body = (await view.json()) as { nodes: { isolation?: unknown }[] }
+    expect(body.nodes[0]?.isolation).toEqual({ mode: "bwrap", profile: "1", selfTest: "pass" })
+  })
+
+  test("an unknown mode is rejected", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      isolation: { mode: "chroot", profile: "1", selfTest: "pass" },
+    })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe("invalid_input")
+  })
+})

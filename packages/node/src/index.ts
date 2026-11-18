@@ -39,6 +39,7 @@ export {
   sandboxArgs,
   sandboxHarness,
   selfTest,
+  startupSelfTest,
   type IsolationProfile,
   type SelfTestResult,
   type StateMode,

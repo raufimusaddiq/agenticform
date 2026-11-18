@@ -249,6 +249,33 @@ describe("isolation argv", () => {
   })
 })
 
+describe("isolation: startup self-test", () => {
+  /** spawnSync resolves the command through the process PATH, not the child env. */
+  const withPath = (path: string, work: () => void): void => {
+    const original = process.env.PATH
+    process.env.PATH = path
+    try {
+      work()
+    } finally {
+      process.env.PATH = original
+    }
+  }
+
+  test("with bwrap hidden from PATH the self-test fails", () => {
+    withPath("/nonexistent", () => {
+      expect(selfTest()).toEqual({ mode: "none", selfTest: "fail", reason: "sandbox_unavailable" })
+    })
+  })
+
+  test("a bwrap that exists but cannot build the shape fails the self-test", () => {
+    const dir = temp("af-bwrap-")
+    writeFileSync(join(dir, "bwrap"), "#!/bin/sh\nexit 1\n", { mode: 0o755 })
+    withPath(`${dir}:${process.env.PATH ?? ""}`, () => {
+      expect(selfTest()).toEqual({ mode: "none", selfTest: "fail", reason: "sandbox_unavailable" })
+    })
+  })
+})
+
 describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
   test("bwrap is available", () => {
     expect(hasBwrap).toBe(true)

@@ -7,6 +7,7 @@ import type { CommandEnvelope, EventBatchResponse, HeartbeatRequest, RunEventInp
 import { canonicalString } from "@agenticform/protocol/canonical"
 import {
   createRuntime,
+  RuntimeError,
   type Capabilities,
   type DriverConnection,
   type HarnessDefinition,
@@ -976,4 +977,98 @@ describe("first heartbeat", () => {
       rmSync(dir, { recursive: true, force: true })
     }
   }, 30_000)
+})
+
+describe("isolation gate", () => {
+  const heartbeatFetch = (bodies: HeartbeatRequest[]) =>
+    (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes("/v1/node/heartbeat")) {
+        bodies.push(JSON.parse(String(init?.body)) as HeartbeatRequest)
+        return Response.json({ status: "online", commandsPollMs: 60_000 })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+
+  test("with no sandbox the node advertises nothing, spawns no harness and refuses runs", async () => {
+    let connects = 0
+    const bodies: HeartbeatRequest[] = []
+    const node = createNode(
+      { ...config("http://127.0.0.1:1"), heartbeatIntervalMs: 60_000, pollMs: 60_000 },
+      identity(),
+      {
+        fetch: heartbeatFetch(bodies),
+        runtime: runtime(fakeDriver(() => (connects += 1))),
+        isolation: { mode: "none", selfTest: "fail", reason: "sandbox_unavailable" },
+      },
+    )
+    try {
+      node.start()
+      for (let i = 0; i < 100 && bodies.length === 0; i += 1) await Bun.sleep(20)
+      expect(bodies[0]?.harnesses).toEqual([])
+      expect(bodies[0]?.harnessReport).toEqual([])
+      const outcome = await node.executor.execute(command(), {
+        emit() {},
+        signal: new AbortController().signal,
+      })
+      expect(outcome).toEqual({
+        status: "failed",
+        error: { code: "isolation_unavailable", message: "Sandbox is unavailable: sandbox_unavailable" },
+      })
+      expect(connects).toBe(0)
+    } finally {
+      await node.stop()
+    }
+  })
+
+  test("the heartbeat carries the isolation mode, profile and self-test", async () => {
+    const bodies: HeartbeatRequest[] = []
+    const node = createNode(
+      { ...config("http://127.0.0.1:1"), harnessProbeTimeoutMs: 100, heartbeatIntervalMs: 60_000, pollMs: 60_000 },
+      identity(),
+      {
+        fetch: heartbeatFetch(bodies),
+        runtime: runtime(),
+        isolation: { mode: "bwrap", selfTest: "pass" },
+      },
+    )
+    try {
+      node.start()
+      for (let i = 0; i < 100 && bodies.length === 0; i += 1) await Bun.sleep(20)
+      expect(bodies[0]?.isolation).toEqual({ mode: "bwrap", profile: "1", selfTest: "pass" })
+    } finally {
+      await node.stop()
+    }
+  })
+
+  test("a sandbox that fails per run fails the run and never retries unsandboxed", async () => {
+    let connects = 0
+    const driver: RuntimeDriver = {
+      async connect(): Promise<DriverConnection> {
+        connects += 1
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            throw new RuntimeError("process_exited", "Agent process exited")
+          },
+          async cancel() {},
+          async close() {},
+          stderrTail() {
+            return "bwrap: Can't create file at /af-denied: Read-only file system\n"
+          },
+        }
+      },
+    }
+    const executor = new Executor({
+      runtime: runtime(driver),
+      isolation: { mode: "bwrap", selfTest: "pass" },
+    })
+    const outcome = await executor.execute(command(), { emit() {}, signal: new AbortController().signal })
+    expect(outcome).toEqual({
+      status: "failed",
+      error: { code: "isolation_unavailable", message: "Sandbox failed to start; no unsandboxed retry" },
+    })
+    expect(connects).toBe(1)
+  })
 })
