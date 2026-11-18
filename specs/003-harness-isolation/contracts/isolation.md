@@ -174,7 +174,13 @@ Rules for a config-directory entry:
   [research.md](../research.md#harness-config-directory): set
   `CLAUDE_CONFIG_DIR=~/.claude` for the interactive harness as well and move
   `~/.claude.json` into `~/.claude/.claude.json` once. The node does not read or
-  move operator files.
+  move operator files. An operator who skips the migration does not break: the
+  sandboxed harness writes `~/.claude/.claude.json` while the interactive one
+  keeps `~/.claude.json`, so the two fork and trust and MCP edits stop crossing
+  over. That is a documented consequence, not a failure.
+- Verified on Linux only. On macOS, Claude Code keeps credentials in the keychain
+  and the `sandbox-exec` path is unverified, so the config-directory entry is not
+  claimed to carry credentials there.
 - No other catalog harness needs the variable today: `codex` uses `CODEX_HOME`
   (default `~/.codex`, already a directory bind) and `opencode` uses its XDG data
   and config directories, both already declared state. The mechanism is generic,

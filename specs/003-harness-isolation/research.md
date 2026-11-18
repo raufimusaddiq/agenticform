@@ -116,6 +116,12 @@ Checked on 2026-11-18 against Claude Code 2.1.327 on this host, with a temporary
 `HOME` and a temporary `CLAUDE_CONFIG_DIR`; the operator's `~/.claude` and
 `~/.claude.json` were not read or written.
 
+**Linux only.** Every check below is on Linux. On macOS, Claude Code keeps
+credentials in the keychain rather than `.credentials.json`, and the
+`sandbox-exec` path is unverified: the config-directory entry is expected to
+carry `.claude.json` there, but credential persistence and the sandbox shape are
+not claimed until a real run on that platform.
+
 | Check | Result | Consequence |
 |---|---|---|
 | `CLAUDE_CONFIG_DIR` unset | config dir `$HOME/.claude`; `.claude.json` at `$HOME/.claude.json`; credentials at `$HOME/.claude/.credentials.json` | The home-root file is outside every directory bind |
@@ -147,8 +153,8 @@ Rejected alternatives:
 |---|---|
 | Bind `~/.claude.json` as a file | Claude Code writes by rename; the rename fails with `EBUSY` |
 | Symlink `~/.claude/.claude.json` → `~/.claude.json` | The target is outside the bind, so the link dangles inside the sandbox |
-| A separate config dir for the node | Two files diverge; trust and MCP edits in one are invisible to the other |
-| Copy the file in and out per run | A sync problem with a write window, and it duplicates credentials |
+| A separate config dir for the node (seed it with a copy) | Two files diverge, and trust and MCP edits in one are invisible to the other. Worse, refresh tokens rotate: a copied `.credentials.json` goes stale, a refresh with the copy can invalidate the operator's live token, and the two sessions then rotate each other out. Seeding would also make the node read the operator's credential and account files, which FR-019 forbids. |
+| Copy the file in and out per run | A sync problem with a write window, and it duplicates credentials, so the same rotation failure applies |
 
 ### Other harnesses
 
