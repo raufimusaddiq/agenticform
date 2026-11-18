@@ -66,6 +66,40 @@ const fakeDriver = (onConnect?: () => void): RuntimeDriver => ({
 const runtime = (driver: RuntimeDriver = fakeDriver()) =>
   createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: "fake" } } })
 
+/** A run that stays active until cancelled, so fencing can be observed. */
+const blockingDriver = (): { driver: RuntimeDriver; cancelled: () => number; started: Promise<void> } => {
+  let cancelCount = 0
+  let release: (() => void) | undefined
+  let markStarted: (() => void) | undefined
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve
+  })
+  const driver: RuntimeDriver = {
+    async connect(): Promise<DriverConnection> {
+      return {
+        capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+        async openSession() {},
+        async prompt() {
+          markStarted?.()
+          await new Promise<void>((resolve) => {
+            release = resolve
+          })
+          return { stopReason: "cancelled" }
+        },
+        async cancel() {
+          cancelCount += 1
+          release?.()
+        },
+        async close() {},
+        stderrTail() {
+          return ""
+        },
+      }
+    },
+  }
+  return { driver, cancelled: () => cancelCount, started }
+}
+
 const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => ({
   commandId: "cmd-1",
   type: "run.start",
@@ -250,6 +284,78 @@ describe("executor", () => {
     })
     expect(connected).toBe(0)
   })
+
+  test("applies the payload generation check to cancel and inspect", async () => {
+    const executor = new Executor({ runtime: runtime() })
+    for (const type of ["run.cancel", "run.inspect"] as const) {
+      const outcome = await executor.execute(
+        command({ type, generation: 2, payload: { fingerprint: "sha256:x", generation: 1 } }),
+        { emit: () => {}, signal: new AbortController().signal },
+      )
+      expect(outcome).toEqual({
+        status: "failed",
+        error: { code: "fence_stale", message: "payload generation differs from envelope" },
+      })
+    }
+    expect(executor.staleObservations).toBe(2)
+  })
+
+  test("refuses a stale run.cancel without touching the active run", async () => {
+    const blocking = blockingDriver()
+    const executor = new Executor({ runtime: runtime(blocking.driver) })
+    const start = executor.execute(
+      command({ generation: 2, payload: { ...command().payload, generation: 2 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    await blocking.started
+
+    const stale = await executor.execute(
+      command({ type: "run.cancel", generation: 1, payload: { fingerprint: "sha256:x", generation: 1 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    expect(stale).toEqual({
+      status: "failed",
+      error: { code: "fence_stale", message: "command generation is older than the active run" },
+    })
+    expect(blocking.cancelled()).toBe(0)
+    expect(executor.staleObservations).toBe(1)
+
+    const fresh = await executor.execute(
+      command({ type: "run.cancel", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    expect(fresh.status).toBe("succeeded")
+    expect(blocking.cancelled()).toBe(1)
+    expect((await start).status).toBe("succeeded")
+  })
+
+  test("refuses a stale run.inspect and records it", async () => {
+    const blocking = blockingDriver()
+    const executor = new Executor({ runtime: runtime(blocking.driver) })
+    const start = executor.execute(
+      command({ generation: 2, payload: { ...command().payload, generation: 2 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    await blocking.started
+
+    const stale = await executor.execute(
+      command({ type: "run.inspect", generation: 1, payload: { fingerprint: "sha256:x", generation: 1 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    expect(stale.status).toBe("failed")
+    expect(executor.staleObservations).toBe(1)
+
+    const fresh = await executor.execute(
+      command({ type: "run.inspect", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+      { emit: () => {}, signal: new AbortController().signal },
+    )
+    expect(fresh.status).toBe("succeeded")
+
+    await executor.cancel(
+      command({ type: "run.cancel", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+    )
+    await start
+  })
 })
 
 describe("poller", () => {
@@ -289,5 +395,106 @@ describe("poller", () => {
     expect(completed?.status).toBe("succeeded")
     expect(completed?.eventsToSeq).toBe(appended.flat().length)
     expect(appended.flat().some((event) => event.type === "message.delta")).toBe(true)
+  })
+
+  test("surfaces a completion that stays events_pending after retries", async () => {
+    const executor = new Executor({ runtime: runtime() })
+    const errors: unknown[] = []
+    let attempts = 0
+    let delivered = false
+    const done = new Promise<void>((resolve) => {
+      const client = {
+        async nextCommand() {
+          if (delivered) return null
+          delivered = true
+          return command()
+        },
+        async appendEvents(_commandId: string, batch: { events: RunEventInput[] }) {
+          return { accepted: batch.events.length, lastSeq: batch.events.length }
+        },
+        async complete() {
+          attempts += 1
+          throw new NodeClientError(409, "events_pending", "events are not persisted yet")
+        },
+        async renew() {
+          return { leasedUntil: new Date().toISOString() }
+        },
+      }
+      const poller = startPoller(client as never, {
+        pollMs: 5,
+        leaseRenewMs: 60_000,
+        executor,
+        onError: (error) => {
+          errors.push(error)
+          if (attempts >= 3) resolve()
+        },
+      })
+      stop = () => void poller.stop()
+    })
+    await done
+    expect(attempts).toBe(3)
+    expect(
+      errors.some((error) => error instanceof Error && error.message === "completion still pending after retries"),
+    ).toBe(true)
+  })
+
+  test("serialises run.start when slots is one", async () => {
+    let concurrent = 0
+    let maxConcurrent = 0
+    const driver: RuntimeDriver = {
+      async connect(): Promise<DriverConnection> {
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            concurrent += 1
+            maxConcurrent = Math.max(maxConcurrent, concurrent)
+            await Bun.sleep(20)
+            concurrent -= 1
+            return { stopReason: "end_turn" }
+          },
+          async cancel() {},
+          async close() {},
+          stderrTail() {
+            return ""
+          },
+        }
+      },
+    }
+    const executor = new Executor({ runtime: runtime(driver) })
+    const commands = [
+      command({ commandId: "cmd-1", runId: "run-1" }),
+      command({ commandId: "cmd-2", runId: "run-2", idempotencyKey: "run:run-2:run.start:1" }),
+    ]
+    let index = 0
+    let completed = 0
+    const done = new Promise<void>((resolve) => {
+      const client = {
+        async nextCommand() {
+          return commands[index++] ?? null
+        },
+        async appendEvents(_commandId: string, batch: { events: RunEventInput[] }) {
+          return { accepted: batch.events.length, lastSeq: batch.events.length }
+        },
+        async complete() {
+          completed += 1
+          if (completed === 2) resolve()
+          return {}
+        },
+        async renew() {
+          return { leasedUntil: new Date().toISOString() }
+        },
+      }
+      const poller = startPoller(client as never, {
+        pollMs: 5,
+        leaseRenewMs: 60_000,
+        executor,
+        slots: 1,
+      })
+      stop = () => void poller.stop()
+    })
+    await done
+    expect(maxConcurrent).toBe(1)
+    expect(completed).toBe(2)
   })
 })

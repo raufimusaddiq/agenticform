@@ -56,6 +56,7 @@ function outcomeOf(result: RunResult): ExecutionOutcome {
 export class Executor {
   private readonly runtime: Runtime
   private readonly active = new Map<string, ActiveRun>()
+  private staleCount = 0
 
   constructor(options: ExecutorOptions = {}) {
     this.runtime = options.runtime ?? createRuntime()
@@ -63,6 +64,11 @@ export class Executor {
 
   get activeCount(): number {
     return this.active.size
+  }
+
+  /** Commands refused because their generation was older than the active run. */
+  get staleObservations(): number {
+    return this.staleCount
   }
 
   harnesses(): string[] {
@@ -80,13 +86,29 @@ export class Executor {
   }
 
   async execute(command: CommandEnvelope, context: ExecutionContext): Promise<ExecutionOutcome> {
-    if (command.type === "run.cancel") return this.cancel(command.runId)
-    if (command.type === "run.inspect") return this.inspect(command.runId)
+    // FR-021: a payload generation that disagrees with the envelope is refused
+    // before any side effect, for every command type.
+    if (command.payload.generation !== command.generation) {
+      this.staleCount += 1
+      return {
+        status: "failed",
+        error: { code: "fence_stale", message: "payload generation differs from envelope" },
+      }
+    }
+    if (command.type === "run.cancel") return this.cancel(command)
+    if (command.type === "run.inspect") return this.inspect(command)
     return this.start(command, context)
   }
 
-  async cancel(runId: string): Promise<ExecutionOutcome> {
-    const active = this.active.get(runId)
+  async cancel(command: CommandEnvelope): Promise<ExecutionOutcome> {
+    const active = this.active.get(command.runId)
+    if (active && command.generation < active.generation) {
+      this.staleCount += 1
+      return {
+        status: "failed",
+        error: { code: "fence_stale", message: "command generation is older than the active run" },
+      }
+    }
     if (active) {
       active.state = "cancelling"
       await active.run.cancel()
@@ -94,13 +116,20 @@ export class Executor {
     return { status: "succeeded", result: { status: "cancelled" } }
   }
 
-  inspect(runId: string): ExecutionOutcome {
-    const active = this.active.get(runId)
+  inspect(command: CommandEnvelope): ExecutionOutcome {
+    const active = this.active.get(command.runId)
+    if (active && command.generation < active.generation) {
+      this.staleCount += 1
+      return {
+        status: "failed",
+        error: { code: "fence_stale", message: "command generation is older than the active run" },
+      }
+    }
     return {
       status: "succeeded",
       result: {
         status: "completed",
-        runId,
+        runId: command.runId,
         state: active?.state ?? "absent",
         generation: active?.generation ?? null,
       },
@@ -113,14 +142,6 @@ export class Executor {
 
   private async start(command: CommandEnvelope, context: ExecutionContext): Promise<ExecutionOutcome> {
     const payload = command.payload
-    // FR-021: a payload generation that disagrees with the envelope is refused
-    // before the runtime is touched.
-    if (payload.generation !== command.generation) {
-      return {
-        status: "failed",
-        error: { code: "fence_stale", message: "payload generation differs from envelope" },
-      }
-    }
     if (typeof payload.harness !== "string" || !payload.harness) {
       return { status: "failed", error: { code: "invalid_input", message: "harness is required" } }
     }

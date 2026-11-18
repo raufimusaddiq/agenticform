@@ -7,6 +7,8 @@ export interface PollerOptions {
   pollMs: number
   leaseRenewMs: number
   executor: Executor
+  /** Local run.start slots; matches the capacity advertised in the heartbeat. */
+  slots?: number
   onError?: (error: unknown) => void
 }
 
@@ -17,14 +19,46 @@ export interface Poller {
 
 /**
  * Pulls commands and runs them concurrently, so a `run.cancel` can be leased
- * while a `run.start` is still executing. Each command renews its own lease and
- * flushes its own event batch; a lost completion is left to lease expiry and
- * redelivery (the ledger makes that safe in a later task).
+ * while a `run.start` is still executing. `run.start` is gated on the local
+ * slot count, so a node never runs more starts than it advertises. Each command
+ * renews its own lease and flushes its own event batch; a lost completion is
+ * left to lease expiry and redelivery (the ledger makes that safe in a later task).
  */
 export function startPoller(client: NodeClient, options: PollerOptions): Poller {
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const inflight = new Set<Promise<void>>()
+  const slots = Math.max(1, options.slots ?? 1)
+  let running = 0
+  const waiters: (() => void)[] = []
+
+  const acquire = (signal: AbortSignal): Promise<void> => {
+    if (signal.aborted) return Promise.reject(signal.reason)
+    if (running < slots) {
+      running += 1
+      return Promise.resolve()
+    }
+    return new Promise((resolve, reject) => {
+      const waiter = () => {
+        signal.removeEventListener("abort", onAbort)
+        running += 1
+        resolve()
+      }
+      const onAbort = () => {
+        const index = waiters.indexOf(waiter)
+        if (index >= 0) waiters.splice(index, 1)
+        reject(signal.reason)
+      }
+      signal.addEventListener("abort", onAbort, { once: true })
+      waiters.push(waiter)
+    })
+  }
+
+  const release = () => {
+    running -= 1
+    const next = waiters.shift()
+    if (next) next()
+  }
 
   const complete = async (
     command: CommandEnvelope,
@@ -50,6 +84,9 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
         throw error
       }
     }
+    // The hub still has not persisted every event. Surface the failure instead
+    // of pretending the command completed; lease expiry redelivers it.
+    throw new Error("completion still pending after retries")
   }
 
   const handle = async (command: CommandEnvelope): Promise<void> => {
@@ -63,20 +100,35 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
     }, Math.max(1_000, options.leaseRenewMs))
 
     try {
-      const outcome = await options.executor.execute(command, {
-        emit: (event) => batcher.add(event),
-        signal: controller.signal,
-      })
-      await batcher.close()
-      await complete(command, outcome, batcher)
-    } catch (error) {
-      options.onError?.(error)
-      await batcher.close().catch(() => {})
-      const failure: ExecutionOutcome = {
-        status: "failed",
-        error: { code: "internal", message: error instanceof Error ? error.message : "execution failed" },
+      const isStart = command.type === "run.start"
+      let acquired = false
+      let outcome: ExecutionOutcome
+      try {
+        if (isStart) {
+          await acquire(controller.signal)
+          acquired = true
+        }
+        outcome = await options.executor.execute(command, {
+          emit: (event) => batcher.add(event),
+          signal: controller.signal,
+        })
+      } catch (error) {
+        options.onError?.(error)
+        outcome = {
+          status: "failed",
+          error: { code: "internal", message: error instanceof Error ? error.message : "execution failed" },
+        }
+      } finally {
+        if (acquired) release()
       }
-      await complete(command, failure, batcher).catch((completionError) => options.onError?.(completionError))
+
+      await batcher.close().catch((error) => options.onError?.(error))
+      try {
+        await complete(command, outcome, batcher)
+      } catch (error) {
+        options.onError?.(error)
+        throw error
+      }
     } finally {
       clearInterval(renew)
     }

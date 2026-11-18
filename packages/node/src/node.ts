@@ -70,6 +70,7 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
         pollMs: config.pollMs,
         leaseRenewMs: config.leaseRenewMs,
         executor,
+        slots,
         onError,
       })
     },
