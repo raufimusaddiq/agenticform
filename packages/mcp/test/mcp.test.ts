@@ -27,6 +27,30 @@ const server = Bun.serve({
         { headers: { "content-type": "text/event-stream" } },
       )
     }
+    if (url.pathname === "/v1/runs/d1/events") {
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                `id: 1\ndata: ${JSON.stringify({ seq: 1, key: "k1", type: "run.disconnected", at: new Date().toISOString(), data: {} })}\n\n`,
+              ),
+            )
+            controller.close()
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      )
+    }
+    if (url.pathname === "/v1/runs/d1") {
+      return Response.json({
+        runId: "d1",
+        status: "disconnected",
+        nodeId: null,
+        generation: 1,
+        createdAt: new Date().toISOString(),
+      })
+    }
     if (url.pathname === "/v1/runs/r1") {
       return Response.json({
         runId: "r1",
@@ -160,6 +184,33 @@ describe("MCP list_events follow is bounded", () => {
       const page = JSON.parse(response.result.content[0].text)
       expect(page.events).toHaveLength(1_000)
       expect(page.nextAfter).toBe(1_000)
+    } finally {
+      client.close()
+    }
+  })
+
+  test("stops on a disconnected run and reports status plus nextAfter", async () => {
+    const client = mcp()
+    try {
+      const response = await client.call("list_events", { runId: "d1", follow: true })
+      const page = JSON.parse(response.result.content[0].text)
+      expect(page.status).toBe("disconnected")
+      expect(page.nextAfter).toBe(1)
+      expect(page.events).toHaveLength(1)
+    } finally {
+      client.close()
+    }
+  })
+})
+
+describe("MCP initialize negotiation", () => {
+  test("echoes a supported version and falls back to the latest otherwise", async () => {
+    const client = mcp()
+    try {
+      const supported = await client.request("initialize", { protocolVersion: "2024-11-05" })
+      expect(supported.result.protocolVersion).toBe("2024-11-05")
+      const unknown = await client.request("initialize", { protocolVersion: "1999-01-01" })
+      expect(unknown.result.protocolVersion).toBe("2024-11-05")
     } finally {
       client.close()
     }

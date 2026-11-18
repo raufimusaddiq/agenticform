@@ -2,9 +2,9 @@
 import { createInterface } from "node:readline"
 import type { RunEventWire, RunRequest } from "@agenticform/client"
 import {
+  FOLLOW_STOP_STATUSES,
   HubApiError,
   HubClient,
-  TERMINAL_RUN_STATUSES,
   normalizeAfter,
   reconnectDelay,
 } from "@agenticform/client"
@@ -179,15 +179,21 @@ async function call(name: string, args: Record<string, unknown>): Promise<unknow
         const nextAfter = events.at(-1)?.seq ?? after
         if (events.length >= MAX_EVENTS) return { events, nextAfter }
         const run = await hub.getRun(runId)
-        if (TERMINAL_RUN_STATUSES.has(run.status)) return { events, nextAfter }
-        attempt = cursor > before ? 0 : attempt + 1
+        if (run.status === "disconnected") return { status: "disconnected", events, nextAfter }
+        if (FOLLOW_STOP_STATUSES.has(run.status)) return { events, nextAfter }
+        if (cursor > before) attempt = 0
         await reconnectDelay(attempt)
+        attempt += 1
       }
     }
     default:
       throw new Error(`unknown tool: ${name}`)
   }
 }
+
+/** MCP protocol versions this server implements; the last is the latest. */
+const SUPPORTED_MCP_VERSIONS = ["2024-11-05"] as const
+const LATEST_MCP_VERSION = SUPPORTED_MCP_VERSIONS[SUPPORTED_MCP_VERSIONS.length - 1] as string
 
 const send = (body: unknown): void => {
   process.stdout.write(`${JSON.stringify(body)}\n`)
@@ -199,11 +205,15 @@ async function handle(message: any): Promise<void> {
   if (message.id === undefined) return // notification
 
   if (message.method === "initialize") {
+    const requested = message.params?.protocolVersion
+    const protocolVersion = SUPPORTED_MCP_VERSIONS.includes(requested)
+      ? requested
+      : LATEST_MCP_VERSION
     send({
       jsonrpc: "2.0",
       id,
       result: {
-        protocolVersion: message.params?.protocolVersion ?? "2024-11-05",
+        protocolVersion,
         capabilities: { tools: {} },
         serverInfo: { name: "agenticform", version: "0.1.0" },
       },

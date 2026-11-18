@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { HubApiError, HubClient, normalizeAfter, reconnectDelay } from "../src/index.ts"
+import { HubApiError, FOLLOW_STOP_STATUSES, HubClient, normalizeAfter, reconnectDelay } from "../src/index.ts"
 
 const server = Bun.serve({
   port: 0,
@@ -86,7 +86,18 @@ describe("resume cursor", () => {
 })
 
 describe("reconnect backoff", () => {
-  test("is bounded and gives up after the retry cap", async () => {
-    await expect(reconnectDelay(6)).rejects.toThrow("did not advance after 5 retries")
+  test("is bounded and gives up after exactly MAX_FOLLOW_RETRIES retries", async () => {
+    await expect(reconnectDelay(5)).rejects.toThrow("did not advance after 5 retries")
+    await reconnectDelay(0)
+  })
+})
+
+describe("follow stop statuses", () => {
+  test("stops on terminal statuses and disconnected, not on running", () => {
+    expect(FOLLOW_STOP_STATUSES.has("completed")).toBe(true)
+    expect(FOLLOW_STOP_STATUSES.has("failed")).toBe(true)
+    expect(FOLLOW_STOP_STATUSES.has("cancelled")).toBe(true)
+    expect(FOLLOW_STOP_STATUSES.has("disconnected")).toBe(true)
+    expect(FOLLOW_STOP_STATUSES.has("running")).toBe(false)
   })
 })

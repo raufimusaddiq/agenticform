@@ -20,6 +20,17 @@ export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
   "cancelled",
 ])
 
+/**
+ * Statuses at which a thin client stops following. `disconnected` is not
+ * terminal (contracts/http-api.md: the SSE stream stays open because the run
+ * may be recovered and continue), but a thin client cannot recover it, so it
+ * stops and reports the run for the caller to recover.
+ */
+export const FOLLOW_STOP_STATUSES: ReadonlySet<RunStatus> = new Set([
+  ...TERMINAL_RUN_STATUSES,
+  "disconnected",
+])
+
 /** Fallback error code for a non-JSON or unknown-status error response. */
 const STATUS_CODES: Readonly<Record<number, ErrorCode>> = {
   400: "invalid_input",
@@ -67,14 +78,14 @@ export function normalizeAfter(value: unknown): number {
 export const MAX_FOLLOW_RETRIES = 5
 
 /**
- * Wait before reconnecting a follow stream that made no progress. Bounded:
- * 100ms doubling to 5s, and it gives up after `MAX_FOLLOW_RETRIES`.
+ * Wait before reconnect `retriesMade` (0-based). Bounded: 100ms doubling to
+ * 5s, and it gives up once `MAX_FOLLOW_RETRIES` retries have been made.
  */
-export async function reconnectDelay(attempt: number): Promise<void> {
-  if (attempt > MAX_FOLLOW_RETRIES) {
+export async function reconnectDelay(retriesMade: number): Promise<void> {
+  if (retriesMade >= MAX_FOLLOW_RETRIES) {
     throw new Error(`event stream did not advance after ${MAX_FOLLOW_RETRIES} retries`)
   }
-  await new Promise((resolve) => setTimeout(resolve, Math.min(100 * 2 ** attempt, 5_000)))
+  await new Promise((resolve) => setTimeout(resolve, Math.min(100 * 2 ** retriesMade, 5_000)))
 }
 
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import type { RunRequest } from "@agenticform/protocol"
 import {
+  FOLLOW_STOP_STATUSES,
   HubApiError,
   HubClient,
-  TERMINAL_RUN_STATUSES,
   normalizeAfter,
   reconnectDelay,
 } from "@agenticform/client"
@@ -83,13 +83,15 @@ async function main(argv: string[]): Promise<void> {
     const idempotencyKey = flag(rest, "key")
     if (!harness || !prompt || !idempotencyKey) throw new Error("--harness, --prompt and --key are required")
     const requires = flag(rest, "requires")
+    const cwd = flag(rest, "cwd")
+    const node = flag(rest, "node")
     const labels = parseLabels(flags(rest, "label"))
     const request: RunRequest = {
       idempotencyKey,
       harness,
       prompt,
-      ...(flag(rest, "cwd") === undefined ? {} : { cwd: flag(rest, "cwd") as string }),
-      ...(flag(rest, "node") === undefined ? {} : { nodeId: flag(rest, "node") as string }),
+      ...(cwd === undefined ? {} : { cwd }),
+      ...(node === undefined ? {} : { nodeId: node }),
       ...(requires === undefined ? {} : { requires: requires.split(",").filter(Boolean) }),
       ...(Object.keys(labels).length ? { labels } : {}),
     }
@@ -121,9 +123,16 @@ async function main(argv: string[]): Promise<void> {
         after = lastSeen
       }
       const run = await hub.getRun(id)
-      if (TERMINAL_RUN_STATUSES.has(run.status)) return
-      attempt = after > before ? 0 : attempt + 1
+      if (run.status === "disconnected") {
+        console.error(
+          `run ${id} disconnected; recover it with POST /v1/runs/${id}/recover then follow again`,
+        )
+        process.exit(3)
+      }
+      if (FOLLOW_STOP_STATUSES.has(run.status)) return
+      if (after > before) attempt = 0
       await reconnectDelay(attempt)
+      attempt += 1
     }
   }
 

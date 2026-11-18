@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterAll, beforeEach, describe, expect, test } from "bun:test"
 import { spawn } from "node:child_process"
 import { join } from "node:path"
 
@@ -39,6 +39,26 @@ const server = Bun.serve({
         { headers: { "content-type": "text/event-stream" } },
       )
     }
+    if (url.pathname === "/v1/runs/d1/events") {
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(event(1, "run.disconnected")))
+            controller.close()
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      )
+    }
+    if (url.pathname === "/v1/runs/d1") {
+      return Response.json({
+        runId: "d1",
+        status: "disconnected",
+        nodeId: null,
+        generation: 1,
+        createdAt: new Date().toISOString(),
+      })
+    }
     if (url.pathname === "/v1/runs/r1") {
       return Response.json({
         runId: "r1",
@@ -53,6 +73,11 @@ const server = Bun.serve({
 })
 
 afterAll(() => server.stop(true))
+
+beforeEach(() => {
+  streams = 0
+  resumes.length = 0
+})
 
 function cli(args: string[]): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
@@ -79,6 +104,15 @@ describe("af run events --follow", () => {
     expect(result.out).toContain('"type": "message.delta"')
     expect(result.out).toContain('"type": "run.finished"')
     expect(resumes).toEqual(["0", "1"])
+  })
+
+  test("stops on a disconnected run with exit 3 and a recover hint", async () => {
+    const result = await cli(["run", "events", "d1", "--follow"])
+    expect(result.code).toBe(3)
+    expect(result.out).toContain('"type": "run.disconnected"')
+    expect(result.err).toContain(
+      "run d1 disconnected; recover it with POST /v1/runs/d1/recover then follow again",
+    )
   })
 
   test("--after rejects a non-negative integer violation", async () => {
