@@ -13,7 +13,9 @@ client ─────► hub ◄───── node (machine A) ─► harness
 runtime: used by node, and on its own for local runs
 ```
 
-Only `runtime` exists today. The rest of this page is the target design.
+`runtime`, `node`, `hub`, `client`, the CLI and the MCP server exist. The
+distributed path is implemented; the sections below describe how it fits
+together.
 
 ## Layers
 
@@ -49,10 +51,12 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 - Unknown capabilities count as absent.
 - Prompts are never retried automatically, because a lost reply is ambiguous.
 - Harness stderr stays out of events, because it may contain sensitive output.
-- The remote design carries forward outbound-only nodes, fenced runtime identity, single-use nonces, idempotency and isolation. See the [legacy distributed fabric notes](legacy/distributed-agent-fabric.md).
+- The remote path carries outbound-only nodes, fenced runtime identity, single-use nonces, idempotency and isolation. See the [legacy distributed fabric notes](legacy/distributed-agent-fabric.md).
 
 ## Process lifecycle
 
 Each run owns one child process, which leads its own process group, so wrappers such as `bunx` are stopped with their children. Cancellation has a grace period, after which the process is stopped.
 
-Runs keep their events in memory. Durability belongs to `node` and `hub`.
+Runs keep their events in memory. Durability belongs to `node` and `hub`: the
+node writes a command ledger before any effect, and the hub keeps runs, commands
+and events in SQLite with WAL.

@@ -2,7 +2,7 @@
 
 Agenticform is a small execution fabric for coding agents. It gives applications, scripts and other agents one way to run Claude Code, Codex, OpenCode, omp, Pi, DeepSeek Harness and similar tools.
 
-> **Status:** early. The local `runtime` package exists. Running work across machines is the next milestone. The earlier Java and Go stack is still in `server/` and `node/`, documented in [docs/legacy](docs/legacy/README.md).
+> **Status:** early. The local `runtime` package, the `node` daemon and the `hub` exist. The earlier Java and Go stack is still in `server/` and `node/`, documented in [docs/legacy](docs/legacy/README.md).
 
 ## What it does
 
@@ -35,15 +35,18 @@ You need [Bun](https://bun.sh) and a harness that is already installed and logge
 bun install
 bun test packages
 bun packages/runtime/examples/run.ts codex . "Summarise this repository"
+bun packages/node/examples/end-to-end.ts
 ```
+
+The last command runs a real node against a fake hub and a fake agent, so it needs no harness and no credentials.
 
 ## Packages
 
 | Package | Purpose | Status |
 |---|---|---|
 | `runtime` | Local runs, ACP driver, events, capabilities | Available |
-| `node` | Daemon on each machine, isolation, recovery | Planned |
-| `hub` | Connection point, placement, fencing, HTTP API | Planned |
+| `node` | Daemon on each machine, isolation, recovery | Available |
+| `hub` | Connection point, placement, fencing, HTTP API | Available |
 | `client` | TypeScript SDK for the HTTP API | Available |
 | CLI, MCP | Thin clients of the HTTP API | Available |
 
@@ -80,6 +83,14 @@ af run cancel <runId>
 | `AGENTICFORM_RECOVERY_GRACE_SECONDS` | `120` | Wait before a disconnected run may recover |
 | `AGENTICFORM_POLL_MS` | `1500` | Empty-poll backoff advertised to nodes |
 | `AGENTICFORM_MAX_BODY_BYTES` | `1048576` | Maximum request body size before `413 payload_too_large` |
+
+## Memory
+
+Idle resident memory, measured 2026-11-18 on the 1 CPU / 2 GB development host:
+`hub` 25.7 MB, `node` 44.4 MB. Method: start each process alone with a temporary
+state directory, wait two seconds after it reports ready, then read `VmRSS` from
+`/proc/<pid>/status`. The node is higher because it loads `runtime` and the ACP
+driver. These are idle figures; a run adds the harness process.
 
 ## Documentation
 
