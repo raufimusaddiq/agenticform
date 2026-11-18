@@ -65,10 +65,12 @@ fixed catalog constant: it never comes from the run request, the host path or th
 node's environment, so every run sees the same file.
 
 Before the sandbox is built the node creates a missing directory `0700` and
-checks that it is a directory the node user can read and write. An unusable
-directory is `unknown` with reason `state_dir_unusable`: the harness is not
-advertised and a run fails with `harness_unavailable`, because [CC] exits 0 and
-silently starts with an empty config when its directory is unusable.
+checks that it is a directory the node user can read, write and traverse. An
+unusable directory is `unknown` with reason `state_dir_unusable`: the harness is
+not advertised and a run fails with `harness_unavailable`, because [CC] exits 0
+and silently starts with an empty config when its directory is unusable. Only
+the directory named by a profile `env` value is checked; another `rw` state
+directory is created and bound as before.
 
 Operator migration, once, so the interactive harness and the sandboxed one read
 the same file:

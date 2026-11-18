@@ -316,6 +316,32 @@ describe("config directory", () => {
       chmodSync(join(home, ".claude"), 0o700)
     }
   })
+
+  test("a file at the config dir path is state_dir_unusable, not a plain error", () => {
+    const home = temp("af-home-")
+    writeFileSync(join(home, ".claude"), "not a directory")
+    let error: unknown
+    try {
+      sandboxArgs(profileFor("claude"), "/tmp/ws", home, {})
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(IsolationError)
+    expect((error as IsolationError).code).toBe("state_dir_unusable")
+  })
+
+  test("another rw state dir is not refused by the config-dir check", () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".local", "share", "opencode")
+    mkdirSync(dir, { recursive: true })
+    chmodSync(dir, 0o000)
+    try {
+      const args = sandboxArgs(profileFor("opencode"), "/tmp/ws", home, {})
+      expect(args).toContain(dir)
+    } finally {
+      chmodSync(dir, 0o700)
+    }
+  })
 })
 
 describe("isolation: startup self-test", () => {

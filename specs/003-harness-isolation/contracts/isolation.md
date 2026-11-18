@@ -165,11 +165,13 @@ Rules for a config-directory entry:
   (`<name>.tmp.<pid>.<hash>` then `rename`), and a rename over a bound file fails
   with `EBUSY`; verified on this host.
 - A missing state directory is created `0700`, as for any `rw` entry. A directory
-  that cannot be created, is not a directory, or is not readable and writable by
-  the node user is `state_dir_unusable`: the harness is `unknown` and a run fails
-  with `harness_unavailable`, because Claude Code silently starts with an empty
-  config when its config directory is unusable (verified: exit 0, no file
-  written).
+  that cannot be created, is not a directory, or is not readable, writable and
+  traversable (`R_OK | W_OK | X_OK`) by the node user is `state_dir_unusable`:
+  the harness is `unknown` and a run fails with `harness_unavailable`, because
+  Claude Code silently starts with an empty config when its config directory is
+  unusable (verified: exit 0, no file written). The check covers only the
+  directory a profile `env` value names; another `rw` state directory keeps the
+  create-and-continue behaviour.
 - The operator's migration is documented in
   [research.md](../research.md#harness-config-directory): set
   `CLAUDE_CONFIG_DIR=~/.claude` for the interactive harness as well and move

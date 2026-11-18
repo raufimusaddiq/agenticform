@@ -258,10 +258,25 @@ export function entryBinds(
 }
 
 /**
- * A missing state dir is created `0700`; an existing one must be a directory the
- * node user can read and write. Claude Code silently starts with an empty config
- * when its config dir is unusable, so the node pre-checks instead of trusting the
- * harness exit status (FR-009b, SC-007).
+ * A missing state dir is created `0700`. Creation can fail in ways an errno
+ * check would miss (a file or dangling symlink at the path, a parent the node
+ * cannot write), so every failure is the same fail-closed error.
+ */
+function ensureStateDir(path: string): void {
+  try {
+    mkdirSync(path, { recursive: true, mode: 0o700 })
+  } catch (error) {
+    const reason = (error as NodeJS.ErrnoException).code ?? "error"
+    throw new IsolationError("state_dir_unusable", `state dir cannot be created: ${path} (${reason})`)
+  }
+}
+
+/**
+ * The pre-check for the directory a profile `env` value names (FR-009b). It must
+ * be a directory the node user can read, write and traverse: [CC] silently
+ * starts with an empty config when its config dir is unusable, so the node does
+ * not trust the harness exit status. Only a config dir is checked; another rw
+ * state dir keeps the create-and-continue behaviour.
  */
 export function assertStateDirUsable(path: string): void {
   let stats
@@ -330,6 +345,11 @@ export function sandboxArgs(
       mode: entry.mode,
     }
   })
+  // The state dirs a profile `env` value names: the only ones whose usability
+  // is checked (FR-009b). `profileFor` guarantees a value matches a state entry;
+  // a caller-built profile may not, so an unmatched value checks nothing.
+  const envValues = new Set(Object.values(profile.env ?? {}))
+  const configDirs = new Set(stateBinds.filter((bind) => envValues.has(bind.dest)).map((bind) => bind.dest))
   const args = [
     "--unshare-user",
     "--unshare-pid",
@@ -363,8 +383,10 @@ export function sandboxArgs(
       if (!existsSync(bind.source)) continue
       args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--ro-bind", bind.source, bind.dest)
     } else {
-      mkdirSync(bind.source, { recursive: true, mode: 0o700 })
-      assertStateDirUsable(bind.source)
+      ensureStateDir(bind.source)
+      // FR-009b names the dir a profile `env` value points at, not every rw
+      // state dir: another dir keeps the previous create-and-continue behaviour.
+      if (configDirs.has(bind.dest)) assertStateDirUsable(bind.source)
       args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--bind", bind.source, bind.dest)
     }
   }

@@ -136,10 +136,11 @@ To make your interactive `claude` read the same file, migrate once:
 3. `export CLAUDE_CONFIG_DIR=~/.claude` in your shell profile.
 
 Skipping it does not break runs; the two harnesses then keep separate files and
-trust and MCP edits stop crossing over. A config directory the node cannot read
-and write is reported as `state_dir_unusable` and a run for `claude` fails with
-`harness_unavailable` before any child starts. Linux only: on macOS credentials
-stay in the keychain and the config directory is not claimed to carry them.
+trust and MCP edits stop crossing over. A config directory the node cannot read,
+write and traverse is reported as `state_dir_unusable` and a run for `claude`
+fails with `harness_unavailable` before any child starts. Linux only: on macOS
+credentials stay in the keychain and the config directory is not claimed to
+carry them.
 
 ## Isolation cost
 

@@ -867,6 +867,30 @@ describe("non-ready runs", () => {
 describe("config directory", () => {
   const isRoot = typeof process.getuid === "function" && process.getuid() === 0
 
+  test("a file at the config dir path fails the run as harness_unavailable", async () => {
+    const home = temp("af-home-")
+    writeFileSync(join(home, ".claude"), "not a directory")
+    let connected = 0
+    const executor = new Executor({
+      isolation: SANDBOX,
+      home,
+      runtime: createRuntime({
+        driver: fakeDriver(() => (connected += 1)),
+        harnesses: { claude: { id: "claude", profile: "coding", command: process.execPath } },
+      }),
+      harnessStatus: () => "ready",
+    })
+    const outcome = await executor.execute(command("claude", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome).toEqual({
+      status: "failed",
+      error: { code: "harness_unavailable", message: "Harness is unavailable: claude" },
+    })
+    expect(connected).toBe(0)
+  })
+
   test.skipIf(isRoot)("an unusable config dir is unknown/state_dir_unusable and no child starts", async () => {
     const home = temp("af-home-")
     mkdirSync(join(home, ".claude"), { recursive: true })
