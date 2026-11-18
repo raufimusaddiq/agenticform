@@ -45,6 +45,7 @@ permission request.
 | not resolvable | `missing` | `not_installed` |
 | pinned version not cached | `missing` | `version_not_cached` |
 | spawn fails | `missing` | `spawn_failed` |
+| profile config directory unusable | `unknown` | `state_dir_unusable` |
 | ACP error `auth_required` | `unauthenticated` | `auth_required` |
 | handshake completes | `ready` | — |
 | timeout after 20 s | `unknown` | `handshake_timeout` |
@@ -82,7 +83,7 @@ type HeartbeatRequest = {
   harnessReport?: HarnessReport[]     // every configured harness
   isolation?: {
     mode: "bwrap" | "sandbox-exec" | "none"
-    profile: string                   // profile version, e.g. "1"
+    profile: string                   // profile version, e.g. "2"
     selfTest: "pass" | "fail"
   }
 }

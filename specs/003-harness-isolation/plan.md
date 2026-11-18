@@ -9,6 +9,9 @@
 Wrap every harness child in a bubblewrap sandbox built from a per-harness profile:
 minimal read-only system binds, a private tmpfs home and `/tmp`, the workspace
 bound read-write or read-only, and only the harness's declared state directories.
+A profile may also set one fixed variable that points a harness at a declared
+state directory when the harness keeps a config file at the home root, which a
+directory bind cannot cover.
 Probe each configured harness inside that sandbox, classify it `ready`, `missing`,
 `unauthenticated` or `unknown`, advertise only ready ones, and add the full report
 plus the isolation mode to the heartbeat as optional fields. When no sandbox can
@@ -120,6 +123,30 @@ and a version. The default profile for the workspace is `write`. The default for
 an unknown harness is an empty profile: no state paths, empty home. Profile
 entries are data, not logic, so a harness addition is a table row.
 
+An `env` entry is a fixed literal, not a copy of the node's environment. A value
+that is an absolute path under the sandbox home must be the in-sandbox path of a
+state entry in the same profile; the table is validated when it loads, so a typo
+fails at startup rather than producing a run against an unbound path.
+
+### Harness config directory
+
+`claude` keeps `.claude.json` at the home root: onboarding, account, project
+trust and MCP configuration. A directory bind cannot cover it, the private home is
+a fresh tmpfs, and a file bind is unsafe because Claude Code writes by renaming over the
+target and a rename over a bound file returns `EBUSY` (reproduced on this host).
+Setting `CLAUDE_CONFIG_DIR` moves `.claude.json` **and** `.credentials.json` into
+one directory, so the existing `~/.claude` bind covers both (verified on 2.1.327).
+
+The profile therefore gains one fixed entry:
+
+```ts
+env: { CLAUDE_CONFIG_DIR: "/home/agent/.claude" }
+```
+
+and the value is the in-sandbox path of its `~/.claude` state bind. No new field,
+no new argv shape, no new failure code: an unusable directory is the existing
+`unknown` status with reason `state_dir_unusable`.
+
 ### Self-test
 
 At startup, build the exact argv for an empty profile and run `true` inside it
@@ -162,7 +189,11 @@ All four are terminal run errors and never retried automatically.
   the probe classification table, the heartbeat fields.
 - **Failure boundaries**: write outside the workspace per catalog entry; write
   inside a `read-only` profile; sandbox missing; self-test failure; probe
-  timeout; `auth_required`; version not cached.
+  timeout; `auth_required`; version not cached; a config directory that is
+  missing, relative, unreadable or not a directory.
+- **Persistence**: two consecutive `claude` runs against the same state dir; the
+  second sees the first run's `.claude.json` (onboarding flag, trust, MCP
+  servers), and the file is inside the bound directory, not at the home root.
 - **Real process**: the write-denial tests run a fake child under real `bwrap` on
   the test host, skipping with a printed reason when `bwrap` is absent.
 - **Unaffected**: `bun test packages` still passes for `runtime`, `hub`, `node`

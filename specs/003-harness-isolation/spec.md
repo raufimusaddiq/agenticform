@@ -6,6 +6,10 @@
 
 **Status**: Implemented
 
+**Amended**: 2026-11-18 — a profile may declare a fixed config-directory
+variable (FR-009a..FR-009c). Implementation is a follow-up ticket; the rest of
+this spec is unchanged.
+
 **Input**: User description: "Isolation around the agent process itself: per-harness mounts, read-only vs write profiles, write outside the workspace denied for every supported harness, harness CLIs stay owner-provided separate children. Heartbeat reports harnesses actually installed and authenticated, with a clear named failure when a harness is missing or unauthenticated."
 
 ## Scope
@@ -65,7 +69,7 @@ otherwise empty, and that `~/.ssh` and a sibling project are absent.
 
 **Acceptance Scenarios**:
 
-1. **Given** the `claude` profile, **When** the harness starts, **Then** `~/.claude` is writable and `~/.ssh` does not exist.
+1. **Given** the `claude` profile, **When** the harness starts, **Then** `~/.claude` is writable, `~/.ssh` does not exist, and the harness's config file, account state and MCP configuration persist across runs.
 2. **Given** a harness with no declared profile, **When** it starts, **Then** it gets an empty home and only the workspace.
 3. **Given** any harness, **When** it starts, **Then** the node's own environment (hub URL, admin token, enrollment token) is absent from its environment.
 4. **Given** a harness that needs a state directory not in its profile, **When** it fails, **Then** the fix is to amend the profile table, not to widen the mount for every harness.
@@ -131,6 +135,9 @@ with `harness_unauthenticated` or `harness_missing`.
 - A probe spawns a harness that hangs: the probe times out, the harness is `unknown`, and the node keeps heartbeating.
 - The node's own environment contains a secret: it does not reach the harness, because the environment is cleared and rebuilt from an allowlist.
 - A run is cancelled while the harness is sandboxed: the process group is stopped, including wrapper children such as `bunx`.
+- A harness keeps account state in a file at the home root (`~/.claude.json`): the profile points the harness at a declared state directory with a fixed variable, so the file lives inside a directory bind instead of at the home root; a file bind is never used, because the harness writes by renaming and a rename over a bound file fails with `EBUSY`.
+- A profile's config-directory variable is relative or names a path outside its declared state: the profile is invalid, the node refuses the harness, and no child starts.
+- The declared state directory for a config-directory variable cannot be created or is not readable and writable by the node user: the harness is `unknown` with reason `state_dir_unusable` and a run for it fails with `harness_unavailable`. The harness does not fail silently with an empty config.
 - The sandbox is available but the harness exits immediately: the run fails with the harness's exit status, not `isolation_unavailable`.
 
 ## Requirements *(mandatory)*
@@ -148,7 +155,10 @@ with `harness_unauthenticated` or `harness_missing`.
 
 ### Mounts and profiles
 
-- **FR-009**: Each harness MUST have a declared mount profile listing the state directories it may read and write; the profile is part of the harness catalog, not of the run request.
+- **FR-009**: Each harness MUST have a declared mount profile listing the state directories it may read and write and the fixed environment variables it needs; the profile is part of the harness catalog, not of the run request.
+- **FR-009a**: A profile MAY declare a config-directory variable for a harness that keeps state outside its state directories (for example a file at the home root). The variable's value MUST be a constant in the catalog table, MUST be an absolute path, and MUST be the in-sandbox path of a state directory that the same profile declares. The node MUST reject a profile that breaks any of these at table load and MUST NOT start that harness.
+- **FR-009b**: The node MUST create a missing config-directory state directory `0700`, and MUST verify the directory exists, is a directory, and is readable and writable by the node user before the sandbox is built. If it is not usable, the harness MUST be `unknown` with reason `state_dir_unusable` and a run for it MUST fail with `harness_unavailable`; no child starts and no empty config is silently accepted.
+- **FR-009c**: A config-directory variable MUST NOT be derived from run input, the host path or the node's environment. It is the same fixed value for every run of that harness, so two consecutive runs see the same file and the operator's interactive harness sees the same file when it is configured the same way.
 - **FR-010**: A harness with no declared profile MUST get an empty home and only the workspace.
 - **FR-011**: The node MUST mount system paths read-only and MUST NOT mount the operator's home directory as a whole.
 - **FR-012**: A profile change MUST be a catalog edit plus a conformance run; the node MUST NOT widen mounts at runtime in response to a harness failure.
@@ -180,7 +190,7 @@ with `harness_unauthenticated` or `harness_missing`.
 
 ### Key Entities
 
-- **IsolationProfile**: The sandbox shape for one harness: workspace mode, declared state directories, environment allowlist, profile version.
+- **IsolationProfile**: The sandbox shape for one harness: workspace mode, declared state directories, the fixed config-directory variable when the harness needs one, environment allowlist, profile version.
 - **SandboxSelfTest**: The startup check that the primitive can create the exact sandbox shape; pass or fail with a reason.
 - **HarnessStatus**: One harness's probe result: id, status, reason, probed-at.
 - **ProbeCache**: Bounded, TTL-limited map of harness id to `HarnessStatus`.
@@ -195,12 +205,14 @@ with `harness_unauthenticated` or `harness_missing`.
 - **SC-004**: A heartbeat distinguishes `ready`, `missing`, `unauthenticated` and `unknown` for the same node without a restart.
 - **SC-005**: A run for a non-ready harness fails with a named error before any child process starts.
 - **SC-006**: No node secret appears in a harness environment in any test.
+- **SC-007**: For `claude`, a first run's onboarding flag, project trust and MCP configuration are still present in the second run, and an unusable config directory produces `state_dir_unusable` instead of a run with an empty config.
 
 ## Assumptions
 
 - The node runs on Linux with bubblewrap available, or on a platform with an equivalent primitive; the node is designed for a 1 CPU / 2 GB host, and the test host has bubblewrap 0.9.0.
 - Harnesses are installed and authenticated by the owner (constitution V); the node only observes.
 - Harness state directories are stable per user and are declared in the catalog; a wrong entry is a catalog bug.
+- Claude Code 2.1.x reads its config directory from `CLAUDE_CONFIG_DIR` when set, and reads `.claude.json` and `.credentials.json` from that directory instead of the home root; verified on 2.1.327 (research.md). A future version that ignores the variable is a catalog bug, caught by the probe.
 - Gateway-backed agentic harnesses may run tools outside the local process; the spec claims filesystem isolation for the local child only and says so in the docs.
 - The wire protocol stays at version 1; the new heartbeat fields are optional and additive.
 - No code in this ticket: the spec, plan, research, tasks and contracts are the deliverable.
