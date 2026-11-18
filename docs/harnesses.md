@@ -17,6 +17,22 @@ A harness counts as **tested** only after the conformance suite passes against a
 
 OpenBot has no documented ACP mode. It would need its own driver, and more than one project uses the name.
 
+## How the node sees a harness
+
+The node probes each configured harness inside its sandbox and reports one status
+per heartbeat. Only `ready` harnesses are advertised for placement.
+
+| Status | Meaning | A run for it fails with |
+|---|---|---|
+| `ready` | Entry point resolves without network and an ACP handshake completes | — |
+| `missing` | Not installed, or the pinned version is not in the local cache | `harness_missing` |
+| `unauthenticated` | Installed, but the handshake answers `auth_required` | `harness_unauthenticated` |
+| `unknown` | Probe timed out or the harness crashed | `harness_unavailable` |
+
+The probe never installs, updates or logs in to anything, and it reads no
+credential file. A login is picked up after the probe cache expires, without a
+node restart. See [`specs/003-harness-isolation`](../specs/003-harness-isolation/spec.md).
+
 ## Custom harnesses
 
 Pass a definition instead of an id. Any command that speaks ACP v1 over stdio works.
