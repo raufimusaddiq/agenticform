@@ -53,6 +53,12 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 - Harness stderr stays out of events, because it may contain sensitive output.
 - The remote path carries outbound-only nodes, fenced runtime identity, single-use nonces, idempotency and isolation. See [node/hub invariants](node-hub-invariants.md).
 
+## Isolation
+
+Planned (spec 003), not implemented yet: the node and heartbeat do not sandbox
+harnesses or report harness presence today. The design is
+[`specs/003-harness-isolation`](../specs/003-harness-isolation/spec.md).
+
 ## Process lifecycle
 
 Each run owns one child process, which leads its own process group, so wrappers such as `bunx` are stopped with their children. Cancellation has a grace period, after which the process is stopped.

@@ -17,6 +17,12 @@ A harness counts as **tested** only after the conformance suite passes against a
 
 OpenBot has no documented ACP mode. It would need its own driver, and more than one project uses the name.
 
+## How the node sees a harness
+
+Planned (spec 003), not implemented yet: the node and heartbeat do not probe
+harnesses or report their status today. The design is
+[`specs/003-harness-isolation`](../specs/003-harness-isolation/spec.md).
+
 ## Custom harnesses
 
 Pass a definition instead of an id. Any command that speaks ACP v1 over stdio works.
