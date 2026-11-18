@@ -2,7 +2,7 @@
 
 Agenticform is a small execution fabric for coding agents. It gives applications, scripts and other agents one way to run Claude Code, Codex, OpenCode, omp, Pi, DeepSeek Harness and similar tools.
 
-> **Status:** early. The local `runtime` package, the `node` daemon and the `hub` exist. The earlier Java and Go stack is still in `server/` and `node/`, documented in [docs/legacy](docs/legacy/README.md).
+> **Status:** early. The local `runtime` package, the `node` daemon and the `hub` exist. The earlier Java, Go and React stack has been removed; its history stays in git.
 
 ## What it does
 
@@ -39,6 +39,23 @@ bun packages/node/examples/end-to-end.ts
 ```
 
 The last command runs a real node against a fake hub and a fake agent, so it needs no harness and no credentials.
+
+## Clean install and one run
+
+From a fresh clone, with nothing else installed but Bun:
+
+```bash
+bun install --frozen-lockfile
+bun run typecheck
+bun test packages
+bun packages/node/examples/end-to-end.ts
+```
+
+The last step is the run journey: a real node enrolls, heartbeats, leases one
+`run.start`, streams events and completes, against a fake hub and a fake agent.
+It writes only to a temporary state directory and removes it, so it needs no
+harness, no credentials and no database. `packages/node/test/journey.test.ts`
+runs the same journey as part of `bun test packages`.
 
 ## Packages
 
@@ -99,7 +116,6 @@ driver. These are idle figures; a run adds the harness process.
 - [Constitution](.specify/memory/constitution.md)
 - [Runtime spec](specs/001-runtime-foundation/spec.md)
 - [Node and hub spec](specs/002-node-hub/spec.md)
-- [Legacy documentation](docs/legacy/README.md)
 
 ## Development
 
