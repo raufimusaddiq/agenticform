@@ -30,7 +30,7 @@ import {
 import { hostname } from "node:os"
 import { join } from "node:path"
 import { randomBytes } from "node:crypto"
-import { createRuntime } from "../packages/runtime/src/index.ts"
+import { createRuntime, Runtime, type HarnessDefinition } from "../packages/runtime/src/index.ts"
 import { NodeClient } from "../packages/node/src/client.ts"
 import type { NodeConfig } from "../packages/node/src/config.ts"
 import { Executor } from "../packages/node/src/executor.ts"
@@ -180,10 +180,30 @@ function harnessGroupLeaders(entry: string, marker?: string): number[] {
   return pids
 }
 
+/**
+ * A runtime whose single harness definition is replaced per run, so the marker
+ * travels in argv without mutating a definition the runtime already holds.
+ */
+class SoakRuntime extends Runtime {
+  definition: HarnessDefinition
+
+  constructor(definition: HarnessDefinition) {
+    super({ harnesses: { [definition.id]: definition } })
+    this.definition = definition
+  }
+
+  override harnesses(): HarnessDefinition[] {
+    return [this.definition]
+  }
+}
+
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2))
   const durationMs = options.minutes === null ? options.hours * 3_600_000 : options.minutes * 60_000
   if (durationMs <= 0) throw new Error("the soak needs a positive duration")
+  if (options.minutes === null && options.hours < 1) {
+    throw new Error("baseline not reached: an --hours run must last at least 1 hour")
+  }
   if (!hasBwrap()) {
     console.error("soak: bwrap is required; the node refuses every run without a sandbox")
     return 2
@@ -227,7 +247,6 @@ async function main(): Promise<number> {
   const tracked: Tracked[] = []
   const samples: RssSample[] = []
   const groups = new Set<number>()
-  const recordedGroups = new Set<number>()
   const failures: string[] = []
   let restartsDone = 0
 
@@ -292,17 +311,32 @@ async function main(): Promise<number> {
       harnessProbeTimeoutMs: 20_000,
       protocolVersion: 1,
     }
-    // The workspace is bound read-write, so the fake agent lives there and needs
-    // no exec bit or extra bind. Its argv carries the per-run marker.
+    // The workspace is bound read-write, so the wrapper and the fake agent live
+    // there and need no exec bit or extra bind. The wrapper is the process the
+    // runtime talks to for both the fake agent and a real harness.
+    const wrapPath = join(work, "soak-wrap.ts")
+    copyFileSync(join(root, "scripts", "soak-wrap.ts"), wrapPath)
     const entry = join(work, "soak-harness.ts")
-    const soakDefinition = { id: "soak", profile: "coding" as const, command: process.execPath, args: [entry] }
-    const runtime =
+    const real =
       harnessId === "soak"
         ? (() => {
             copyFileSync(join(root, "scripts", "soak-harness.ts"), entry)
-            return createRuntime({ harnesses: { soak: soakDefinition } })
+            return { command: process.execPath, args: [entry] }
           })()
-        : createRuntime()
+        : (() => {
+            const found = createRuntime()
+              .harnesses()
+              .find((harness) => harness.id === harnessId)
+            if (!found) throw new Error(`unknown harness: ${harnessId}`)
+            return { command: found.command, args: found.args ?? [] }
+          })()
+    const buildDefinition = (marker: string): HarnessDefinition => ({
+      id: harnessId,
+      profile: "coding",
+      command: process.execPath,
+      args: [wrapPath, marker, real.command, ...real.args],
+    })
+    const runtime = new SoakRuntime(buildDefinition("boot"))
     const isolation = startupSelfTest()
     if (isolation.mode === "none" || isolation.selfTest !== "pass") {
       throw new Error(`the sandbox self-test did not pass: ${isolation.reason ?? isolation.selfTest}`)
@@ -383,9 +417,9 @@ async function main(): Promise<number> {
     }
 
     /**
-     * Wait for the harness to record its spawn, then record the host process
-     * group and release it. The harness holds before ACP init, so a fast run
-     * cannot start and exit between two scans.
+     * Wait for the wrapper to record its spawn, then record the host process
+     * group and release it. The wrapper holds before the real harness starts,
+     * so a fast run cannot start and exit between two scans.
      */
     const recordSpawn = async (
       marker: string,
@@ -397,12 +431,9 @@ async function main(): Promise<number> {
       while (Date.now() < until) {
         if (existsSync(record)) {
           spawned = true
-          const leaders = harnessGroupLeaders(entry, marker)
+          const leaders = harnessGroupLeaders(wrapPath, marker)
           if (leaders.length > 0) {
-            for (const group of leaders) {
-              groups.add(group)
-              recordedGroups.add(group)
-            }
+            for (const group of leaders) groups.add(group)
             writeFileSync(join(harnessDir, `spawn-${marker}.ready`), "")
             return { groups: leaders, spawned }
           }
@@ -412,9 +443,7 @@ async function main(): Promise<number> {
       return { groups: [], spawned }
     }
 
-    const submit = async (kind: Kind, index: number): Promise<Tracked> => {
-      const marker = `r${index}-${randomBytes(4).toString("hex")}`
-      if (harnessId === "soak") soakDefinition.args = [entry, marker]
+    const submit = async (kind: Kind, index: number, marker: string): Promise<Tracked> => {
       const prompt = kind === "complete" ? "complete" : kind === "cancel" ? "hang" : "permission"
       const response = await api("POST", "/v1/runs", {
         idempotencyKey: `soak-${index}`,
@@ -495,6 +524,13 @@ async function main(): Promise<number> {
       }
     }
 
+    const runError = async (runId: string): Promise<string> => {
+      const response = await api("GET", `/v1/runs/${runId}`)
+      if (!response.ok) return ""
+      const body = (await response.json()) as { error?: { code: string; message: string } }
+      return body.error ? ` (${body.error.code}: ${body.error.message})` : ""
+    }
+
     /** Every mix has one expected outcome; anything else is a failure (SC-005). */
     const verify = async (item: Tracked): Promise<void> => {
       if (item.groups.length === 0 && (item.reachedRunning || item.status !== "failed")) {
@@ -505,21 +541,25 @@ async function main(): Promise<number> {
         return
       }
       if (item.kind === "complete" && item.status !== "completed") {
-        failures.push(`complete ${item.runId}: ended ${item.status}`)
+        failures.push(`complete ${item.runId}: ended ${item.status}${await runError(item.runId)}`)
       }
       if (item.kind === "cancel" && item.status !== "cancelled") {
-        failures.push(`cancel ${item.runId}: ended ${item.status}`)
+        failures.push(`cancel ${item.runId}: ended ${item.status}${await runError(item.runId)}`)
       }
       if (item.kind === "permission-allow") {
         if (!item.answered) failures.push(`permission-allow ${item.runId}: the answer was not accepted`)
-        if (item.status !== "completed") failures.push(`permission-allow ${item.runId}: ended ${item.status}`)
+        if (item.status !== "completed") {
+          failures.push(`permission-allow ${item.runId}: ended ${item.status}${await runError(item.runId)}`)
+        }
         const view = await permissionView(item.runId, item.requestId)
         if (view?.decision !== "allow") {
           failures.push(`permission-allow ${item.runId}: decision is ${view?.decision ?? "missing"}`)
         }
       }
       if (item.kind === "permission-timeout") {
-        if (item.status !== "completed") failures.push(`permission-timeout ${item.runId}: ended ${item.status}`)
+        if (item.status !== "completed") {
+          failures.push(`permission-timeout ${item.runId}: ended ${item.status}${await runError(item.runId)}`)
+        }
         const view = await permissionView(item.runId, item.requestId)
         if (view === null || (view.decision !== "deny" && view.status !== "timed_out")) {
           failures.push(
@@ -569,7 +609,9 @@ async function main(): Promise<number> {
         nextSample += 60_000
       }
       const kind = KINDS[index % KINDS.length] as Kind
-      const item = await submit(kind, index)
+      const marker = `r${index}-${randomBytes(4).toString("hex")}`
+      runtime.definition = buildDefinition(marker)
+      const item = await submit(kind, index, marker)
       index += 1
       tracked.push(item)
       const spawn = await recordSpawn(item.marker)
@@ -588,15 +630,18 @@ async function main(): Promise<number> {
     sample()
 
     const alive = [...groups].filter(groupAlive)
-    const live = harnessId === "soak" ? harnessGroupLeaders(entry) : []
+    const live = harnessGroupLeaders(wrapPath)
     const nonTerminal = tracked.filter((item) => !TERMINAL.has(item.status))
     const spawned = tracked.filter((item) => item.spawned).length
     const withGroups = tracked.filter((item) => item.groups.length > 0).length
-    const baseline = samples.find((item) => item.elapsedMs >= baselineAfterMs) ?? samples.at(-1)
+    const baseline = samples.find((item) => item.elapsedMs >= baselineAfterMs)
     const final = samples.at(-1) as RssSample
     const peakKb = Math.max(...samples.map((item) => item.nodeKb))
     const growthPct = baseline && baseline.nodeKb > 0 ? ((final.nodeKb - baseline.nodeKb) / baseline.nodeKb) * 100 : 0
 
+    if (baseline === undefined) {
+      failures.push(`baseline not reached: no sample at or after ${Math.round(baselineAfterMs / 60_000)} minutes`)
+    }
     if (tracked.length > 0 && groups.size === 0) {
       failures.push("no harness process group was recorded; the orphan scan did not run")
     }

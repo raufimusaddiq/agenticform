@@ -19,10 +19,13 @@ import { generateKeyPair, saveIdentity } from "../packages/node/src/identity.ts"
 
 const ROOT = join(import.meta.dir, "..")
 const WORKSPACE_PACKAGES = ["node", "protocol", "runtime"] as const
-/** The only node_modules entries the node may ship: bun's store and its deps. */
+/**
+ * The only node_modules entries the node may ship: bun's store and its deps.
+ * `zod` is installed as the SDK's peer dependency. `bun install --production`
+ * does not create `node_modules/.bin` on Linux (bun 1.4.4), so it is not allowed.
+ */
 const ALLOWED_NODE_MODULES = new Set([".bun", "zod"])
 const ALLOWED_SCOPES = new Set(["@agenticform", "@agentclientprotocol"])
-
 interface Variant {
   name: "compiled" | "install"
   contents: string[]
@@ -31,8 +34,7 @@ interface Variant {
 }
 
 const fail = (message: string): never => {
-  console.error(`package-node: ${message}`)
-  process.exit(1)
+  throw new Error(message)
 }
 
 /** Every entry under `dir`, relative and sorted. Symlinks are not followed. */
@@ -231,7 +233,7 @@ async function buildInstall(work: string): Promise<Variant> {
   )
   return {
     name: "install",
-    contents: entries.filter((entry) => !entry.isDirectory && !entry.path.includes("/")).map((entry) => entry.path),
+    contents: entries.filter((entry) => !entry.path.includes("/")).map((entry) => entry.path),
     sizeBytes: sizeOf(tree),
     startMs,
   }

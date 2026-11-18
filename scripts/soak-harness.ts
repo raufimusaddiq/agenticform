@@ -3,11 +3,6 @@
  * The soak's fake ACP agent (FR-018). It speaks NDJSON JSON-RPC directly, so it
  * needs no node_modules and runs inside the sandbox like a real harness.
  *
- * The first argv word is the run's marker: the runner sets it per run and scans
- * the host `/proc` for it while this process is held alive below. That records
- * the host process group at spawn, before ACP init, so the orphan check can be
- * per run instead of a poll that can miss a fast cancel.
- *
  * The prompt text picks the behaviour:
  *   - `complete`   one message, then `end_turn`
  *   - `hang`       hold the turn open until `session/cancel`
@@ -15,37 +10,10 @@
  *
  * The permission request is the real ACP shape, so the runtime's own handler,
  * timeout and `permission.resolved` event are exercised, not simulated.
+ *
+ * The spawn record and the hold before ACP init live in `soak-wrap.ts`, which
+ * wraps this agent and a real harness alike.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
-
-const marker = process.argv[2] ?? `anon-${process.pid}`
-const harnessDir = join(process.cwd(), "harness")
-try {
-  mkdirSync(harnessDir, { recursive: true })
-  const pgid = (() => {
-    try {
-      // Inside the sandbox PID namespace, so this is only reported, never trusted.
-      const stat = readFileSync("/proc/self/stat", "utf8")
-      const close = stat.lastIndexOf(")")
-      return Number(stat.slice(close + 2).split(" ")[2])
-    } catch {
-      return process.pid
-    }
-  })()
-  writeFileSync(
-    join(harnessDir, `spawn-${marker}.json`),
-    JSON.stringify({ marker, pid: process.pid, pgid, at: new Date().toISOString() }),
-  )
-} catch {
-  // No writable workspace: the runner then sees no spawn record and fails it.
-}
-// Hold still until the runner has recorded the host group, so a fast run cannot
-// start and exit between two scans.
-const release = join(harnessDir, `spawn-${marker}.ready`)
-const releaseBy = Date.now() + 10_000
-while (!existsSync(release) && Date.now() < releaseBy) Bun.sleepSync(5)
-
 const send = (message: unknown): void => {
   process.stdout.write(`${JSON.stringify(message)}\n`)
 }
