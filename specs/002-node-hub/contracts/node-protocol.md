@@ -20,7 +20,9 @@ X-AF-Signature: <base64 Ed25519 signature>
 - `nonce` matches `[A-Za-z0-9._:-]{16,128}`, generated from 128 random bits.
 - `signature` is base64 over the UTF-8 canonical string below.
 - The path is the exact request path, excluding scheme and host, including the
-  `v1` prefix and any query string.
+  `v1` prefix and any query string. The optional `types` filter on
+  `GET /v1/node/commands/next` is part of that path, so it is covered by the
+  signature.
 
 ### Canonical string
 
