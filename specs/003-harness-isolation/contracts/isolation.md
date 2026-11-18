@@ -43,7 +43,8 @@ bwrap
   --tmpfs /home/agent
   (--bind | --ro-bind) <workspace> <workspace>
   (--bind | --ro-bind) <state-source> <sandbox-home>/<relative> ...
-  --ro-bind <entry-dir> <entry-dir> ...          # resolved entry point, after the tmpfs
+  --ro-bind <entry-dir> <entry-dir> ...          # safe entry dir, after the tmpfs
+  --ro-bind <entry-file> <entry-file> ...        # temp root / workspace ancestor: file only
   --remount-ro /
   --
   <harness.command> <harness.args...>
@@ -64,9 +65,11 @@ Rules:
 - A read-only state path that does not exist is skipped; a read-write one is
   created with mode `0700`.
 - Entry-point binds come after the private `/tmp` and home tmpfs, so a resolved
-  entry point under `/tmp` is not shadowed by the private tmpfs. Only the entry
-  directory is exposed, read-only; the rest of `/tmp` stays private. The entry
-  directory is also prepended to the sandbox `PATH`.
+  entry point under `/tmp` is not shadowed by the private tmpfs. A safe entry
+  directory is bound whole, read-only, and prepended to the sandbox `PATH`. A
+  temp root (`/tmp`, `/var/tmp`) or a directory that is an ancestor of the
+  workspace is NOT bound whole: only the resolved entry file and its interpreter
+  are bound, so siblings stay invisible and the private `/tmp` is preserved.
 - The root is remounted read-only after the binds, so a path next to the
   workspace (created for the bind) cannot be written. The workspace, `/tmp`, the
   home, the state binds and the entry-point binds are separate mounts and keep

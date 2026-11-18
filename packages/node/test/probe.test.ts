@@ -363,6 +363,20 @@ describe("probe cache", () => {
     expect(calls).toBe(2)
   })
 
+  test("invalidate drops the cached entry point too", async () => {
+    const prober = new HarnessProber({
+      definitions: () => [{ id: "fake", profile: "coding", command: process.execPath }],
+      ttlMs: 60_000,
+      readyTtlMs: 60_000,
+      timeoutMs: 1_000,
+      probe: async () => ({ id: "fake", status: "ready" }),
+    })
+    await prober.refresh()
+    expect(prober.resolved("fake")).toBeDefined()
+    prober.invalidate("fake")
+    expect(prober.resolved("fake")).toBeUndefined()
+  })
+
   test("a login is picked up after the TTL without a restart", async () => {
     let now = 0
     let loggedIn = false
@@ -502,6 +516,47 @@ describe("non-ready runs", () => {
     expect(outcome.status).toBe("succeeded")
     expect(probes).toBe(1)
     expect(connected).toBe(1)
+  })
+
+  test("a run for a healthy harness does not wait for a hung sibling", async () => {
+    let healthyProbes = 0
+    let hungProbes = 0
+    const prober = new HarnessProber({
+      definitions: () => [
+        { id: "hung", profile: "coding", command: "hung" },
+        { id: "healthy", profile: "coding", command: "healthy" },
+      ],
+      ttlMs: 60_000,
+      readyTtlMs: 60_000,
+      timeoutMs: 60_000,
+      probe: async (definition) => {
+        if (definition.id === "hung") {
+          hungProbes += 1
+          await new Promise(() => {})
+        }
+        healthyProbes += 1
+        return { id: definition.id, status: "ready" }
+      },
+    })
+    // A refresh starts with the hung harness and never finishes.
+    void prober.refresh()
+    await Bun.sleep(10)
+    const executor = new Executor({
+      runtime: createRuntime({
+        driver: fakeDriver(() => {}),
+        harnesses: { healthy: { id: "healthy", profile: "coding", command: process.execPath } },
+      }),
+      harnessStatus: (id) => prober.status(id),
+      harnessProbe: (id) => prober.ensure(id),
+      probeWaitMs: 2_000,
+    })
+    const outcome = await executor.execute(command("healthy", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.status).toBe("succeeded")
+    expect(healthyProbes).toBe(1)
+    expect(hungProbes).toBe(1)
   })
 
   test("a probe that does not finish within the bound fails clearly", async () => {

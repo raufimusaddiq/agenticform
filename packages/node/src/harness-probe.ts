@@ -1,7 +1,8 @@
 import { accessSync, closeSync, constants, existsSync, mkdtempSync, openSync, readSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, join } from "node:path"
-import type { HarnessReport, HarnessStatus } from "@agenticform/protocol"
+import type { HarnessReport, HarnessReportReason, HarnessStatus } from "@agenticform/protocol"
+import { HARNESS_REPORT_REASON_SET } from "@agenticform/protocol"
 import { AcpDriver, RuntimeError, type HarnessDefinition, type RuntimeDriver } from "@agenticform/runtime"
 import { IsolationError, profileFor, sandboxHarness } from "./isolation.ts"
 
@@ -210,14 +211,16 @@ const probeRoot = (): string => {
   }
 }
 
-function classify(error: unknown): { status: HarnessStatus; reason: string } {
-  if (error instanceof IsolationError) return { status: "unknown", reason: error.code }
-  const code = error instanceof RuntimeError ? error.code : "agent_error"
-  if (code === "auth_required") return { status: "unauthenticated", reason: "auth_required" }
-  if (code === "spawn_failed") return { status: "missing", reason: "spawn_failed" }
-  if (code === "handshake_timeout") return { status: "unknown", reason: "handshake_timeout" }
-  if (code === "process_exited") return { status: "unknown", reason: "process_exited" }
-  return { status: "unknown", reason: code }
+function reasonOf(error: unknown): HarnessReportReason {
+  const code = error instanceof IsolationError ? error.code : error instanceof RuntimeError ? error.code : "agent_error"
+  return HARNESS_REPORT_REASON_SET.has(code) ? (code as HarnessReportReason) : "agent_error"
+}
+
+function classify(error: unknown): { status: HarnessStatus; reason: HarnessReportReason } {
+  const reason = reasonOf(error)
+  if (reason === "auth_required") return { status: "unauthenticated", reason }
+  if (reason === "spawn_failed") return { status: "missing", reason }
+  return { status: "unknown", reason }
 }
 
 async function bounded<T>(work: Promise<T>, timeoutMs: number, onTimeout: () => void): Promise<T> {
@@ -306,6 +309,7 @@ export interface HarnessProberOptions {
 export class HarnessProber {
   private readonly cache = new Map<string, { report: HarnessReport; at: number }>()
   private readonly entries = new Map<string, ResolvedHarness>()
+  private readonly pending = new Map<string, Promise<HarnessReport>>()
   private inflight: Promise<void> | null = null
   private readonly now: () => number
 
@@ -315,7 +319,7 @@ export class HarnessProber {
 
   report(): HarnessReport[] {
     return this.options.definitions().map(
-      (definition) => this.cache.get(definition.id)?.report ?? { id: definition.id, status: "unknown", reason: "not_probed" },
+      (definition) => this.cache.get(definition.id)?.report ?? { id: definition.id, status: "unknown" },
     )
   }
 
@@ -328,15 +332,22 @@ export class HarnessProber {
     return this.entries.get(id)
   }
 
-  /** Await a fresh status, triggering a single-flight probe when the entry is stale. */
+  /**
+   * Await a fresh status for one harness. It probes only that id (per-id
+   * single-flight), so a hung sibling cannot delay a run for a healthy one.
+   */
   async ensure(id: string): Promise<HarnessStatus | undefined> {
     if (this.fresh(id)) return this.status(id)
-    await this.refresh()
-    return this.status(id)
+    const definition = this.options.definitions().find((item) => item.id === id)
+    if (!definition) return undefined
+    const report = await this.probeOne(definition)
+    this.cache.set(id, { report, at: this.now() })
+    return report.status
   }
 
   invalidate(id: string): void {
     this.cache.delete(id)
+    this.entries.delete(id)
   }
 
   refresh(): Promise<void> {
@@ -353,31 +364,41 @@ export class HarnessProber {
     return this.now() - entry.at < ttl
   }
 
+  /** One probe per id at a time; a second caller joins the in-flight probe. */
+  private probeOne(definition: HarnessDefinition): Promise<HarnessReport> {
+    const existing = this.pending.get(definition.id)
+    if (existing) return existing
+    const work = this.probe(definition).finally(() => {
+      this.pending.delete(definition.id)
+    })
+    this.pending.set(definition.id, work)
+    return work
+  }
+
+  private async probe(definition: HarnessDefinition): Promise<HarnessReport> {
+    // Resolve once per probe and keep it: the executor reuses the dirs.
+    const resolution = resolveHarness(definition)
+    if (resolution.ok) this.entries.set(definition.id, resolution.resolved)
+    else this.entries.delete(definition.id)
+    try {
+      return await (this.options.probe?.(definition) ??
+        probeHarness(definition, {
+          timeoutMs: this.options.timeoutMs,
+          resolve: () => resolution,
+          ...(this.options.home === undefined ? {} : { home: this.options.home }),
+          ...(this.options.env === undefined ? {} : { env: this.options.env }),
+          ...(this.options.driver === undefined ? {} : { driver: this.options.driver }),
+        }))
+    } catch (error) {
+      // A probe never rejects the refresh: an unexpected failure is `unknown`.
+      return { id: definition.id, status: "unknown", reason: reasonOf(error) }
+    }
+  }
+
   private async run(): Promise<void> {
     for (const definition of this.options.definitions()) {
       if (this.fresh(definition.id)) continue
-      // Resolve once per probe and keep it: the executor reuses the dirs.
-      const resolution = resolveHarness(definition)
-      if (resolution.ok) this.entries.set(definition.id, resolution.resolved)
-      else this.entries.delete(definition.id)
-      let report: HarnessReport
-      try {
-        report = await (this.options.probe?.(definition) ??
-          probeHarness(definition, {
-            timeoutMs: this.options.timeoutMs,
-            resolve: () => resolution,
-            ...(this.options.home === undefined ? {} : { home: this.options.home }),
-            ...(this.options.env === undefined ? {} : { env: this.options.env }),
-            ...(this.options.driver === undefined ? {} : { driver: this.options.driver }),
-          }))
-      } catch (error) {
-        // A probe never rejects the refresh: an unexpected failure is `unknown`.
-        report = {
-          id: definition.id,
-          status: "unknown",
-          reason: error instanceof RuntimeError ? error.code : "agent_error",
-        }
-      }
+      const report = await this.probeOne(definition)
       this.cache.set(definition.id, { report, at: this.now() })
     }
   }

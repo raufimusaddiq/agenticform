@@ -97,7 +97,9 @@ export function createRun(
     if (placement.capabilityMissing) fail("capability_missing", `no node advertises ${detail}`)
     const suffix = placement.bestStatus
       ? `: ${placement.bestStatus.status} on node ${placement.bestStatus.nodeId}`
-      : ""
+      : placement.reason
+        ? `: ${placement.reason}`
+        : ""
     fail("no_eligible_node", `no node satisfies ${detail}${suffix}`)
   }
 

@@ -80,7 +80,6 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
     executor,
     start() {
       if (heartbeat || poller) return
-      void prober.refresh().catch(onError)
       heartbeat = startHeartbeat(client, {
         intervalMs: config.heartbeatIntervalMs,
         body: () => {

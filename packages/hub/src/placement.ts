@@ -25,11 +25,21 @@ export function nodeSupports(node: NodeRow, filter: PlacementFilter): boolean {
   return true
 }
 
+function labelsMatch(node: NodeRow, filter: PlacementFilter): boolean {
+  const labels = JSON.parse(node.labels) as Record<string, string>
+  return Object.entries(filter.labels ?? {}).every(([key, value]) => labels[key] === value)
+}
+
 /** Filter, then least-loaded, then oldest heartbeat. No scoring, no affinity (plan: Placement). */
 export function pickNode(
   db: Database,
   filter: PlacementFilter,
-): { node: NodeRow | null; capabilityMissing: boolean; bestStatus?: { nodeId: string; status: HarnessStatus } } {
+): {
+  node: NodeRow | null
+  capabilityMissing: boolean
+  bestStatus?: { nodeId: string; status: HarnessStatus }
+  reason?: "capacity" | "protocol" | "labels"
+} {
   const all = db.query<NodeRow, []>("SELECT * FROM nodes WHERE status = 'online'").all()
   const candidates = all.filter((node) => (filter.nodeId ? node.id === filter.nodeId : true))
   const eligible = candidates.filter((node) => nodeSupports(node, filter))
@@ -41,17 +51,31 @@ export function pickNode(
         const capabilities = new Set(JSON.parse(node.capabilities) as string[])
         return [...(filter.requires ?? [])].some((capability) => !capabilities.has(capability))
       })
-    // FR-025: name the best-known status a node reported for the requested
-    // harness, so the operator sees why nothing was placed.
-    const rank: Record<HarnessStatus, number> = { unauthenticated: 3, unknown: 2, missing: 1, ready: 0 }
+    // FR-025: only a non-ready status explains why the harness was not placed.
+    const rank: Record<Exclude<HarnessStatus, "ready">, number> = { unauthenticated: 3, unknown: 2, missing: 1 }
     let best: { nodeId: string; status: HarnessStatus } | undefined
     for (const node of candidates) {
       const report = JSON.parse(node.harness_report) as HarnessReport[]
       const entry = report.find((item) => item.id === filter.harness)
-      if (!entry) continue
-      if (!best || rank[entry.status] > rank[best.status]) best = { nodeId: node.id, status: entry.status }
+      if (!entry || entry.status === "ready") continue
+      if (!best || rank[entry.status] > rank[best.status as Exclude<HarnessStatus, "ready">]) {
+        best = { nodeId: node.id, status: entry.status }
+      }
     }
-    return { node: null, capabilityMissing, ...(best === undefined ? {} : { bestStatus: best }) }
+    // A node that reported the harness ready but was ineligible for another
+    // reason: name that reason instead of a misleading "ready".
+    let reason: "capacity" | "protocol" | "labels" | undefined
+    if (!best) {
+      if (candidates.some((node) => node.capacity_in_use >= node.capacity_slots)) reason = "capacity"
+      else if (candidates.some((node) => !SUPPORTED_PROTOCOL_VERSIONS.includes(node.protocol_version))) reason = "protocol"
+      else if (candidates.some((node) => !labelsMatch(node, filter))) reason = "labels"
+    }
+    return {
+      node: null,
+      capabilityMissing,
+      ...(best === undefined ? {} : { bestStatus: best }),
+      ...(reason === undefined ? {} : { reason }),
+    }
   }
   eligible.sort((a, b) => {
     if (a.capacity_in_use !== b.capacity_in_use) return a.capacity_in_use - b.capacity_in_use

@@ -296,8 +296,9 @@ export class Executor {
         }
       }
     }
-    // T031: reuse the entry point the prober resolved; fall back to resolving
-    // here for callers without a prober.
+    // T031: reuse the entry point the prober resolved. A caller without a
+    // prober (custom callers, tests) resolves the harness command on the host
+    // PATH here; that is a deliberate behaviour change from the pre-T031 code.
     const cached = this.harnessEntry?.(payload.harness)
     let resolved: ResolvedHarness
     if (cached) {

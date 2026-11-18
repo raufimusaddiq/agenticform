@@ -73,6 +73,21 @@ describe("placement", () => {
     expect(response.body.error.message).toBe("no node satisfies codex")
   })
 
+  test("a ready harness on a full node names capacity, not ready", async () => {
+    hub = startHub()
+    const node = await enroll(hub, { harnesses: ["codex"] })
+    await heartbeat(hub, node, {
+      harnesses: ["codex"],
+      capacity: { slots: 0, inUse: 0 },
+      harnessReport: [{ id: "codex", status: "ready" }],
+    })
+    const response = await createRun(hub, { harness: "codex" })
+    expect(response.status).toBe(422)
+    expect(response.body.error.code).toBe("no_eligible_node")
+    expect(response.body.error.message).toContain("capacity")
+    expect(response.body.error.message).not.toContain("ready")
+  })
+
   test("capacity reservations spread a burst across nodes", async () => {
     hub = startHub()
     const first = await enroll(hub, { name: "first" })
@@ -250,21 +265,21 @@ describe("harness report validation", () => {
     expect(response.body.error.code).toBe("invalid_input")
   })
 
-  test("a reason longer than 128 characters is rejected", async () => {
+  test("an unknown reason is rejected", async () => {
     hub = startHub()
     const node = await enroll(hub)
     const response = await heartbeat(hub, node, {
-      harnessReport: [{ id: "codex", status: "unknown", reason: "x".repeat(129) }],
+      harnessReport: [{ id: "codex", status: "unknown", reason: "nope" }],
     })
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe("invalid_input")
   })
 
-  test("the caps are inclusive", async () => {
+  test("a 64-character id is accepted", async () => {
     hub = startHub()
     const node = await enroll(hub)
     const response = await heartbeat(hub, node, {
-      harnessReport: [{ id: "x".repeat(64), status: "unknown", reason: "x".repeat(128) }],
+      harnessReport: [{ id: "x".repeat(64), status: "unknown", reason: "agent_error" }],
     })
     expect(response.status).toBe(200)
   })

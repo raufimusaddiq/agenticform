@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite"
-import type { HarnessReport, HeartbeatRequest, HeartbeatResponse, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
-import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
+import type { HarnessReport, HarnessReportReason, HeartbeatRequest, HeartbeatResponse, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
+import { HARNESS_REPORT_REASON_SET, SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
 import { insertEvent, hubEventKey } from "./events.ts"
@@ -34,16 +34,13 @@ function validateReport(report: unknown): HarnessReport[] {
     if (typeof item.status !== "string" || !STATUSES.has(item.status)) {
       fail("invalid_input", "harnessReport.status must be ready, missing, unauthenticated or unknown")
     }
-    if (item.reason !== undefined && typeof item.reason !== "string") {
-      fail("invalid_input", "harnessReport.reason must be a string")
-    }
-    if (item.reason !== undefined && item.reason.length > 128) {
-      fail("invalid_input", "harnessReport.reason exceeds 128 characters")
+    if (item.reason !== undefined && (typeof item.reason !== "string" || !HARNESS_REPORT_REASON_SET.has(item.reason))) {
+      fail("invalid_input", "harnessReport.reason must be a known harness report reason")
     }
     return {
       id: item.id,
       status: item.status as HarnessReport["status"],
-      ...(item.reason === undefined ? {} : { reason: item.reason }),
+      ...(item.reason === undefined ? {} : { reason: item.reason as HarnessReportReason }),
     }
   })
 }
