@@ -73,27 +73,40 @@ with an unavailable one. `--unshare-net` is deliberately absent.
 
 ## Per-harness mount table
 
-**To be verified per harness, not final.** These paths are the intended shape,
-not a checked fact: each entry must be confirmed against the harness's own
-documentation and a real run before the table is treated as the contract. A wrong
-entry is a table bug, fixed by editing the table and re-running the conformance
-probe, never by widening the mount for everyone.
+Verified on 2026-11-18 against each harness's documentation and, where the
+harness is installed on the verification host, a real run. A wrong entry is a
+table bug, fixed by editing the table and re-running the conformance probe, never
+by widening the mount for everyone.
 
-| Harness | Read-write | Read-only |
-|---|---|---|
-| `claude` | `~/.claude` | `~/.config/claude` |
-| `codex` | `~/.codex` | — |
-| `opencode` | `~/.local/share/opencode` | `~/.config/opencode` |
-| `omp` | `~/.omp` | — |
-| `pi` | `~/.pi` | — |
-| `dsh` | `~/.dsh` | — |
-| `hermes` | `~/.hermes` | — |
-| `openclaw` | `~/.openclaw` | — |
-| custom / unknown | none | none |
+| Harness | Read-write | Read-only | Evidence |
+|---|---|---|---|
+| `claude` | `~/.claude` | — | Claude Code 2.1.327: `~/.claude` holds credentials, history and cache; the CLI starts in the sandbox with it bound. The docs name `~/.claude/settings.json` and `~/.claude.json`; there is no `~/.config/claude`. |
+| `codex` | `~/.codex` | — | Docs: user config is `~/.codex/config.toml`, with profile files and logs beside it. The directory exists here; the CLI is not installed, so no run. |
+| `opencode` | `~/.local/share/opencode` | `~/.config/opencode` | OpenCode 2.3.0: a real `opencode acp` run writes its log and database under the data dir; with that dir read-only the run fails. The docs put global config in `~/.config/opencode`. |
+| `omp` | `~/.omp` | — | Not installed; entry from upstream docs, unverified. |
+| `pi` | `~/.pi` | — | Not installed; entry from upstream docs, unverified. |
+| `dsh` | `~/.dsh` | — | Not installed; entry from upstream docs, unverified. |
+| `hermes` | `~/.hermes` | — | `~/.hermes` exists (skills only); the CLI is not installed, so no run. |
+| `openclaw` | `~/.openclaw` | — | Not installed; entry from upstream docs, unverified. |
+| custom / unknown | none | none | Test: empty home, workspace only. |
 
 Paths are resolved against the node user's home before binding. A path that does
 not exist is created `0700` for read-write entries and skipped for read-only
 entries, so a missing optional config directory does not fail the run.
+
+### Verification findings
+
+- **The entry point is not a state mount.** The sandbox root is a fresh tmpfs, so
+  a harness installed under the home (`~/.local/bin/claude`,
+  `~/.opencode/bin/opencode`, `~/.bun/bin/bunx`) is not visible, and the fixed
+  `PATH` does not include those directories. A real run needs the resolved entry
+  point's directory bound read-only. That is entry-point resolution, not a state
+  mount, and it is not part of this table.
+- **`~/.claude.json` is a file at the home root.** Claude Code writes it for
+  account details and MCP configuration. The profile binds directories only, so a
+  run gets a fresh file. A follow-up needs file binds or `CLAUDE_CONFIG_DIR`.
+- **`~/.config/claude` does not exist.** It was removed from the table; the docs
+  and the host agree that Claude Code uses `~/.claude`.
 
 ## Presence probe
 

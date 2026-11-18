@@ -26,9 +26,9 @@ export const SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
 const SYSTEM_PATHS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/etc", "/run"]
 const COPIED_ENV = ["TERM", "LANG", "LC_ALL", "TZ"]
 
-/** Intended mount table; each entry is confirmed by T023 before it is final. */
+/** Verified mount table (T023); evidence in specs/003-harness-isolation/research.md. */
 const TABLE: Readonly<Record<string, { rw: readonly string[]; ro: readonly string[] }>> = {
-  claude: { rw: ["~/.claude"], ro: ["~/.config/claude"] },
+  claude: { rw: ["~/.claude"], ro: [] },
   codex: { rw: ["~/.codex"], ro: [] },
   opencode: { rw: ["~/.local/share/opencode"], ro: ["~/.config/opencode"] },
   omp: { rw: ["~/.omp"], ro: [] },

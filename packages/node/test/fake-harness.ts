@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, readdirSync, writeFileSync } from "node:fs"
 
 /**
  * A real ACP child that runs inside the sandbox. It speaks NDJSON JSON-RPC
@@ -12,6 +12,7 @@ const spec = JSON.parse(process.argv[2] ?? "{}") as {
   scenario?: string
   writes?: string[]
   reads?: string[]
+  lists?: string[]
   marker?: string
 }
 
@@ -47,6 +48,14 @@ const read = (path: string): string => {
   }
 }
 
+const list = (path: string): string => {
+  try {
+    return `list:${path}=${readdirSync(path).sort().join(",")}`
+  } catch (error) {
+    return `list:${path}=${(error as NodeJS.ErrnoException).code ?? "error"}`
+  }
+}
+
 async function handle(message: { id?: unknown; method?: string; params?: any }): Promise<void> {
   const { id, method, params } = message
   if (method === "initialize") {
@@ -70,6 +79,19 @@ async function handle(message: { id?: unknown; method?: string; params?: any }):
     if (spec.scenario === "writes") {
       const lines = [...(spec.writes ?? []).map(attempt), ...(spec.reads ?? []).map(read)]
       say(sessionId, lines.join("\n"))
+      reply(id, { stopReason: "end_turn" })
+      return
+    }
+    if (spec.scenario === "env") {
+      const lines = Object.entries(process.env)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, value]) => `${name}=${value}`)
+      say(sessionId, lines.join("\n"))
+      reply(id, { stopReason: "end_turn" })
+      return
+    }
+    if (spec.scenario === "list") {
+      say(sessionId, (spec.lists ?? []).map(list).join("\n"))
       reply(id, { stopReason: "end_turn" })
       return
     }
