@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { CommandEnvelope } from "@agenticform/protocol"
@@ -87,6 +87,15 @@ const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => {
 
 const context = () => ({ emit: () => {}, signal: new AbortController().signal })
 
+/** Child process for the kill-after-STARTED case: admit, report, then wait to be killed. */
+const startedThenWaitCode = [
+  `import { CommandLedger } from ${JSON.stringify(join(import.meta.dir, "../src/ledger.ts"))}`,
+  `const ledger = new CommandLedger({ dir: process.env.LEDGER_DIR })`,
+  `ledger.admit(JSON.parse(process.env.CMD_JSON))`,
+  `process.stdout.write("started\\n")`,
+  `await new Promise(() => {})`,
+].join("\n")
+
 describe("command ledger", () => {
   test("persists started atomically with mode 0600 before the effect", () => {
     const dir = stateDir()
@@ -126,8 +135,27 @@ describe("command ledger", () => {
 describe("durable command effects", () => {
   test("a command killed after started is refused on restart with no second effect", async () => {
     const dir = stateDir()
-    // The previous process persisted `started` and died before completing.
-    expect(new CommandLedger({ dir }).admit(command())).toEqual({ kind: "new" })
+    const child = Bun.spawn(["bun", "-e", startedThenWaitCode], {
+      cwd: join(import.meta.dir, ".."),
+      env: { ...process.env, LEDGER_DIR: dir, CMD_JSON: JSON.stringify(command()) },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    // The child wrote `started` and is still alive: kill it before it can settle.
+    let seen = ""
+    const reader = child.stdout.getReader()
+    const decoder = new TextDecoder()
+    while (!seen.includes("started")) {
+      const { value, done } = await reader.read()
+      if (done) break
+      seen += decoder.decode(value)
+    }
+    expect(seen).toContain("started")
+    child.kill(9)
+    await child.exited
+    expect(child.signalCode).toBe("SIGKILL")
+    expect(JSON.parse(readFileSync(join(dir, "cmd-1.json"), "utf8")).status).toBe("started")
 
     const counting = countingDriver()
     const executor = new Executor({ runtime: runtime(counting.driver), ledgerDir: dir })
@@ -173,28 +201,39 @@ describe("durable command effects", () => {
 })
 
 describe("ledger compaction", () => {
+  const write = (dir: string, name: string, entry: Record<string, unknown>, updatedAt: Date): string => {
+    const path = join(dir, `${name}.json`)
+    writeFileSync(path, JSON.stringify({ commandId: name, fingerprint: "f", ...entry, updatedAt: updatedAt.toISOString() }))
+    utimesSync(path, updatedAt, updatedAt)
+    return path
+  }
+
   test("drops old terminal entries and retains every started entry", () => {
     const dir = stateDir()
     const ledger = new CommandLedger({ dir })
-    const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
-    const fresh = new Date().toISOString()
-    writeFileSync(
-      join(dir, "old-terminal.json"),
-      JSON.stringify({ commandId: "old-terminal", fingerprint: "f", status: "succeeded", result: {}, updatedAt: old }),
-    )
-    writeFileSync(
-      join(dir, "old-started.json"),
-      JSON.stringify({ commandId: "old-started", fingerprint: "f", status: "started", updatedAt: old }),
-    )
-    writeFileSync(
-      join(dir, "new-terminal.json"),
-      JSON.stringify({ commandId: "new-terminal", fingerprint: "f", status: "failed", error: { code: "x", message: "y" }, updatedAt: fresh }),
-    )
+    const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+    const fresh = new Date()
+
+    write(dir, "old-terminal", { status: "succeeded", result: {} }, old)
+    write(dir, "old-started", { status: "started" }, old)
+    write(dir, "new-terminal", { status: "failed", error: { code: "x", message: "y" } }, fresh)
 
     expect(ledger.compact()).toBe(1)
     expect(() => readFileSync(join(dir, "old-terminal.json"))).toThrow()
     // A `started` entry is never dropped, however old.
     expect(JSON.parse(readFileSync(join(dir, "old-started.json"), "utf8")).status).toBe("started")
     expect(() => readFileSync(join(dir, "new-terminal.json"))).not.toThrow()
+  })
+
+  test("automatic compaction is throttled to the configured interval", () => {
+    const dir = stateDir()
+    const ledger = new CommandLedger({ dir, compactIntervalMs: 60_000 })
+    write(dir, "old-terminal", { status: "succeeded", result: {} }, new Date(Date.now() - 8 * 24 * 60 * 60 * 1000))
+
+    ledger.admit(command())
+    ledger.settle(command(), { status: "succeeded" })
+    expect(() => readFileSync(join(dir, "old-terminal.json"))).not.toThrow()
+
+    expect(ledger.compact()).toBe(1)
   })
 })

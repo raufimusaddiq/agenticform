@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeSync,
 } from "node:fs"
@@ -32,6 +33,8 @@ export interface LedgerOptions {
   dir?: string
   /** Terminal entries older than this are dropped. Default 7 days. */
   retentionMs?: number
+  /** Minimum gap between automatic compaction passes. Default 10 minutes. */
+  compactIntervalMs?: number
 }
 
 interface Entry {
@@ -46,6 +49,7 @@ interface Entry {
 /** Command ids name a file, so anything outside this set is refused (N6.1). */
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const COMPACT_INTERVAL_MS = 10 * 60 * 1000
 
 /**
  * Durable command receipts (FR-029..FR-032, N6). One file per command: `started`
@@ -55,11 +59,15 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 export class CommandLedger {
   private readonly dir: string | undefined
   private readonly retentionMs: number
+  private readonly compactIntervalMs: number
   private readonly entries = new Map<string, Entry>()
+  private readonly warned = new Set<string>()
+  private lastCompact = 0
 
   constructor(options: LedgerOptions = {}) {
     this.dir = options.dir
     this.retentionMs = options.retentionMs ?? WEEK_MS
+    this.compactIntervalMs = options.compactIntervalMs ?? COMPACT_INTERVAL_MS
     this.compact()
   }
 
@@ -103,36 +111,64 @@ export class CommandLedger {
       ...(outcome.error === undefined ? {} : { error: outcome.error }),
       updatedAt: new Date().toISOString(),
     })
-    // ponytail: one readdir per settled command; move to a timer if a node ever
-    // leases fast enough that the scan shows up in profiles.
+    this.maybeCompact()
+  }
+
+  /** A compaction pass walks the directory, so run it on an interval, not per write. */
+  private maybeCompact(): void {
+    if (Date.now() - this.lastCompact < this.compactIntervalMs) return
     this.compact()
   }
 
   /** FR-032: drop terminal entries past the retention window; never drop `started`. */
   compact(now = Date.now()): number {
     if (this.dir === undefined) return 0
+    this.lastCompact = now
     let names: string[]
     try {
       names = readdirSync(this.dir)
     } catch {
       return 0
     }
+    const cutoff = now - this.retentionMs
     let removed = 0
     for (const name of names) {
       if (!name.endsWith(".json")) continue
       const path = join(this.dir, name)
+      let mtimeMs: number
+      try {
+        mtimeMs = statSync(path).mtimeMs
+      } catch {
+        continue
+      }
+      // Cheap rejection: anything written inside the window cannot be expired.
+      if (mtimeMs > cutoff) continue
       const entry = this.readFile(path)
-      if (entry === null || entry.status === "started") continue
-      if (now - Date.parse(entry.updatedAt) <= this.retentionMs) continue
+      if (entry === null) {
+        // Corrupt entries stay put: `load` reads them as ambiguous, so the next
+        // delivery fails closed instead of running the command again.
+        this.warnUnreadable(name)
+        continue
+      }
+      if (entry.status === "started") continue
+      if (Date.parse(entry.updatedAt) > cutoff) continue
       try {
         unlinkSync(path)
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+        continue
       }
       this.entries.delete(entry.commandId)
       removed += 1
     }
+    if (removed > 0) syncDir(this.dir)
     return removed
+  }
+
+  private warnUnreadable(name: string): void {
+    if (this.warned.has(name)) return
+    this.warned.add(name)
+    console.warn(`node: ledger entry ${name} is unreadable; treating it as ambiguous`)
   }
 
   private load(commandId: string): Entry | "unreadable" | null {
@@ -194,8 +230,9 @@ const parse = (raw: string, commandId: string): Entry | null => {
 
 /** Temp file, `fsync`, `rename`, mode `0600` — atomic in the same directory (N6.1). */
 const writeAtomic = (path: string, data: string): void => {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-  const tmp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`)
+  const dir = dirname(path)
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const tmp = join(dir, `.${basename(path)}.${randomUUID()}.tmp`)
   const fd = openSync(tmp, "w", 0o600)
   try {
     writeSync(fd, data)
@@ -206,7 +243,23 @@ const writeAtomic = (path: string, data: string): void => {
   try {
     renameSync(tmp, path)
   } catch (error) {
-    unlinkSync(tmp)
+    try {
+      unlinkSync(tmp)
+    } catch {
+      // The rename failure is the real error; a failed cleanup must not mask it.
+    }
     throw error
+  }
+  // The rename itself must be durable, or a crash can lose the receipt.
+  syncDir(dir)
+}
+
+/** Flush a directory entry so a rename or unlink survives a power loss. */
+const syncDir = (dir: string): void => {
+  const fd = openSync(dir, "r")
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
   }
 }
