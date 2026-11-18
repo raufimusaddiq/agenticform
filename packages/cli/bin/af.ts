@@ -13,7 +13,7 @@ const USAGE = `usage: af <command>
   af nodes
   af run start --harness <h> --prompt <text> --key <idempotency-key>
                [--cwd <dir>] [--node <id>] [--requires a,b] [--label k=v]...
-               [--git-backed[=true|false]]
+               [--git-backed[=true|false]] [--parent <runId>]
   af run get <runId>
   af run events <runId> [--after <seq>] [--follow]
   af run cancel <runId>
@@ -110,7 +110,7 @@ async function main(argv: string[]): Promise<void> {
 
   if (group === "run" && action === "start") {
     const rest = argv.slice(2)
-    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label", "git-backed"])
+    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label", "git-backed", "parent"])
     const harness = flag(rest, "harness")
     const prompt = flag(rest, "prompt")
     const idempotencyKey = flag(rest, "key")
@@ -118,6 +118,7 @@ async function main(argv: string[]): Promise<void> {
     const requires = flag(rest, "requires")
     const cwd = flag(rest, "cwd")
     const node = flag(rest, "node")
+    const parent = flag(rest, "parent")
     const labels = parseLabels(flags(rest, "label"))
     const gitBackedFlag = rest.find((arg) => arg === "--git-backed" || arg.startsWith("--git-backed="))
     let gitBacked: boolean | undefined
@@ -145,6 +146,7 @@ async function main(argv: string[]): Promise<void> {
       ...(requires === undefined ? {} : { requires: requires.split(",").filter(Boolean) }),
       ...(Object.keys(labels).length ? { labels } : {}),
       ...(gitBacked === undefined ? {} : { gitBacked }),
+      ...(parent === undefined ? {} : { parentRunId: parent }),
     }
     return print(await client().createRun(request))
   }

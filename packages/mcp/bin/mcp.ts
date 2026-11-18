@@ -39,6 +39,7 @@ const TOOLS = [
         nodeId: { type: "string" },
         labels: { type: "object", additionalProperties: { type: "string" } },
         gitBacked: { type: "boolean" },
+        parentRunId: { type: "string" },
       },
       required: ["idempotencyKey", "harness", "prompt"],
       additionalProperties: false,
@@ -122,6 +123,7 @@ function requireString(args: Record<string, unknown>, key: string): string {
 function startRunRequest(args: Record<string, unknown>): RunRequest {
   const allowed = new Set([
     "idempotencyKey", "harness", "prompt", "cwd", "requires", "mcpServers", "nodeId", "labels", "gitBacked",
+    "parentRunId",
   ])
   for (const key of Object.keys(args)) {
     if (!allowed.has(key)) throw new Error(`unknown start_run argument: ${key}`)
@@ -163,6 +165,10 @@ function startRunRequest(args: Record<string, unknown>): RunRequest {
   if (args.gitBacked !== undefined) {
     if (typeof args.gitBacked !== "boolean") throw new Error("gitBacked must be a boolean")
     request.gitBacked = args.gitBacked
+  }
+  if (args.parentRunId !== undefined) {
+    if (typeof args.parentRunId !== "string") throw new Error("parentRunId must be a string")
+    request.parentRunId = args.parentRunId
   }
   return request
 }

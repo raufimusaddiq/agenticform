@@ -23,6 +23,7 @@ function normalize(request: RunRequest): string {
     nodeId: request.nodeId ?? null,
     labels: request.labels ?? {},
     gitBacked: request.gitBacked ?? true,
+    parentRunId: request.parentRunId ?? null,
   })
 }
 
@@ -60,11 +61,16 @@ function valid(request: RunRequest): void {
   if (request.nodeId !== undefined && typeof request.nodeId !== "string") {
     fail("invalid_input", "nodeId must be a string")
   }
+  if (request.parentRunId !== undefined) {
+    if (typeof request.parentRunId !== "string") fail("invalid_input", "parentRunId must be a string")
+    if (!request.parentRunId) fail("invalid_input", "parentRunId is empty")
+  }
 }
 
 export function createRun(
   db: Database,
   request: RunRequest,
+  config: HubConfig,
   now = Date.now(),
 ): { run: RunRow; created: boolean } {
   valid(request)
@@ -73,8 +79,20 @@ export function createRun(
     .query<RunRow, [string]>("SELECT * FROM runs WHERE idempotency_key = ?")
     .get(request.idempotencyKey)
   if (existing) {
-    if (existing.request_json !== requestJson) fail("idempotency_conflict", "idempotency key reused with a different payload")
+    // Compare normalised payloads, not raw strings: a row written before a
+    // field gained a default would otherwise conflict on retry after upgrade.
+    if (normalize(JSON.parse(existing.request_json) as RunRequest) !== requestJson) {
+      fail("idempotency_conflict", "idempotency key reused with a different payload")
+    }
     return { run: existing, created: false }
+  }
+
+  let depth = 0
+  if (request.parentRunId !== undefined) {
+    const parent = db.query<RunRow, [string]>("SELECT * FROM runs WHERE id = ?").get(request.parentRunId)
+    if (!parent) fail("parent_not_found", "parentRunId names no run")
+    depth = parent.depth + 1
+    if (depth > config.maxDepth) fail("depth_exceeded", `run depth ${depth} exceeds the limit of ${config.maxDepth}`)
   }
 
   if (request.nodeId !== undefined) {
@@ -115,8 +133,8 @@ export function createRun(
     db.query(
       `INSERT INTO runs
          (id, idempotency_key, request_json, harness, prompt, cwd, requires_json, mcp_json, labels_json,
-          git_backed, status, node_id, generation, workspace_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 1, ?, ?, ?)`,
+          git_backed, status, node_id, generation, workspace_id, created_at, updated_at, parent_run_id, depth)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, 1, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       request.idempotencyKey,
@@ -132,6 +150,8 @@ export function createRun(
       workspace,
       now,
       now,
+      request.parentRunId ?? null,
+      depth,
     )
     db.query(
       `INSERT INTO runtime_assignments (run_id, node_id, generation, runtime_type, runtime_session_id, state, updated_at)
@@ -164,6 +184,8 @@ export function runView(db: Database, run: RunRow): RunView {
     generation: run.generation,
     createdAt: new Date(run.created_at).toISOString(),
     lastSeq: nextSeq(db, run.id) - 1,
+    parentRunId: run.parent_run_id,
+    depth: run.depth,
   }
   if (run.result_json !== null) view.result = JSON.parse(run.result_json) as unknown
   if (run.error_json !== null) view.error = JSON.parse(run.error_json) as { code: string; message: string }
