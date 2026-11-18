@@ -108,7 +108,7 @@ include manual work on Linux hosts, marked **(manual)**.
   - old generation → `not_found`
 - [X] T018 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: two concurrent answers to one request; exactly one returns 200 and exactly one command is enqueued (SC-003)
 - [X] T019 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: cancel, failure, disconnect and generation fence each mark every `pending` or `answered` row of the run `cancelled`, in the same transaction as the run status change (FR-011)
-- [X] T020 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: event append refuses a `permission.requested` whose `toolCallId` is over 128 chars, `title` over 256 or `kind` over 64, with `invalid_input` (FR-013)
+- [X] T020 [P] [US2] Test in `packages/hub/test/permissions.test.ts`: a `permission.requested` with a `title` over 256 or `kind` over 64 is accepted with the value truncated (in the row and the stored event), and a `toolCallId` over 128 is accepted but creates no row, so the batch is never rejected and the run never stalls (FR-013)
 - [X] T021 [P] [US2] Real-process test in `packages/node/test/permissions.test.ts`, using the `permission` mode of `packages/runtime/test/fake-agent.ts` through a real hub and node:
   - allow reaches the agent;
   - deny reaches the agent;

@@ -36,17 +36,41 @@ function get(db: Database, runId: string, generation: number, toolCallId: string
     .get(runId, generation, toolCallId)
 }
 
-function bounded(value: unknown, max: number, name: string): string | null {
-  if (value === undefined || value === null) return null
-  if (typeof value !== "string") fail("invalid_input", `${name} must be a string`)
-  if (value.length > max) fail("invalid_input", `${name} exceeds ${max} characters`)
-  return value
+function bounded(value: unknown, max: number): string | null {
+  return typeof value === "string" ? value.slice(0, max) : null
+}
+
+/**
+ * Bound the stored `permission.requested` data without dropping the event: a
+ * long title or kind is truncated, so the batch is never rejected and the run
+ * never stalls on a cosmetic field (T020).
+ */
+export function boundRequestedData(data: unknown): unknown {
+  const body = data as { request?: unknown } | null
+  if (body === null || typeof body !== "object") return data
+  const request = body.request
+  if (request === null || typeof request !== "object") return data
+  const fields = request as Record<string, unknown>
+  return {
+    ...body,
+    request: {
+      ...fields,
+      ...(typeof fields.title === "string"
+        ? { title: fields.title.slice(0, PERMISSION_TITLE_MAX_LENGTH) }
+        : {}),
+      ...(typeof fields.kind === "string"
+        ? { kind: fields.kind.slice(0, PERMISSION_KIND_MAX_LENGTH) }
+        : {}),
+    },
+  }
 }
 
 /**
  * Record a `permission.requested` event as `pending`. The expiry is the
  * runtime's own deny clock, so the hub refuses a late answer before the
- * resolving event arrives (FR-010).
+ * resolving event arrives (FR-010). A `toolCallId` over the bound is accepted
+ * but not recorded, so the request simply cannot be answered remotely and the
+ * runtime's timeout denies it.
  */
 export function recordRequested(
   db: Database,
@@ -56,11 +80,12 @@ export function recordRequested(
   now = Date.now(),
 ): void {
   const request = (data as { request?: Record<string, unknown> } | null)?.request
-  if (request === null || typeof request !== "object") fail("invalid_input", "permission.requested needs a request")
-  const toolCallId = bounded(request.toolCallId, TOOL_CALL_ID_MAX_LENGTH, "toolCallId")
-  if (!toolCallId) fail("invalid_input", "toolCallId is required")
-  const title = bounded(request.title, PERMISSION_TITLE_MAX_LENGTH, "title")
-  const kind = bounded(request.kind, PERMISSION_KIND_MAX_LENGTH, "kind")
+  if (request === null || typeof request !== "object") return
+  const toolCallId = request.toolCallId
+  if (typeof toolCallId !== "string" || !toolCallId) return
+  if (toolCallId.length > TOOL_CALL_ID_MAX_LENGTH) return
+  const title = bounded(request.title, PERMISSION_TITLE_MAX_LENGTH)
+  const kind = bounded(request.kind, PERMISSION_KIND_MAX_LENGTH)
   db.query(
     `INSERT INTO permission_requests
        (run_id, generation, tool_call_id, title, kind, status, decision, requested_at, expires_at, decided_at)
@@ -82,9 +107,7 @@ export function recordResolved(
   now = Date.now(),
 ): void {
   const body = data as { toolCallId?: unknown; decision?: unknown } | null
-  if (typeof body?.toolCallId !== "string" || !body.toolCallId) {
-    fail("invalid_input", "permission.resolved needs a toolCallId")
-  }
+  if (typeof body?.toolCallId !== "string" || !body.toolCallId) return
   const row = get(db, runId, generation, body.toolCallId)
   if (!row || TERMINAL.has(row.status as PermissionStatus)) return
   const decision = body.decision === "allow" || body.decision === "deny" ? body.decision : null

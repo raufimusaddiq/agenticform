@@ -25,9 +25,9 @@ authentication on its next use.
 |---|---|---|
 | `run_id` | TEXT NOT NULL | FK `runs(id)` |
 | `generation` | INTEGER NOT NULL | the run generation that asked |
-| `tool_call_id` | TEXT NOT NULL | ACP id, at most 128 chars |
-| `title` | TEXT NULL | at most 256 chars; longer values are refused at event append |
-| `kind` | TEXT NULL | at most 64 chars |
+| `tool_call_id` | TEXT NOT NULL | ACP id; over 128 chars is accepted but not recorded, so it cannot be answered remotely |
+| `title` | TEXT NULL | at most 256 chars; longer values are truncated at event append |
+| `kind` | TEXT NULL | at most 64 chars; longer values are truncated at event append |
 | `status` | TEXT NOT NULL | `pending` \| `answered` \| `resolved` \| `timed_out` \| `cancelled` |
 | `decision` | TEXT NULL | `allow` \| `deny` once answered or resolved |
 | `requested_at` | INTEGER NOT NULL | hub receive time |

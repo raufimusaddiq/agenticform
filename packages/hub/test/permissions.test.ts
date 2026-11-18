@@ -257,18 +257,41 @@ describe("run end cancels open requests (T019)", () => {
 })
 
 describe("event bounds (T020)", () => {
-  test("an over-long toolCallId, title or kind is invalid_input", async () => {
+  test("a long title or kind is truncated, not refused", async () => {
     const pending = await pendingRun()
-    for (const request of [
-      { toolCallId: "x".repeat(129), title: null, kind: null },
-      { toolCallId: "call_7", title: "x".repeat(257), kind: null },
-      { toolCallId: "call_7", title: null, kind: "x".repeat(65) },
-    ]) {
-      const response = await requestPermission(pending, request)
-      expect(response.status).toBe(400)
-      expect(((await response.json()) as { error: { code: string } }).error.code).toBe("invalid_input")
-    }
-    // Nothing was stored by a refused batch.
+    const longTitle = "t".repeat(300)
+    const longKind = "k".repeat(80)
+    const response = await requestPermission(pending, { toolCallId: "call_7", title: longTitle, kind: longKind })
+    expect(response.status).toBe(200)
+    const [view] = (await list(pending)).body.permissions
+    expect(view.title).toHaveLength(256)
+    expect(view.kind).toHaveLength(64)
+    // The stored event is bounded too, so a reader never sees the long value.
+    const stored = pending.hub.db
+      .query<{ data_json: string }, [string]>(
+        "SELECT data_json FROM run_events WHERE run_id = ? AND type = 'permission.requested'",
+      )
+      .get(pending.runId)
+    const data = JSON.parse(stored?.data_json as string) as { request: { title: string; kind: string } }
+    expect(data.request.title).toHaveLength(256)
+    expect(data.request.kind).toHaveLength(64)
+  })
+
+  test("a toolCallId over 128 chars is accepted but not recorded", async () => {
+    const pending = await pendingRun()
+    const response = await requestPermission(pending, {
+      toolCallId: "x".repeat(129),
+      title: "Write file",
+      kind: "edit",
+    })
+    expect(response.status).toBe(200)
     expect((await list(pending)).body.permissions).toHaveLength(0)
+    // The event itself is kept, so the run's stream is not stalled.
+    const count = pending.hub.db
+      .query<{ n: number }, [string]>(
+        "SELECT COUNT(*) AS n FROM run_events WHERE run_id = ? AND type = 'permission.requested'",
+      )
+      .get(pending.runId)
+    expect(count?.n).toBe(1)
   })
 })
