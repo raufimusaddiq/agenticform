@@ -95,7 +95,12 @@ export function createRun(
       ? `${request.harness} + ${request.requires.join(" + ")}`
       : request.harness
     if (placement.capabilityMissing) fail("capability_missing", `no node advertises ${detail}`)
-    fail("no_eligible_node", `no node satisfies ${detail}`)
+    const suffix = placement.bestStatus
+      ? `: ${placement.bestStatus.status} on node ${placement.bestStatus.nodeId}`
+      : placement.reason
+        ? `: ${placement.reason}`
+        : ""
+    fail("no_eligible_node", `no node satisfies ${detail}${suffix}`)
   }
 
   const id = randomUUID()

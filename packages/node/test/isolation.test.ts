@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { createRuntime, type RunEvent } from "@agenticform/runtime"
+import { resolveHarness } from "../src/harness-probe.ts"
 import {
+  IsolationError,
+  entryBinds,
   profileFor,
   resolveWorkspace,
   sandboxArgs,
@@ -24,8 +27,8 @@ const hasBwrap = Bun.spawnSync(["sh", "-c", "command -v bwrap"]).exitCode === 0
  */
 const tempRoot = Bun.spawnSync(["sh", "-c", "test -w /var/tmp"]).exitCode === 0 ? "/var/tmp" : tmpdir()
 const tempDirs: string[] = []
-const temp = (prefix: string): string => {
-  const dir = mkdtempSync(join(tempRoot, prefix))
+const temp = (prefix: string, root = tempRoot): string => {
+  const dir = mkdtempSync(join(root, prefix))
   tempDirs.push(dir)
   return dir
 }
@@ -67,6 +70,12 @@ const runFake = async (
 }
 
 const alive = (marker: string): boolean => Bun.spawnSync(["pgrep", "-f", marker]).exitCode === 0
+
+/** Wait for a condition instead of sleeping a fixed time. */
+const waitUntil = async (condition: () => boolean, timeoutMs = 2_000): Promise<void> => {
+  const start = Date.now()
+  while (!condition() && Date.now() - start < timeoutMs) await Bun.sleep(20)
+}
 
 describe("isolation argv", () => {
   test("follows the fixed order and clears the environment", () => {
@@ -125,14 +134,107 @@ describe("isolation argv", () => {
     // A caller that mutates its copy cannot widen the table for the next run.
     first.state.push({ path: "/etc", mode: "rw" })
     expect(profileFor("claude").state).toEqual(second.state)
-    // An unknown harness gets the workspace bind and no state bind.
+    // An unknown harness gets the workspace bind and no state bind. The
+    // workspace is bound twice: the initial mount and the re-bind after the
+    // entry-point binds.
     const args = sandboxArgs(profileFor("nope"), "/tmp/ws", "/tmp/home", {})
     const system = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/etc", "/run"]
     const binds = args.flatMap((arg, index) => {
       const source = args[index + 1]
       return (arg === "--bind" || arg === "--ro-bind") && source !== undefined ? [source] : []
     })
-    expect(binds.filter((path) => !system.includes(path))).toEqual(["/tmp/ws"])
+    expect(binds.filter((path) => !system.includes(path))).toEqual(["/tmp/ws", "/tmp/ws"])
+  })
+
+  test("entry-point binds come after the private tmpfs and before the root remount", () => {
+    const entry = temp("af-entry-")
+    const args = sandboxArgs(profileFor("nope"), "/tmp/ws", temp("af-home-"), {}, { entryDirs: [entry] })
+    const tmpfs = args.indexOf("--tmpfs")
+    const bind = args.indexOf(entry)
+    const remount = args.indexOf("--remount-ro")
+    expect(bind).toBeGreaterThan(tmpfs)
+    expect(bind).toBeLessThan(remount)
+    expect(args[bind - 1]).toBe("--ro-bind")
+    expect(args[args.indexOf("PATH") + 1]).toContain(entry)
+  })
+
+  test("the workspace is re-bound after the entry binds", () => {
+    const workspace = temp("af-ws-")
+    const entry = temp("af-entry-")
+    const args = sandboxArgs(profileFor("nope"), workspace, temp("af-home-"), {}, { entryDirs: [entry] })
+    const entryBind = args.indexOf(entry)
+    const workspaceBinds = args.flatMap((arg, index) => (arg === "--bind" && args[index + 1] === workspace ? [index] : []))
+    expect(workspaceBinds).toHaveLength(2)
+    expect(workspaceBinds[1]).toBeGreaterThan(entryBind)
+  })
+
+  test("an entry dir at / binds only the file, never --ro-bind / /", () => {
+    const args = sandboxArgs(profileFor("nope"), "/tmp/ws", temp("af-home-"), {}, { entryDirs: ["/"] })
+    const rootBinds = args.flatMap((arg, index) => (arg === "--ro-bind" && args[index + 1] === "/" ? ["/"] : []))
+    expect(rootBinds).toEqual([])
+  })
+
+  test("the home root and its ancestors are not bound whole", () => {
+    const home = temp("af-home-")
+    for (const dir of [home, dirname(home)]) {
+      const args = sandboxArgs(profileFor("nope"), "/tmp/ws", home, {}, { entryDirs: [dir] })
+      const binds = args.flatMap((arg, index) => (arg === "--ro-bind" && args[index + 1] === dir ? [dir] : []))
+      expect(binds).toEqual([])
+    }
+  })
+
+  test("an entry dir inside the workspace is not bound read-only", () => {
+    const workspace = temp("af-ws-")
+    const entry = join(workspace, "bin")
+    mkdirSync(entry)
+    const args = sandboxArgs(profileFor("nope"), workspace, temp("af-home-"), {}, { entryDirs: [entry] })
+    const binds = args.flatMap((arg, index) => (arg === "--ro-bind" && args[index + 1] === entry ? [entry] : []))
+    expect(binds).toEqual([])
+  })
+
+  test("a bin dir is bound whole", () => {
+    const home = temp("af-home-")
+    for (const root of [".local/bin", ".bun/bin", ".opencode/bin", ".npm-global/bin"]) {
+      const dir = join(home, root)
+      mkdirSync(dir, { recursive: true })
+      const entry = join(dir, "x")
+      writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+      const binds = entryBinds({ command: entry, dirs: [dir], files: [entry] }, profileFor("nope"), "/tmp/ws", home)
+      expect(binds.dirBinds).toEqual([dir])
+      expect(binds.fileBinds).toEqual([])
+    }
+  })
+
+  test("a strict subdir of a package root is bound whole", () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".local", "share", "claude", "versions", "v1")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "agent")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const binds = entryBinds({ command: entry, dirs: [dir], files: [entry] }, profileFor("nope"), "/tmp/ws", home)
+    expect(binds.dirBinds).toEqual([dir])
+  })
+
+  test("a non-allowlisted home dir binds only the file", () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".local", "share", "pkg", "bin")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "x")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const binds = entryBinds({ command: entry, dirs: [dir], files: [entry] }, profileFor("nope"), "/tmp/ws", home)
+    expect(binds.dirBinds).toEqual([])
+    expect(binds.fileBinds).toContain(entry)
+  })
+
+  test("a binary directly in an install root is file-only", () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".npm-global")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "x")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const binds = entryBinds({ command: entry, dirs: [dir], files: [entry] }, profileFor("nope"), "/tmp/ws", home)
+    expect(binds.dirBinds).toEqual([])
+    expect(binds.fileBinds).toContain(entry)
   })
 
   test("the workspace is resolved and / and the home root are refused", () => {
@@ -203,6 +305,271 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
     expect(result.text).toBe(`${inside}=EROFS`)
   })
 
+  test("an entry dir that is an ancestor of the workspace keeps the workspace writable", async () => {
+    const entryDir = "/var/tmp"
+    const entry = join(entryDir, `af-entry-${randomUUID()}.ts`)
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    try {
+      const workspace = temp("af-ws-")
+      // Keep the home off /var/tmp: the entry dir is /var/tmp, and an entry dir
+      // that is an ancestor of the home is refused (BLOCKER 2).
+      const home = temp("af-home-", "/tmp")
+      const resolved = resolveWorkspace(workspace, home)
+      const inside = join(workspace, "inside.txt")
+      const resolution = resolveHarness({
+        id: "fake",
+        profile: "coding",
+        command: entry,
+        args: [JSON.stringify({ scenario: "writes", writes: [inside] })],
+      })
+      if (!resolution.ok) throw new Error("entry did not resolve")
+      const definition = sandboxHarness(
+        resolution.resolved.definition,
+        profileFor("fake"),
+        resolved,
+        home,
+        process.env,
+        { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+      )
+      const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+      const result = await run.result()
+      expect(result.text).toBe(`${inside}=ok`)
+    } finally {
+      rmSync(entry, { force: true })
+    }
+  })
+
+  test("a harness inside a state dir is reached through the state bind", async () => {
+    const home = temp("af-home-")
+    const stateDir = join(home, ".claude")
+    mkdirSync(join(stateDir, "local"), { recursive: true })
+    const entry = join(stateDir, "local", "claude.ts")
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    const workspace = temp("af-ws-")
+    const resolved = resolveWorkspace(workspace, home)
+    const inside = join(workspace, "inside.txt")
+    const resolution = resolveHarness({
+      id: "claude",
+      profile: "coding",
+      command: entry,
+      args: [JSON.stringify({ scenario: "writes", writes: [inside] })],
+    })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    const definition = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor("claude"),
+      resolved,
+      home,
+      process.env,
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+    )
+    expect(definition.args).toContain("/home/agent/.claude/local/claude.ts")
+    const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+    const result = await run.result()
+    expect(result.text).toBe(`${inside}=ok`)
+  })
+
+  for (const protectedDir of ["~/.local", "~/.config"]) {
+    test(`${protectedDir} is not bound whole and its siblings stay invisible`, async () => {
+      const home = temp("af-home-")
+      const dir = join(home, protectedDir.slice(2))
+      mkdirSync(dir, { recursive: true })
+      const entry = join(dir, "agent.ts")
+      writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+      const sibling =
+        protectedDir === "~/.local" ? join(home, ".local", "share", "keyrings") : join(home, ".config", "gh")
+      mkdirSync(sibling, { recursive: true })
+      writeFileSync(join(sibling, "secret"), "secret")
+      const workspace = temp("af-ws-")
+      const resolved = resolveWorkspace(workspace, home)
+      const resolution = resolveHarness({
+        id: "fake",
+        profile: "coding",
+        command: entry,
+        args: [JSON.stringify({ scenario: "writes", reads: [join(sibling, "secret")] })],
+      })
+      if (!resolution.ok) throw new Error("entry did not resolve")
+      const definition = sandboxHarness(
+        resolution.resolved.definition,
+        profileFor("fake"),
+        resolved,
+        home,
+        process.env,
+        { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+      )
+      const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+      const result = await run.result()
+      expect(result.status).toBe("completed")
+      expect(result.text).toBe(`read:${join(sibling, "secret")}=ENOENT`)
+    })
+  }
+
+  for (const dirName of [".ssh/sub", ".config/gh"]) {
+    test(`${dirName} symlink target is file-only and siblings stay invisible`, async () => {
+      const home = temp("af-home-")
+      const dir = join(home, dirName)
+      mkdirSync(dir, { recursive: true })
+      const real = join(dir, "agent.ts")
+      writeFileSync(real, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+      const link = join(dir, "x")
+      symlinkSync(real, link)
+      const sibling = join(dir, "secret")
+      writeFileSync(sibling, "secret")
+      const workspace = temp("af-ws-")
+      const resolved = resolveWorkspace(workspace, home)
+      const resolution = resolveHarness({
+        id: "fake",
+        profile: "coding",
+        command: link,
+        args: [JSON.stringify({ scenario: "writes", reads: [sibling] })],
+      })
+      if (!resolution.ok) throw new Error("entry did not resolve")
+      const definition = sandboxHarness(
+        resolution.resolved.definition,
+        profileFor("fake"),
+        resolved,
+        home,
+        process.env,
+        { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+      )
+      const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+      const result = await run.result()
+      expect(result.status).toBe("completed")
+      expect(result.text).toBe(`read:${sibling}=ENOENT`)
+    })
+  }
+
+  test("a non-allowlisted install dir is file-only and still spawns", async () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".local", "share", "pkg", "bin")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "x.ts")
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    const workspace = temp("af-ws-")
+    const resolved = resolveWorkspace(workspace, home)
+    const inside = join(workspace, "inside.txt")
+    const resolution = resolveHarness({
+      id: "fake",
+      profile: "coding",
+      command: entry,
+      args: [JSON.stringify({ scenario: "writes", writes: [inside] })],
+    })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    const definition = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor("fake"),
+      resolved,
+      home,
+      process.env,
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+    )
+    const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+    const result = await run.result()
+    expect(result.text).toBe(`${inside}=ok`)
+  })
+
+  test("a binary directly in ~/.npm-global is file-only and .npmrc stays invisible", async () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".npm-global")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "x.ts")
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    const npmrc = join(dir, ".npmrc")
+    writeFileSync(npmrc, "secret")
+    const workspace = temp("af-ws-")
+    const resolved = resolveWorkspace(workspace, home)
+    const resolution = resolveHarness({
+      id: "fake",
+      profile: "coding",
+      command: entry,
+      args: [JSON.stringify({ scenario: "writes", reads: [npmrc] })],
+    })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    const definition = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor("fake"),
+      resolved,
+      home,
+      process.env,
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+    )
+    const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+    const result = await run.result()
+    expect(result.status).toBe("completed")
+    expect(result.text).toBe(`read:${npmrc}=ENOENT`)
+  })
+
+  test("a binary in ~/.local/bin is bound and a sibling helper resolves by name", async () => {
+    const home = temp("af-home-")
+    const bin = join(home, ".local", "bin")
+    mkdirSync(bin, { recursive: true })
+    const entry = join(bin, "agent.ts")
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    const helper = join(bin, "helper")
+    writeFileSync(helper, "#!/bin/sh\necho helper-ok\n", { mode: 0o755 })
+    const workspace = temp("af-ws-")
+    const resolved = resolveWorkspace(workspace, home)
+    const resolution = resolveHarness({
+      id: "fake",
+      profile: "coding",
+      command: entry,
+      args: [JSON.stringify({ scenario: "exec", exec: "helper" })],
+    })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    const definition = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor("fake"),
+      resolved,
+      home,
+      process.env,
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+    )
+    const args = definition.args ?? []
+    expect(args).toContain(bin)
+    expect(args[args.indexOf("PATH") + 1]).toContain(bin)
+    const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+    const result = await run.result()
+    expect(result.text).toContain("helper-ok")
+  })
+
+  for (const root of ["/tmp", "/var/tmp"]) {
+    test(`a sibling in ${root} is not visible when the entry is directly in ${root}`, async () => {
+      const entry = join(root, `af-entry-${randomUUID()}.ts`)
+      const sibling = join(root, `af-sibling-${randomUUID()}`)
+      writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+      writeFileSync(sibling, "secret")
+      try {
+        const workspace = temp("af-ws-")
+        // Keep the home off the entry's temp root so the home guard does not
+        // refuse the entry dir before the file-only bind is exercised.
+        const home = temp("af-home-", root === "/tmp" ? "/var/tmp" : "/tmp")
+        const resolved = resolveWorkspace(workspace, home)
+        const resolution = resolveHarness({
+          id: "fake",
+          profile: "coding",
+          command: entry,
+          args: [JSON.stringify({ scenario: "writes", reads: [sibling] })],
+        })
+        if (!resolution.ok) throw new Error("entry did not resolve")
+        const definition = sandboxHarness(
+          resolution.resolved.definition,
+          profileFor("fake"),
+          resolved,
+          home,
+          process.env,
+          { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+        )
+        const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+        const result = await run.result()
+        expect(result.status).toBe("completed")
+        expect(result.text).toBe(`read:${sibling}=ENOENT`)
+      } finally {
+        rmSync(entry, { force: true })
+        rmSync(sibling, { force: true })
+      }
+    })
+  }
+
   test("a symlinked workspace binds its target and the target's parent stays read-only", async () => {
     const root = temp("af-link-")
     const target = join(root, "target")
@@ -261,7 +628,7 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
     expect(alive(marker)).toBe(true)
     await run.cancel()
     await run.result()
-    await Bun.sleep(200)
+    await waitUntil(() => !alive(marker))
     expect(alive(marker)).toBe(false)
   })
 
@@ -325,9 +692,13 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       },
       { workspace, home },
     )
-    expect(result.text).toBe(
-      ["list:/home/agent=", "list:/home/agent/.ssh=ENOENT", "list:/home/agent/.claude=ENOENT"].join("\n"),
-    )
+    const lines = result.text.split("\n")
+    // Bun may create its own ~/.bun cache in the private home; no harness state
+    // may appear.
+    expect(lines[0]).not.toContain(".ssh")
+    expect(lines[0]).not.toContain(".claude")
+    expect(lines[1]).toBe("list:/home/agent/.ssh=ENOENT")
+    expect(lines[2]).toBe("list:/home/agent/.claude=ENOENT")
   })
 
   test("no AGENTICFORM_* variable or node secret reaches the harness", async () => {
@@ -343,7 +714,7 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       expect(result.text).not.toContain("enroll-secret")
       expect(result.text).not.toContain("node-secret")
       expect(result.text).toContain("HOME=/home/agent")
-      expect(result.text).toContain("PATH=/usr/local/bin:/usr/bin:/bin")
+      expect(result.text).toContain("/usr/local/bin:/usr/bin:/bin")
     } finally {
       for (const name of ["AGENTICFORM_ADMIN_TOKEN", "AGENTICFORM_ENROLLMENT_TOKEN", "AGENTICFORM_HUB_URL", "NODE_SECRET"]) {
         if (saved[name] === undefined) delete process.env[name]

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite"
-import type { HeartbeatRequest, HeartbeatResponse, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
-import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
+import type { HarnessReport, HarnessReportReason, HeartbeatRequest, HeartbeatResponse, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
+import { HARNESS_REPORT_REASON_SET, SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
 import { insertEvent, hubEventKey } from "./events.ts"
@@ -17,6 +17,33 @@ export interface RuntimeInventoryInput {
 }
 
 const MAX_INVENTORY = 1_000
+const MAX_REPORT = 64
+const STATUSES = new Set(["ready", "missing", "unauthenticated", "unknown"])
+
+/** FR-027: only a status and a reason code; raw harness output is refused. */
+function validateReport(report: unknown): HarnessReport[] {
+  if (!Array.isArray(report)) fail("invalid_input", "harnessReport must be an array")
+  if (report.length > MAX_REPORT) fail("invalid_input", "harnessReport exceeds the maximum length")
+  return report.map((entry) => {
+    const item = entry as Partial<HarnessReport>
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      fail("invalid_input", "each harnessReport entry must be an object")
+    }
+    if (typeof item.id !== "string" || !item.id) fail("invalid_input", "harnessReport.id must be a string")
+    if (item.id.length > 64) fail("invalid_input", "harnessReport.id exceeds 64 characters")
+    if (typeof item.status !== "string" || !STATUSES.has(item.status)) {
+      fail("invalid_input", "harnessReport.status must be ready, missing, unauthenticated or unknown")
+    }
+    if (item.reason !== undefined && (typeof item.reason !== "string" || !HARNESS_REPORT_REASON_SET.has(item.reason))) {
+      fail("invalid_input", "harnessReport.reason must be a known harness report reason")
+    }
+    return {
+      id: item.id,
+      status: item.status as HarnessReport["status"],
+      ...(item.reason === undefined ? {} : { reason: item.reason as HarnessReportReason }),
+    }
+  })
+}
 
 function validateInventory(runtimes: unknown): RuntimeInventoryEntry[] {
   if (!Array.isArray(runtimes)) fail("invalid_input", "runtimes must be an array")
@@ -78,6 +105,7 @@ export function heartbeat(
     }
   }
   const inventory = body.runtimes === undefined ? [] : validateInventory(body.runtimes)
+  const report = body.harnessReport === undefined ? [] : validateReport(body.harnessReport)
   const capabilities = Array.isArray(body.capabilities) ? body.capabilities : []
   const slots = body.capacity?.slots ?? node.capacity_slots
   const active = db
@@ -90,7 +118,7 @@ export function heartbeat(
   const write = db.transaction((): void => {
     db.query(
       `UPDATE nodes SET status = 'online', protocol_version = ?, harnesses = ?, capabilities = ?,
-         capacity_slots = ?, capacity_in_use = ?, inventory = ?, last_heartbeat_at = ?
+         capacity_slots = ?, capacity_in_use = ?, inventory = ?, harness_report = ?, last_heartbeat_at = ?
        WHERE id = ?`,
     ).run(
       body.protocolVersion,
@@ -99,6 +127,7 @@ export function heartbeat(
       slots,
       used,
       JSON.stringify(inventory),
+      JSON.stringify(report),
       now,
       node.id,
     )
@@ -219,6 +248,7 @@ export function toNodeView(node: NodeRow): NodeView {
     capabilities: JSON.parse(node.capabilities) as string[],
     labels: JSON.parse(node.labels) as Record<string, string>,
     capacity: { slots: node.capacity_slots, inUse: node.capacity_in_use },
+    harnessReport: JSON.parse(node.harness_report) as HarnessReport[],
     lastHeartbeatAt: node.last_heartbeat_at === null ? null : new Date(node.last_heartbeat_at).toISOString(),
   }
 }

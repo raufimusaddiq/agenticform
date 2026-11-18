@@ -8,6 +8,7 @@ export interface NodeConfig {
   leaseRenewMs: number
   requestTimeoutMs: number
   harnessProbeTtlMs: number
+  harnessProbeReadyTtlMs: number
   harnessProbeTimeoutMs: number
   protocolVersion: number
 }
@@ -28,6 +29,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     leaseRenewMs: seconds(env.AGENTICFORM_LEASE_RENEW_SECONDS, 300_000),
     requestTimeoutMs: seconds(env.AGENTICFORM_REQUEST_TIMEOUT_SECONDS, 30_000),
     harnessProbeTtlMs: seconds(env.AGENTICFORM_HARNESS_PROBE_TTL_SECONDS, 300_000),
+    harnessProbeReadyTtlMs: seconds(env.AGENTICFORM_HARNESS_PROBE_READY_TTL_SECONDS, 3_600_000),
     harnessProbeTimeoutMs: seconds(env.AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS, 20_000),
     protocolVersion: 1,
   }
@@ -48,6 +50,7 @@ export function validateConfig(config: NodeConfig): void {
     ["AGENTICFORM_LEASE_RENEW_SECONDS", config.leaseRenewMs],
     ["AGENTICFORM_REQUEST_TIMEOUT_SECONDS", config.requestTimeoutMs],
     ["AGENTICFORM_HARNESS_PROBE_TTL_SECONDS", config.harnessProbeTtlMs],
+    ["AGENTICFORM_HARNESS_PROBE_READY_TTL_SECONDS", config.harnessProbeReadyTtlMs],
     ["AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS", config.harnessProbeTimeoutMs],
   ]
   for (const [name, value] of numbers) {

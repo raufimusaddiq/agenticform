@@ -10,6 +10,7 @@ const base = (patch: Partial<NodeConfig>): NodeConfig => ({
   leaseRenewMs: 300_000,
   requestTimeoutMs: 30_000,
   harnessProbeTtlMs: 300_000,
+  harnessProbeReadyTtlMs: 3_600_000,
   harnessProbeTimeoutMs: 20_000,
   protocolVersion: 1,
   ...patch,
@@ -55,9 +56,16 @@ describe("node config", () => {
   test("the harness probe settings default and validate", () => {
     const config = loadConfig({ AGENTICFORM_HUB_URL: "https://hub.example.com" })
     expect(config.harnessProbeTtlMs).toBe(300_000)
+    expect(config.harnessProbeReadyTtlMs).toBe(3_600_000)
     expect(config.harnessProbeTimeoutMs).toBe(20_000)
     expect(() =>
       loadConfig({ AGENTICFORM_HUB_URL: "https://hub.example.com", AGENTICFORM_HARNESS_PROBE_TTL_SECONDS: "0" }),
+    ).toThrow()
+    expect(() =>
+      loadConfig({
+        AGENTICFORM_HUB_URL: "https://hub.example.com",
+        AGENTICFORM_HARNESS_PROBE_READY_TTL_SECONDS: "0",
+      }),
     ).toThrow()
     expect(() =>
       loadConfig({ AGENTICFORM_HUB_URL: "https://hub.example.com", AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS: "abc" }),

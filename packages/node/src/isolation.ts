@@ -89,6 +89,135 @@ export function resolveWorkspace(cwd: string, home: string = homedir()): string 
 
 const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`)
 
+const realpathOr = (path: string): string => {
+  try {
+    return realpathSync(path)
+  } catch {
+    return resolve(path)
+  }
+}
+
+/** A temp root may be an entry dir: the probe workspace lives there. */
+const TEMP_ROOTS = ["/tmp", "/var/tmp"]
+
+/**
+ * Install roots under HOME (contracts/isolation.md §2). Two kinds of data:
+ * - bin dirs are bound as-is (the dir itself, read-only, on PATH);
+ * - package roots allow only a strict subdir; the root itself is file-only.
+ * Evidence is in research.md.
+ */
+const HOME_BIN_DIRS = ["~/.local/bin", "~/.bun/bin", "~/.opencode/bin", "~/.npm-global/bin"] as const
+const HOME_PACKAGE_ROOTS = [
+  "~/.local/share/claude",
+  "~/.bun",
+  "~/.npm-global",
+  "~/.volta",
+  "~/.nvm",
+  "~/.opencode",
+] as const
+
+export interface EntryPoint {
+  command: string
+  dirs: readonly string[]
+  files: readonly string[]
+}
+
+export interface EntryBinds {
+  /** The command to spawn inside the sandbox. */
+  command: string
+  /** Host directories to bind read-only at the same path. */
+  dirBinds: string[]
+  /** Host files to bind read-only at the same path. */
+  fileBinds: string[]
+  /** In-sandbox directories that exist and may go on PATH. */
+  pathDirs: string[]
+}
+
+/**
+ * One rule for entry binds (contracts/isolation.md §2):
+ * - a real file inside a declared state dir is reached through that state bind,
+ *   so the command and PATH entry are mapped to the in-sandbox path;
+ * - otherwise, under HOME, a directory is bound only when it is inside the
+ *   install-root allowlist; anything else under HOME binds only the entry and
+ *   interpreter files;
+ * - outside HOME, bind the smallest dir containing the real file, never `/`, a
+ *   temp root or a workspace ancestor; those are file-only too.
+ */
+export function entryBinds(
+  entry: EntryPoint,
+  profile: IsolationProfile,
+  workspace: string,
+  home: string,
+): EntryBinds {
+  const homeRoot = realpathOr(home)
+  const workspaceRoot = realpathOr(workspace)
+  const tempRoots = TEMP_ROOTS.map(realpathOr)
+  const stateBinds = profile.state.map((item) => {
+    const fromHome = item.path.startsWith("~/")
+    return {
+      source: fromHome ? join(home, item.path.slice(1)) : item.path,
+      dest: fromHome ? join(SANDBOX_HOME, item.path.slice(1)) : item.path,
+    }
+  })
+  const stateSources = stateBinds.map((bind) => bind.source)
+  const binDirs = HOME_BIN_DIRS.map((path) => realpathOr(join(home, path.slice(2)))).filter((dir) => existsSync(dir))
+  const packageRoots = HOME_PACKAGE_ROOTS.map((path) => realpathOr(join(home, path.slice(2))))
+
+  const commandReal = entry.command ? realpathOr(entry.command) : ""
+  // (1) The real file is inside a declared state dir: use the state bind.
+  const state = commandReal ? stateBinds.find((bind) => isUnder(commandReal, bind.source)) : undefined
+  const command = state ? join(state.dest, relative(state.source, commandReal)) : entry.command
+
+  const dirBinds: string[] = []
+  const fileBinds: string[] = []
+  const pathDirs: string[] = []
+  if (state) pathDirs.push(dirname(command))
+  for (const dir of [...new Set(entry.dirs)]) {
+    if (!isAbsolute(dir) || !existsSync(dir)) continue
+    const resolved = realpathOr(dir)
+    // Inside the workspace or a state dir: the existing bind already exposes it.
+    if (isUnder(resolved, workspaceRoot)) continue
+    const inside = stateBinds.find((bind) => isUnder(resolved, bind.source))
+    if (inside) {
+      pathDirs.push(join(inside.dest, relative(inside.source, resolved)))
+      continue
+    }
+    const underHome = isUnder(resolved, homeRoot)
+    // A bin dir is bound as-is; a package root only allows a strict subdir, so
+    // a binary directly in the root (which may hold config such as
+    // ~/.npm-global/.npmrc) is file-only.
+    const allowedUnderHome =
+      binDirs.includes(resolved) || packageRoots.some((root) => resolved !== root && isUnder(resolved, root))
+    const unsafe =
+      resolved === "/" ||
+      resolved === homeRoot ||
+      isUnder(homeRoot, resolved) ||
+      stateSources.some((source) => isUnder(source, resolved)) ||
+      tempRoots.includes(resolved) ||
+      isUnder(workspaceRoot, resolved) ||
+      (underHome && !allowedUnderHome)
+    if (unsafe) {
+      for (const file of entry.files) {
+        if (!isAbsolute(file) || !existsSync(file)) continue
+        if (isUnder(realpathOr(file), resolved)) fileBinds.push(file)
+      }
+      continue
+    }
+    dirBinds.push(dir)
+    pathDirs.push(dir)
+  }
+  // The command itself must be reachable even if no dir was bound for it.
+  if (commandReal && !state && !dirBinds.some((dir) => isUnder(commandReal, realpathOr(dir)))) {
+    if (!fileBinds.some((file) => realpathOr(file) === commandReal)) fileBinds.push(entry.command)
+  }
+  return {
+    command,
+    dirBinds: [...new Set(dirBinds)],
+    fileBinds: [...new Set(fileBinds)],
+    pathDirs: [...new Set(pathDirs)],
+  }
+}
+
 /** `--dir` for each ancestor the sandbox root does not already provide. */
 function dirArgs(dest: string, root: string): string[] {
   const rel = relative(root, dest)
@@ -114,8 +243,31 @@ export function sandboxArgs(
   workspace: string,
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
-  options: { remountRoot?: boolean | undefined } = {},
+  options: {
+    remountRoot?: boolean | undefined
+    entryDirs?: readonly string[] | undefined
+    entryFiles?: readonly string[] | undefined
+    entryCommand?: string | undefined
+    entryBinds?: EntryBinds | undefined
+  } = {},
 ): string[] {
+  const binds =
+    options.entryBinds ??
+    entryBinds(
+      { command: options.entryCommand ?? "", dirs: options.entryDirs ?? [], files: options.entryFiles ?? [] },
+      profile,
+      workspace,
+      home,
+    )
+  const stateBinds = profile.state.map((entry) => {
+    const fromHome = entry.path.startsWith("~/")
+    return {
+      fromHome,
+      source: fromHome ? join(home, entry.path.slice(1)) : entry.path,
+      dest: fromHome ? join(SANDBOX_HOME, entry.path.slice(1)) : entry.path,
+      mode: entry.mode,
+    }
+  })
   const args = [
     "--unshare-user",
     "--unshare-pid",
@@ -129,7 +281,7 @@ export function sandboxArgs(
     "--clearenv",
     "--setenv",
     "PATH",
-    SANDBOX_PATH,
+    [...binds.pathDirs, SANDBOX_PATH].join(":"),
     "--setenv",
     "HOME",
     SANDBOX_HOME,
@@ -144,17 +296,32 @@ export function sandboxArgs(
   for (const path of SYSTEM_PATHS) if (existsSync(path)) args.push("--ro-bind", path, path)
   args.push("--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", SANDBOX_HOME)
   args.push(profile.workspace === "read-only" ? "--ro-bind" : "--bind", workspace, workspace)
-  for (const entry of profile.state) {
-    const fromHome = entry.path.startsWith("~/")
-    const source = fromHome ? join(home, entry.path.slice(1)) : entry.path
-    const dest = fromHome ? join(SANDBOX_HOME, entry.path.slice(1)) : entry.path
-    if (entry.mode === "ro") {
-      if (!existsSync(source)) continue
-      args.push(...dirArgs(dest, fromHome ? SANDBOX_HOME : "/"), "--ro-bind", source, dest)
+  for (const bind of stateBinds) {
+    if (bind.mode === "ro") {
+      if (!existsSync(bind.source)) continue
+      args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--ro-bind", bind.source, bind.dest)
     } else {
-      mkdirSync(source, { recursive: true, mode: 0o700 })
-      args.push(...dirArgs(dest, fromHome ? SANDBOX_HOME : "/"), "--bind", source, dest)
+      mkdirSync(bind.source, { recursive: true, mode: 0o700 })
+      args.push(...dirArgs(bind.dest, bind.fromHome ? SANDBOX_HOME : "/"), "--bind", bind.source, bind.dest)
     }
+  }
+  // Entry-point binds come after the private tmpfs mounts and the workspace and
+  // state binds, so a resolved entry anywhere (including under /tmp, which the
+  // private tmpfs would otherwise shadow) is visible. A safe entry directory is
+  // bound whole, read-only. An unsafe dir (temp root, home root, ancestor of
+  // HOME/state/workspace, protected home dir) binds only the entry and
+  // interpreter files, so siblings stay invisible and the private /tmp is
+  // preserved.
+  for (const dir of binds.dirBinds) args.push("--ro-bind", dir, dir)
+  for (const file of binds.fileBinds) args.push("--ro-bind", file, file)
+  // An entry dir can be an ancestor of the workspace or a state dir (for
+  // example a binary in /var/tmp with a probe workspace under /var/tmp).
+  // Re-bind both after the entry binds so the read-only entry mount cannot
+  // shadow them.
+  args.push(profile.workspace === "read-only" ? "--ro-bind" : "--bind", workspace, workspace)
+  for (const bind of stateBinds) {
+    if (bind.mode === "ro" && !existsSync(bind.source)) continue
+    args.push(bind.mode === "ro" ? "--ro-bind" : "--bind", bind.source, bind.dest)
   }
   // The root tmpfs is writable by default, so a path next to the workspace
   // (created for the bind) would accept a write. Remounting it read-only makes
@@ -171,11 +338,23 @@ export function sandboxHarness(
   workspace: string,
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
+  options: { entryDirs?: readonly string[] | undefined; entryFiles?: readonly string[] | undefined } = {},
 ): HarnessDefinition {
+  const binds = entryBinds(
+    { command: definition.command, dirs: options.entryDirs ?? [], files: options.entryFiles ?? [] },
+    profile,
+    workspace,
+    home,
+  )
   return {
     ...definition,
     command: "bwrap",
-    args: [...sandboxArgs(profile, workspace, home, env), "--", definition.command, ...(definition.args ?? [])],
+    args: [
+      ...sandboxArgs(profile, workspace, home, env, { ...options, entryBinds: binds }),
+      "--",
+      binds.command,
+      ...(definition.args ?? []),
+    ],
   }
 }
 

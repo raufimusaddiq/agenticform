@@ -63,10 +63,30 @@ export interface HeartbeatRequest {
 
 export type HarnessStatus = "ready" | "missing" | "unauthenticated" | "unknown"
 
+/**
+ * The only reason codes a probe may report. Defined once so the node and the
+ * hub cannot drift; the hub rejects anything else.
+ */
+export const HARNESS_REPORT_REASONS = [
+  "auth_required",
+  "not_installed",
+  "version_not_cached",
+  "spawn_failed",
+  "handshake_timeout",
+  "process_exited",
+  "protocol_unsupported",
+  "capability_missing",
+  "agent_error",
+] as const
+
+export type HarnessReportReason = (typeof HARNESS_REPORT_REASONS)[number]
+
+export const HARNESS_REPORT_REASON_SET: ReadonlySet<string> = new Set(HARNESS_REPORT_REASONS)
+
 export interface HarnessReport {
   id: string
   status: HarnessStatus
-  reason?: string
+  reason?: HarnessReportReason
 }
 
 export interface IsolationReport {
@@ -179,5 +199,7 @@ export interface NodeView {
   capabilities: string[]
   labels: Record<string, string>
   capacity: { slots: number; inUse: number }
+  /** Last heartbeat's per-harness probe report, verbatim. Additive and optional. */
+  harnessReport?: HarnessReport[]
   lastHeartbeatAt: string | null
 }

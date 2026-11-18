@@ -30,6 +30,12 @@ const isAlive = (pid: number) => {
   return state !== "" && !state.startsWith("Z")
 }
 
+/** Wait for a condition instead of sleeping a fixed time. */
+const waitUntil = async (condition: () => boolean, timeoutMs = 2_000): Promise<void> => {
+  const start = Date.now()
+  while (!condition() && Date.now() - start < timeoutMs) await Bun.sleep(20)
+}
+
 const started: number[] = []
 afterEach(() => {
   for (const pid of started.splice(0)) if (isAlive(pid)) process.kill(pid, "SIGKILL")
@@ -210,7 +216,7 @@ describe("interruption", () => {
     const result = await run("child").result()
     const pid = Number(result.text)
     started.push(pid)
-    await Bun.sleep(100)
+    await waitUntil(() => !isAlive(pid))
     expect(isAlive(pid)).toBe(false)
   })
 })

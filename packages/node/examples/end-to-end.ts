@@ -9,7 +9,7 @@
  * listens on the node side: the node only makes outbound calls (FR-001).
  */
 import { createPublicKey, verify } from "node:crypto"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { CommandEnvelope, CompletionRequest, RunEventInput } from "@agenticform/protocol"
@@ -56,6 +56,14 @@ const fakeAgent = (): RuntimeDriver => ({
 })
 
 const stateDir = mkdtempSync(join(tmpdir(), "af-example-"))
+// The probe runs a real sandboxed ACP child, so the fake harness is a real
+// executable script. The run itself still uses the in-process fake driver.
+const fakeEntry = join(stateDir, "fake-harness")
+writeFileSync(
+  fakeEntry,
+  `#!/usr/bin/env bun\n${readFileSync(join(import.meta.dir, "..", "test", "fake-harness.ts"), "utf8")}`,
+  { mode: 0o755 },
+)
 const identity: NodeIdentity = {
   ...generateKeyPair(),
   nodeId: "3f1c2a9e-0000-4000-8000-000000000001",
@@ -90,6 +98,7 @@ command.payload.fingerprint = fingerprintOf(command)
 const seenNonces = new Set<string>()
 const events: RunEventInput[] = []
 let leased = false
+let advertised: string[] = []
 let completion: CompletionRequest | undefined
 let markDone: (() => void) | undefined
 const done = new Promise<void>((resolve) => {
@@ -125,10 +134,12 @@ const hub = Bun.serve({
     seenNonces.add(nonce)
 
     if (path === "/v1/node/heartbeat") {
+      advertised = (JSON.parse(raw) as { harnesses: string[] }).harnesses
       return Response.json({ status: "online", commandsPollMs: 1_500 })
     }
     if (path === "/v1/node/commands/next") {
-      if (leased) return new Response(null, { status: 204 })
+      // Placement only sees advertised harnesses, so wait for the probe.
+      if (leased || !advertised.includes("fake")) return new Response(null, { status: 204 })
       leased = true
       return Response.json(command)
     }
@@ -158,12 +169,16 @@ const node = createNode(
     leaseRenewMs: 60_000,
     requestTimeoutMs: 5_000,
     harnessProbeTtlMs: 300_000,
+    harnessProbeReadyTtlMs: 3_600_000,
     harnessProbeTimeoutMs: 20_000,
     protocolVersion: 1,
   },
   identity,
   {
-    runtime: createRuntime({ driver: fakeAgent(), harnesses: { fake: { id: "fake", profile: "coding", command: "fake" } } }),
+    runtime: createRuntime({
+      driver: fakeAgent(),
+      harnesses: { fake: { id: "fake", profile: "coding", command: fakeEntry, args: [JSON.stringify({})] } },
+    }),
     harnesses: ["fake"],
   },
 )

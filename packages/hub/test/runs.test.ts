@@ -44,6 +44,50 @@ describe("placement", () => {
     expect(response.body.error.code).toBe("no_eligible_node")
   })
 
+  test("no_eligible_node names the harness and the best-known status", async () => {
+    hub = startHub()
+    const missing = await enroll(hub, { name: "missing", harnesses: [] })
+    const auth = await enroll(hub, { name: "auth", harnesses: [] })
+    await heartbeat(hub, missing, {
+      harnesses: [],
+      harnessReport: [{ id: "codex", status: "missing", reason: "not_installed" }],
+    })
+    await heartbeat(hub, auth, {
+      harnesses: [],
+      harnessReport: [{ id: "codex", status: "unauthenticated", reason: "auth_required" }],
+    })
+    const response = await createRun(hub, { harness: "codex" })
+    expect(response.status).toBe(422)
+    expect(response.body.error.code).toBe("no_eligible_node")
+    expect(response.body.error.message).toContain("codex")
+    expect(response.body.error.message).toContain("unauthenticated")
+    expect(response.body.error.message).toContain(auth.nodeId)
+  })
+
+  test("no_eligible_node stays plain when no node reported the harness", async () => {
+    hub = startHub()
+    const node = await enroll(hub, { harnesses: [] })
+    await heartbeat(hub, node, { harnesses: [] })
+    const response = await createRun(hub, { harness: "codex" })
+    expect(response.status).toBe(422)
+    expect(response.body.error.message).toBe("no node satisfies codex")
+  })
+
+  test("a ready harness on a full node names capacity, not ready", async () => {
+    hub = startHub()
+    const node = await enroll(hub, { harnesses: ["codex"] })
+    await heartbeat(hub, node, {
+      harnesses: ["codex"],
+      capacity: { slots: 0, inUse: 0 },
+      harnessReport: [{ id: "codex", status: "ready" }],
+    })
+    const response = await createRun(hub, { harness: "codex" })
+    expect(response.status).toBe(422)
+    expect(response.body.error.code).toBe("no_eligible_node")
+    expect(response.body.error.message).toContain("capacity")
+    expect(response.body.error.message).not.toContain("ready")
+  })
+
   test("capacity reservations spread a burst across nodes", async () => {
     hub = startHub()
     const first = await enroll(hub, { name: "first" })
@@ -207,5 +251,36 @@ describe("end to end through a fake node", () => {
     await Bun.sleep(300)
     controller.abort()
     await Bun.sleep(300)
+  })
+})
+
+describe("harness report validation", () => {
+  test("an id longer than 64 characters is rejected", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      harnessReport: [{ id: "x".repeat(65), status: "ready" }],
+    })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe("invalid_input")
+  })
+
+  test("an unknown reason is rejected", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      harnessReport: [{ id: "codex", status: "unknown", reason: "nope" }],
+    })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe("invalid_input")
+  })
+
+  test("a 64-character id is accepted", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      harnessReport: [{ id: "x".repeat(64), status: "unknown", reason: "agent_error" }],
+    })
+    expect(response.status).toBe(200)
   })
 })

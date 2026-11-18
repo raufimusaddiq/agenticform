@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { readFileSync, readdirSync, writeFileSync } from "node:fs"
 
 /**
@@ -14,6 +14,7 @@ const spec = JSON.parse(process.argv[2] ?? "{}") as {
   reads?: string[]
   lists?: string[]
   marker?: string
+  exec?: string
 }
 
 let cancelled: (() => void) | null = null
@@ -79,6 +80,12 @@ async function handle(message: { id?: unknown; method?: string; params?: any }):
     if (spec.scenario === "writes") {
       const lines = [...(spec.writes ?? []).map(attempt), ...(spec.reads ?? []).map(read)]
       say(sessionId, lines.join("\n"))
+      reply(id, { stopReason: "end_turn" })
+      return
+    }
+    if (spec.scenario === "exec") {
+      const result = spawnSync(spec.exec as string, [], { encoding: "utf8" })
+      say(sessionId, `${spec.exec}=${result.status}:${(result.stdout ?? "").trim()}`)
       reply(id, { stopReason: "end_turn" })
       return
     }

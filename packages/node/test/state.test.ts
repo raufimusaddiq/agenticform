@@ -46,7 +46,7 @@ const countingDriver = (): { driver: RuntimeDriver; connected: () => number } =>
 }
 
 const runtime = (driver: RuntimeDriver) =>
-  createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: "fake" } } })
+  createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } } })
 
 /** Builds a command with the payload fingerprint the node recomputes (N5.3). */
 const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => {

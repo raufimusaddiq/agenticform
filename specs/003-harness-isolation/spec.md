@@ -163,10 +163,10 @@ with `harness_unauthenticated` or `harness_missing`.
 ### Harness presence and authentication
 
 - **FR-017**: The node MUST probe each configured harness and classify it as `ready`, `missing`, `unauthenticated` or `unknown`, with a machine-readable reason.
-- **FR-018**: A harness is `ready` only when its entry point resolves without network access and an ACP handshake completes inside the sandbox.
+- **FR-018**: A harness is `ready` only when its entry point resolves without network access and an ACP `initialize` and `session/new` handshake completes inside the sandbox.
 - **FR-019**: The probe MUST NOT install, update or authenticate a harness, and MUST NOT read harness credentials.
 - **FR-020**: The probe MUST be bounded by a timeout and run at most one at a time, so a hung harness cannot stall the heartbeat.
-- **FR-021**: Probe results MUST be cached for a bounded TTL and re-probed after a run fails, so a login is picked up without a restart.
+- **FR-021**: Probe results MUST be cached for a bounded TTL, longer for `ready` than for non-ready, and re-probed after a run fails, so a login is picked up without a restart.
 - **FR-022**: The heartbeat MUST advertise only `ready` harnesses in the existing harness list, and MUST report every probed harness with its status and reason in an additive field.
 - **FR-023**: A run for a `missing` harness MUST fail with `harness_missing`; a run for an `unauthenticated` harness MUST fail with `harness_unauthenticated`; neither may start a child.
 - **FR-024**: A run for an `unknown` harness MUST fail with `harness_unavailable` and the probe reason.

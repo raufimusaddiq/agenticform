@@ -20,6 +20,16 @@ export {
 } from "./ledger.ts"
 export { startHeartbeat, type HeartbeatLoop, type HeartbeatOptions } from "./heartbeat.ts"
 export {
+  HarnessProber,
+  probeHarness,
+  resolveHarness,
+  type HarnessProberOptions,
+  type HarnessResolution,
+  type ProbeOptions,
+  type ResolvedHarness,
+  type ResolveOptions,
+} from "./harness-probe.ts"
+export {
   IsolationError,
   PROFILE_VERSION,
   SANDBOX_HOME,

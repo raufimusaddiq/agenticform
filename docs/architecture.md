@@ -58,12 +58,14 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 Every run is wrapped in a bubblewrap sandbox built from the harness's profile:
 minimal read-only system binds, a private `/tmp` and home, the resolved
 workspace bound read-write (or read-only), and only the harness's declared state
-directories. A write outside those paths fails with `EROFS`. The node never runs
-a harness unsandboxed: a sandbox that cannot start fails the run.
+directories. A safe entry-point directory is bound read-only and put on the
+sandbox `PATH`; a temp root or a workspace ancestor binds only the resolved
+entry file and its interpreter, so siblings stay invisible and the private
+`/tmp` is preserved. A write outside those paths fails with `EROFS`. The node
+never runs a harness unsandboxed: a sandbox that cannot start fails the run.
 
-Still planned (spec 003): the heartbeat does not yet report the isolation mode or
-probe harness presence. The design is
-[`specs/003-harness-isolation`](../specs/003-harness-isolation/spec.md).
+The heartbeat reports each configured harness's probe status and advertises only
+the ready ones. The isolation mode field is still planned (spec 003, US3).
 
 ## Process lifecycle
 

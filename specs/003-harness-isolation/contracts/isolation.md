@@ -43,6 +43,8 @@ bwrap
   --tmpfs /home/agent
   (--bind | --ro-bind) <workspace> <workspace>
   (--bind | --ro-bind) <state-source> <sandbox-home>/<relative> ...
+  --ro-bind <entry-dir> <entry-dir> ...          # safe entry dir, after the tmpfs
+  --ro-bind <entry-file> <entry-file> ...        # temp root / workspace ancestor: file only
   --remount-ro /
   --
   <harness.command> <harness.args...>
@@ -51,8 +53,8 @@ bwrap
 Rules:
 
 - Order is fixed: unshare flags, lifecycle flags, environment, system binds,
-  pseudo-filesystems, private tmpfs, workspace, state paths, root remount, `--`,
-  command.
+  pseudo-filesystems, private tmpfs, workspace, state paths, entry-point binds,
+  root remount, `--`, command.
 - `--unshare-net` MUST NOT appear.
 - `--unshare-cgroup-try` MUST be used, so a kernel without cgroup namespaces does
   not fail the sandbox.
@@ -62,10 +64,31 @@ Rules:
   is bound at its own path.
 - A read-only state path that does not exist is skipped; a read-write one is
   created with mode `0700`.
+- Entry-point binds come after the private `/tmp` and home tmpfs, so a resolved
+  entry point under `/tmp` is not shadowed by the private tmpfs. Resolve the
+  entry with `realpath` and apply one rule:
+  - if the real file is inside a declared state dir, do not add a bind: map the
+    command and `PATH` entry to the in-sandbox path of that state bind;
+  - otherwise, under HOME, bind the smallest directory containing the real file
+    only when it is a bin dir (`~/.local/bin`, `~/.bun/bin`, `~/.opencode/bin`,
+    `~/.npm-global/bin`, when present) or a strict subdir of a package root
+    (`~/.local/share/claude`, `~/.bun`, `~/.npm-global`, `~/.volta`, `~/.nvm`,
+    `~/.opencode`); a package root itself is file-only, so a binary directly in
+    `~/.npm-global` cannot expose `.npmrc`; anything else under HOME binds only
+    the entry and interpreter files, so a subdirectory such as `~/.ssh/sub` or
+    `~/.config/gh` cannot leak siblings;
+  - outside HOME, bind the smallest directory containing the real file, never
+    `/`, the home root, an ancestor of HOME or a state path, a temp root or a
+    workspace ancestor; those bind only the entry and interpreter files.
+  Only directories that exist inside the sandbox are put on `PATH`.
+- A bound bin dir is read-only, but every file in it is readable by the harness.
+  Keep secrets out of bin dirs; a credential belongs in a declared state dir.
 - The root is remounted read-only after the binds, so a path next to the
   workspace (created for the bind) cannot be written. The workspace, `/tmp`, the
-  home and the state binds are separate mounts and keep their own flags.
-- The argv is built from the profile table only. No run input may add a bind.
+  home, the state binds and the entry-point binds are separate mounts and keep
+  their own flags.
+- The argv is built from the profile table and the resolved entry point only. No
+  run input may add a bind.
 
 ## 3. Environment
 
@@ -73,7 +96,7 @@ The harness environment is exactly:
 
 | Variable | Value |
 |---|---|
-| `PATH` | `/usr/local/bin:/usr/bin:/bin` |
+| `PATH` | the resolved entry-point directories, then `/usr/local/bin:/usr/bin:/bin` |
 | `HOME` | `/home/agent` |
 | `TERM`, `LANG`, `LC_ALL`, `TZ` | copied from the node only when set |
 | profile `env` | the profile's declared entries |

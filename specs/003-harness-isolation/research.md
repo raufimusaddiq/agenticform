@@ -36,8 +36,8 @@ use, not `command -v`.
 | Workspace mode | `write` or `read-only` per run, default `write` | A single global mode: read-only review runs are a real second user |
 | Network | not unshared | `--unshare-all`: harnesses cannot reach their model |
 | Environment | `--clearenv` plus an allowlist | inheriting `process.env`: leaks the hub token into the harness |
-| Harness presence | ACP handshake probe inside the sandbox | reading credential files: fragile, and it reads secrets |
-| Probe cache | TTL 300 s, re-probe after a failed run | probing every heartbeat: 8 harnesses × 15 s is wasteful on 1 CPU |
+| Harness presence | ACP `initialize` + `session/new` probe inside the sandbox | reading credential files: fragile, and it reads secrets |
+| Probe cache | TTL 300 s non-ready, 1 h ready; re-probe after a failed run | probing every heartbeat: 8 harnesses × 15 s is wasteful on 1 CPU |
 | Heartbeat shape | additive `harnessReport` and `isolation` fields, `harnesses` keeps meaning "ready" | a protocol version bump: additive optional fields do not need one |
 
 ## Sandbox shape
@@ -108,6 +108,41 @@ entries, so a missing optional config directory does not fail the run.
 - **`~/.config/claude` does not exist.** It was removed from the table; the docs
   and the host agree that Claude Code uses `~/.claude`.
 
+## Entry-point install roots
+
+A directory under HOME may be bound whole only when it is inside a declared
+state dir (mapped to the sandbox home) or one of the install roots below.
+Anything else under HOME binds only the resolved entry file and its interpreter,
+so a subdirectory such as `~/.ssh/sub` or `~/.config/gh` cannot leak siblings.
+
+Two kinds of data:
+
+**Bin dirs** are bound as-is (the dir itself, read-only, on `PATH`), only when
+they exist:
+
+| Bin dir | Why |
+|---|---|
+| `~/.local/bin` | User-local executables; the common install target for `claude` and other CLIs. |
+| `~/.bun/bin` | Bun's own binaries (`bun`, `bunx`). |
+| `~/.opencode/bin` | OpenCode's binary. |
+| `~/.npm-global/bin` | npm's user-prefix global bins. |
+
+**Package roots** allow only a strict subdir; the root itself is file-only
+because it may hold config (for example `~/.npm-global/.npmrc`):
+
+| Package root | Why |
+|---|---|
+| `~/.local/share/claude` | Claude Code's versioned native install; `~/.local/bin/claude` symlinks here. |
+| `~/.bun` | Bun's install cache; `bunx` entries live under `install/cache`. |
+| `~/.npm-global` | npm's user prefix; global packages live under `lib/node_modules`. |
+| `~/.volta` | Volta's shims and installed toolchain. |
+| `~/.nvm` | nvm's installed Node versions and global bins. |
+| `~/.opencode` | OpenCode's install root; the binary is in `bin`. |
+
+The lists are data next to the profile table; a new install root is a table edit.
+A bound bin dir is read-only, but every file in it is readable by the harness;
+keep secrets out of bin dirs and put credentials in a declared state dir.
+
 ## Presence probe
 
 A harness is `ready` only when both hold:
@@ -117,7 +152,11 @@ A harness is `ready` only when both hold:
    otherwise the status is `missing` with reason `version_not_cached`. The probe
    never invokes a package manager in a way that can download.
 2. **Handshake inside the sandbox.** Spawn the sandboxed harness, perform ACP
-   `initialize` only, then close. No session, no prompt, no tool call.
+   `initialize` and `session/new`, then close. No prompt, no tool call, no
+   permission request. `session/new` is part of the handshake because
+   `auth_required` only surfaces there: an `initialize`-only probe cannot tell a
+   logged-in harness from a logged-out one. The probe creates one empty session
+   per harness per TTL; that is the cost of an honest `unauthenticated` status.
 
 Classification:
 
@@ -129,9 +168,10 @@ Classification:
 | Handshake completes | `ready` | — |
 | Timeout, crash, protocol error | `unknown` | the runtime error code |
 
-Probe timeout 20 s, one probe at a time, cache TTL 300 s. A failed run invalidates
-that harness's cache entry so the next heartbeat re-probes. Probe output is
-reduced to status and reason; stderr is discarded, never logged or sent.
+Probe timeout 20 s, one probe at a time, cache TTL 300 s for a non-ready result
+and 1 h for a `ready` one. A failed run invalidates that harness's cache entry
+so the next heartbeat re-probes. Probe output is reduced to status and reason;
+stderr is discarded, never logged or sent.
 
 ## Heartbeat additions
 
@@ -158,7 +198,7 @@ working. No protocol version bump.
 | Setting | Default | Why |
 |---|---|---|
 | Probe timeout | 20 s | A cold `bunx` start is slow; a hung harness must not stall a beat |
-| Probe cache TTL | 300 s | A login is picked up within one beat cycle after the TTL |
+| Probe cache TTL | 300 s non-ready, 1 h ready | A login is picked up within one beat cycle after the non-ready TTL; a ready harness is stable, so it is probed less often |
 | Probe concurrency | 1 | 1 CPU host; parallel cold starts would starve the run |
 | Sandbox self-test timeout | 10 s | A working bwrap returns in milliseconds |
 | Profile version | `1` | Bumped when the mount table or argv shape changes |

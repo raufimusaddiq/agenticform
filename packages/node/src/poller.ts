@@ -17,6 +17,8 @@ export interface PollerOptions {
 export interface Poller {
   stop(): Promise<void>
   tick(): Promise<void>
+  /** Commands waiting for a start slot. */
+  readonly parked: number
 }
 
 /**
@@ -35,6 +37,7 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
   const controllers = new Set<AbortController>()
   const slots = Math.max(1, options.slots ?? 1)
   let running = 0
+  let parked = 0
   const waiters: (() => void)[] = []
 
   const acquire = (signal: AbortSignal): Promise<void> => {
@@ -44,14 +47,17 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
       return Promise.resolve()
     }
     return new Promise((resolve, reject) => {
+      parked += 1
       const waiter = () => {
         signal.removeEventListener("abort", onAbort)
+        parked -= 1
         running += 1
         resolve()
       }
       const onAbort = () => {
         const index = waiters.indexOf(waiter)
         if (index >= 0) waiters.splice(index, 1)
+        parked -= 1
         reject(signal.reason)
       }
       signal.addEventListener("abort", onAbort, { once: true })
@@ -193,6 +199,9 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
 
   return {
     tick,
+    get parked() {
+      return parked
+    },
     async stop() {
       stopped = true
       if (timer !== undefined) clearTimeout(timer)

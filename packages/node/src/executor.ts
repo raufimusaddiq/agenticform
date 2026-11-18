@@ -1,4 +1,5 @@
 import type { RunEventInput, RuntimeInventoryEntry } from "@agenticform/protocol"
+import type { HarnessStatus } from "@agenticform/protocol"
 import {
   createRuntime,
   type Capability,
@@ -9,6 +10,7 @@ import {
 } from "@agenticform/runtime"
 import type { CommandEnvelope } from "@agenticform/protocol"
 import { normaliseEvent } from "./events.ts"
+import { resolveHarness, type ResolvedHarness } from "./harness-probe.ts"
 import { IsolationError, profileFor, resolveWorkspace, sandboxHarness } from "./isolation.ts"
 import { CommandLedger } from "./ledger.ts"
 import { NodeState, fingerprintError, payloadGenerationError } from "./state.ts"
@@ -30,6 +32,22 @@ export interface ExecutorOptions {
   ledgerDir?: string
   /** Retention window for terminal receipts. */
   ledgerRetentionMs?: number
+  /** Harness ids this node offers; an unconfigured id is `harness_missing`. */
+  harnesses?: readonly string[]
+  /** Probe status for a harness; omitted skips the pre-run gate (tests, custom callers). */
+  harnessStatus?: (id: string) => HarnessStatus | undefined
+  /** Trigger a single-flight probe and return the fresh status. */
+  harnessProbe?: (id: string) => Promise<HarnessStatus | undefined>
+  /** The entry point the prober already resolved, so a run does not re-resolve it. */
+  harnessEntry?: (id: string) => ResolvedHarness | undefined
+  /** Called after a failed run so the next heartbeat re-probes that harness. */
+  harnessFailed?: (id: string) => void
+  /** Bound on the pre-run probe wait. Default 30 s. */
+  probeWaitMs?: number
+  /** Home used to resolve the entry point; must match the prober's. */
+  home?: string
+  /** Environment used to resolve the entry point; must match the prober's. */
+  env?: Record<string, string | undefined>
 }
 
 interface ActiveRun {
@@ -54,6 +72,30 @@ function outcomeOf(result: RunResult): ExecutionOutcome {
   return { status: "failed", error: result.error ?? { code: "agent_error", message: "run failed" } }
 }
 
+/** Resolve to `undefined` when `work` does not finish within `ms`. */
+async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms)
+  })
+  try {
+    return await Promise.race([work, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Two resolved entries are the same when the command, dirs and files match. */
+function sameEntry(a: ResolvedHarness, b: ResolvedHarness): boolean {
+  return (
+    a.definition.command === b.definition.command &&
+    a.dirs.length === b.dirs.length &&
+    a.dirs.every((dir, index) => dir === b.dirs[index]) &&
+    a.files.length === b.files.length &&
+    a.files.every((file, index) => file === b.files[index])
+  )
+}
+
 /**
  * Executes hub commands through `runtime` (FR-019). The node owns no harness
  * logic: it maps a command to a runtime input and a runtime result to a
@@ -64,6 +106,14 @@ export class Executor {
   private readonly ledger: CommandLedger
   private readonly active = new Map<string, ActiveRun>()
   private readonly state = new NodeState()
+  private readonly configuredHarnesses: readonly string[] | undefined
+  private readonly harnessStatus: ((id: string) => HarnessStatus | undefined) | undefined
+  private readonly harnessProbe: ((id: string) => Promise<HarnessStatus | undefined>) | undefined
+  private readonly harnessEntry: ((id: string) => ResolvedHarness | undefined) | undefined
+  private readonly harnessFailed: ((id: string) => void) | undefined
+  private readonly probeWaitMs: number
+  private readonly home: string | undefined
+  private readonly env: Record<string, string | undefined> | undefined
   private staleCount = 0
 
   constructor(options: ExecutorOptions = {}) {
@@ -72,6 +122,14 @@ export class Executor {
       ...(options.ledgerDir === undefined ? {} : { dir: options.ledgerDir }),
       ...(options.ledgerRetentionMs === undefined ? {} : { retentionMs: options.ledgerRetentionMs }),
     })
+    this.configuredHarnesses = options.harnesses
+    this.harnessStatus = options.harnessStatus
+    this.harnessProbe = options.harnessProbe
+    this.harnessEntry = options.harnessEntry
+    this.harnessFailed = options.harnessFailed
+    this.probeWaitMs = options.probeWaitMs ?? 30_000
+    this.home = options.home
+    this.env = options.env
   }
 
   get activeCount(): number {
@@ -83,6 +141,7 @@ export class Executor {
     return this.staleCount
   }
 
+  /** The harness ids the runtime catalog knows. */
   harnesses(): string[] {
     return this.runtime.harnesses().map((harness) => harness.id)
   }
@@ -205,18 +264,95 @@ export class Executor {
     // resolved path is what gets bound, so a symlink cannot escape (FR-008).
     let workspace: string
     try {
-      workspace = resolveWorkspace(payload.cwd)
+      workspace = resolveWorkspace(payload.cwd, this.home)
     } catch (error) {
       if (error instanceof IsolationError) {
         return { status: "failed", error: { code: error.code, message: error.message } }
       }
       throw error
     }
+    // contracts/harness-detection.md §5: a harness this node does not offer is
+    // `harness_missing`, even if the runtime catalog knows it. An empty list
+    // means "all configured", matching the node's advertisement filter.
+    if (this.configuredHarnesses && this.configuredHarnesses.length > 0 && !this.configuredHarnesses.includes(payload.harness)) {
+      return {
+        status: "failed",
+        error: { code: "harness_missing", message: `Harness is not configured on this node: ${payload.harness}` },
+      }
+    }
     const definition = this.runtime.harnesses().find((harness) => harness.id === payload.harness)
     if (!definition) {
       return {
         status: "failed",
-        error: { code: "unknown_harness", message: `Unknown harness: ${payload.harness}` },
+        error: { code: "harness_missing", message: `Harness is not configured on this node: ${payload.harness}` },
+      }
+    }
+    // FR-023, FR-024: a non-ready harness fails with its named code before any
+    // child starts. The gate is skipped only when no prober is wired (tests).
+    if (this.harnessStatus) {
+      let status = this.harnessStatus(payload.harness)
+      // A run can arrive before the first probe (for example right after a
+      // restart). Trigger the single-flight probe and wait for it, bounded,
+      // instead of failing with a misleading "unavailable".
+      if (status === undefined && this.harnessProbe) {
+        status = await withTimeout(this.harnessProbe(payload.harness), this.probeWaitMs)
+      }
+      if (status === "missing") {
+        return { status: "failed", error: { code: "harness_missing", message: `Harness is missing: ${payload.harness}` } }
+      }
+      if (status === "unauthenticated") {
+        return {
+          status: "failed",
+          error: { code: "harness_unauthenticated", message: `Harness needs authentication: ${payload.harness}` },
+        }
+      }
+      if (status !== "ready") {
+        return {
+          status: "failed",
+          error: {
+            code: "harness_unavailable",
+            message:
+              status === undefined
+                ? `Harness probe did not finish: ${payload.harness}`
+                : `Harness is unavailable: ${payload.harness}`,
+          },
+        }
+      }
+    }
+    // T031: re-resolve the entry at each run start (cheap, no network). The
+    // ready cache is long, but the entry may have moved (a new version dir); a
+    // changed entry invalidates the cache and re-probes before the run. Use the
+    // same home and PATH as the prober, or a custom home would look changed.
+    const fresh = resolveHarness(definition, {
+      ...(this.home === undefined ? {} : { home: this.home }),
+      ...(this.env?.PATH === undefined ? {} : { path: this.env.PATH }),
+    })
+    const cached = this.harnessEntry?.(payload.harness)
+    const changed = cached !== undefined && (!fresh.ok || !sameEntry(cached, fresh.resolved))
+    if (changed) {
+      this.harnessFailed?.(payload.harness)
+      const status = await withTimeout(
+        this.harnessProbe?.(payload.harness) ?? Promise.resolve(undefined),
+        this.probeWaitMs,
+      )
+      if (status !== "ready") {
+        const code =
+          status === "missing"
+            ? "harness_missing"
+            : status === "unauthenticated"
+              ? "harness_unauthenticated"
+              : "harness_unavailable"
+        return { status: "failed", error: { code, message: `Harness is not ready: ${payload.harness}` } }
+      }
+    }
+    const resolved = this.harnessEntry?.(payload.harness) ?? (fresh.ok ? fresh.resolved : undefined)
+    if (!resolved) {
+      return {
+        status: "failed",
+        error: {
+          code: "harness_missing",
+          message: `Harness is missing: ${payload.harness}${fresh.ok ? "" : ` (${fresh.reason})`}`,
+        },
       }
     }
 
@@ -254,8 +390,18 @@ export class Executor {
     }
 
     // Every run is sandboxed (FR-001). There is no unsandboxed path: a sandbox
-    // that cannot start fails the run instead of falling back.
-    const sandboxed = sandboxHarness(definition, profileFor(payload.harness), workspace)
+    // that cannot start fails the run instead of falling back. Unsafe entry
+    // dirs degrade to file-only binds, so the argv builder does not throw.
+    // Home and env come from the same source as the prober, so state binds and
+    // entry resolution agree.
+    const sandboxed = sandboxHarness(
+      resolved.definition,
+      profileFor(payload.harness),
+      workspace,
+      this.home,
+      this.env,
+      { entryDirs: resolved.dirs, entryFiles: resolved.files },
+    )
     const run = this.runtime.run({
       harness: sandboxed,
       cwd: workspace,
@@ -270,7 +416,11 @@ export class Executor {
         const normalised = normaliseEvent(event, command.commandId)
         if (normalised) context.emit(normalised)
       }
-      return outcomeOf(await run.result())
+      const outcome = outcomeOf(await run.result())
+      // FR-021: a failed run invalidates the probe entry, so the next heartbeat
+      // re-probes and a login is picked up without a restart.
+      if (outcome.status === "failed") this.harnessFailed?.(payload.harness)
+      return outcome
     } finally {
       // A newer generation may already own the entry; only the owner deletes it.
       if (this.active.get(command.runId)?.run === run) this.active.delete(command.runId)
