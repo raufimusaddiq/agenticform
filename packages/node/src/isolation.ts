@@ -181,7 +181,9 @@ export function entryBinds(
       continue
     }
     const underHome = isUnder(resolved, homeRoot)
-    const allowedUnderHome = installRoots.some((root) => isUnder(resolved, root))
+    // Strictly inside an install root: a binary directly in the root (which may
+    // hold config such as ~/.npm-global/.npmrc) is file-only.
+    const allowedUnderHome = installRoots.some((root) => resolved !== root && isUnder(resolved, root))
     const unsafe =
       resolved === "/" ||
       resolved === homeRoot ||

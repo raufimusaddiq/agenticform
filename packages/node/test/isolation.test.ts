@@ -210,6 +210,17 @@ describe("isolation argv", () => {
     expect(binds.fileBinds).toContain(entry)
   })
 
+  test("a binary directly in an install root is file-only", () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".npm-global")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "x")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const binds = entryBinds({ command: entry, dirs: [dir], files: [entry] }, profileFor("nope"), "/tmp/ws", home)
+    expect(binds.dirBinds).toEqual([])
+    expect(binds.fileBinds).toContain(entry)
+  })
+
   test("the workspace is resolved and / and the home root are refused", () => {
     const home = temp("af-home-")
     const target = temp("af-target-")
@@ -439,6 +450,37 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
     const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
     const result = await run.result()
     expect(result.text).toBe(`${inside}=ok`)
+  })
+
+  test("a binary directly in ~/.npm-global is file-only and .npmrc stays invisible", async () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".npm-global")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "x.ts")
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    const npmrc = join(dir, ".npmrc")
+    writeFileSync(npmrc, "secret")
+    const workspace = temp("af-ws-")
+    const resolved = resolveWorkspace(workspace, home)
+    const resolution = resolveHarness({
+      id: "fake",
+      profile: "coding",
+      command: entry,
+      args: [JSON.stringify({ scenario: "writes", reads: [npmrc] })],
+    })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    const definition = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor("fake"),
+      resolved,
+      home,
+      process.env,
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+    )
+    const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+    const result = await run.result()
+    expect(result.status).toBe("completed")
+    expect(result.text).toBe(`read:${npmrc}=ENOENT`)
   })
 
   for (const root of ["/tmp", "/var/tmp"]) {
