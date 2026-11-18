@@ -108,6 +108,25 @@ entries, so a missing optional config directory does not fail the run.
 - **`~/.config/claude` does not exist.** It was removed from the table; the docs
   and the host agree that Claude Code uses `~/.claude`.
 
+## Entry-point install roots
+
+A directory under HOME may be bound whole only when it is inside a declared
+state dir (mapped to the sandbox home) or one of these install roots. Anything
+else under HOME binds only the resolved entry file and its interpreter, so a
+subdirectory such as `~/.ssh/sub` or `~/.config/gh` cannot leak siblings.
+
+| Install root | Why |
+|---|---|
+| `~/.local/bin` | User-local executables; the common install target for `claude` and other CLIs. |
+| `~/.local/share/claude` | Claude Code's versioned native install; `~/.local/bin/claude` symlinks here. |
+| `~/.bun` | Bun's bin and install cache; `bunx` entries and the `bun` interpreter live here. |
+| `~/.opencode` | OpenCode's install root (`~/.opencode/bin/opencode`). |
+| `~/.npm-global` | npm's user prefix when configured; global CLI installs. |
+| `~/.volta` | Volta's shims and installed toolchain. |
+| `~/.nvm` | nvm's installed Node versions and global bins. |
+
+The list is data next to the profile table; a new install root is a table edit.
+
 ## Presence probe
 
 A harness is `ready` only when both hold:

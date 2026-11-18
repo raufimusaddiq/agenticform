@@ -100,8 +100,20 @@ const realpathOr = (path: string): string => {
 /** A temp root may be an entry dir: the probe workspace lives there. */
 const TEMP_ROOTS = ["/tmp", "/var/tmp"]
 
-/** Home directories that must never be bound whole as an entry dir. */
-const PROTECTED_HOME = ["~/.local", "~/.config", "~/.cache", "~/.ssh", "~/.gnupg"]
+/**
+ * Install roots under HOME that may be bound whole (contracts/isolation.md §2).
+ * Kept as data next to the profile table; a harness installed elsewhere under
+ * HOME binds only its entry file. Evidence is in research.md.
+ */
+const HOME_INSTALL_ROOTS = [
+  "~/.local/bin",
+  "~/.local/share/claude",
+  "~/.bun",
+  "~/.opencode",
+  "~/.npm-global",
+  "~/.volta",
+  "~/.nvm",
+] as const
 
 export interface EntryPoint {
   command: string
@@ -124,10 +136,11 @@ export interface EntryBinds {
  * One rule for entry binds (contracts/isolation.md §2):
  * - a real file inside a declared state dir is reached through that state bind,
  *   so the command and PATH entry are mapped to the in-sandbox path;
- * - otherwise the smallest dir containing the real file is bound, unless it is
- *   the home root, an ancestor of HOME, an ancestor of a state path, a temp
- *   root, a workspace ancestor, or a protected home dir; then only the entry
- *   and interpreter files are bound.
+ * - otherwise, under HOME, a directory is bound only when it is inside the
+ *   install-root allowlist; anything else under HOME binds only the entry and
+ *   interpreter files;
+ * - outside HOME, bind the smallest dir containing the real file, never `/`, a
+ *   temp root or a workspace ancestor; those are file-only too.
  */
 export function entryBinds(
   entry: EntryPoint,
@@ -146,12 +159,7 @@ export function entryBinds(
     }
   })
   const stateSources = stateBinds.map((bind) => bind.source)
-  const protectedDirs = new Set(
-    PROTECTED_HOME.flatMap((path) => {
-      const dir = realpathOr(join(home, path.slice(2)))
-      return [dir, dirname(dir)]
-    }),
-  )
+  const installRoots = HOME_INSTALL_ROOTS.map((path) => realpathOr(join(home, path.slice(2))))
 
   const commandReal = entry.command ? realpathOr(entry.command) : ""
   // (1) The real file is inside a declared state dir: use the state bind.
@@ -172,6 +180,8 @@ export function entryBinds(
       pathDirs.push(join(inside.dest, relative(inside.source, resolved)))
       continue
     }
+    const underHome = isUnder(resolved, homeRoot)
+    const allowedUnderHome = installRoots.some((root) => isUnder(resolved, root))
     const unsafe =
       resolved === "/" ||
       resolved === homeRoot ||
@@ -179,7 +189,7 @@ export function entryBinds(
       stateSources.some((source) => isUnder(source, resolved)) ||
       tempRoots.includes(resolved) ||
       isUnder(workspaceRoot, resolved) ||
-      protectedDirs.has(resolved)
+      (underHome && !allowedUnderHome)
     if (unsafe) {
       for (const file of entry.files) {
         if (!isAbsolute(file) || !existsSync(file)) continue

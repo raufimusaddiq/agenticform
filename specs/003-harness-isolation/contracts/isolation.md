@@ -69,11 +69,15 @@ Rules:
   entry with `realpath` and apply one rule:
   - if the real file is inside a declared state dir, do not add a bind: map the
     command and `PATH` entry to the in-sandbox path of that state bind;
-  - otherwise bind the smallest directory containing the real file, unless it is
-    the home root, an ancestor of HOME, an ancestor of a state path, a temp root,
-    a workspace ancestor, or one of `~/.local`, `~/.config`, `~/.cache`,
-    `~/.ssh`, `~/.gnupg` (or their direct parents); then bind only the entry and
-    interpreter files.
+  - otherwise, under HOME, bind the smallest directory containing the real file
+    only when it is inside the install-root allowlist (`~/.local/bin`,
+    `~/.local/share/claude`, `~/.bun`, `~/.opencode`, `~/.npm-global`,
+    `~/.volta`, `~/.nvm`); anything else under HOME binds only the entry and
+    interpreter files, so a subdirectory such as `~/.ssh/sub` or `~/.config/gh`
+    cannot leak siblings;
+  - outside HOME, bind the smallest directory containing the real file, never
+    `/`, the home root, an ancestor of HOME or a state path, a temp root or a
+    workspace ancestor; those bind only the entry and interpreter files.
   Only directories that exist inside the sandbox are put on `PATH`.
 - The root is remounted read-only after the binds, so a path next to the
   workspace (created for the bind) cannot be written. The workspace, `/tmp`, the

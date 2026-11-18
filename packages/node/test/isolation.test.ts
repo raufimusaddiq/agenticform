@@ -7,6 +7,7 @@ import { createRuntime, type RunEvent } from "@agenticform/runtime"
 import { resolveHarness } from "../src/harness-probe.ts"
 import {
   IsolationError,
+  entryBinds,
   profileFor,
   resolveWorkspace,
   sandboxArgs,
@@ -185,6 +186,30 @@ describe("isolation argv", () => {
     expect(binds).toEqual([])
   })
 
+  test("an install-root entry dir is bound whole", () => {
+    const home = temp("af-home-")
+    for (const root of [".bun", ".opencode"]) {
+      const dir = join(home, root, "bin")
+      mkdirSync(dir, { recursive: true })
+      const entry = join(dir, "x")
+      writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+      const binds = entryBinds({ command: entry, dirs: [dir], files: [entry] }, profileFor("nope"), "/tmp/ws", home)
+      expect(binds.dirBinds).toEqual([dir])
+      expect(binds.fileBinds).toEqual([])
+    }
+  })
+
+  test("a non-allowlisted home dir binds only the file", () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".local", "share", "pkg", "bin")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "x")
+    writeFileSync(entry, "#!/bin/sh\n", { mode: 0o755 })
+    const binds = entryBinds({ command: entry, dirs: [dir], files: [entry] }, profileFor("nope"), "/tmp/ws", home)
+    expect(binds.dirBinds).toEqual([])
+    expect(binds.fileBinds).toContain(entry)
+  })
+
   test("the workspace is resolved and / and the home root are refused", () => {
     const home = temp("af-home-")
     const target = temp("af-target-")
@@ -351,6 +376,70 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
       expect(result.text).toBe(`read:${join(sibling, "secret")}=ENOENT`)
     })
   }
+
+  for (const dirName of [".ssh/sub", ".config/gh"]) {
+    test(`${dirName} symlink target is file-only and siblings stay invisible`, async () => {
+      const home = temp("af-home-")
+      const dir = join(home, dirName)
+      mkdirSync(dir, { recursive: true })
+      const real = join(dir, "agent.ts")
+      writeFileSync(real, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+      const link = join(dir, "x")
+      symlinkSync(real, link)
+      const sibling = join(dir, "secret")
+      writeFileSync(sibling, "secret")
+      const workspace = temp("af-ws-")
+      const resolved = resolveWorkspace(workspace, home)
+      const resolution = resolveHarness({
+        id: "fake",
+        profile: "coding",
+        command: link,
+        args: [JSON.stringify({ scenario: "writes", reads: [sibling] })],
+      })
+      if (!resolution.ok) throw new Error("entry did not resolve")
+      const definition = sandboxHarness(
+        resolution.resolved.definition,
+        profileFor("fake"),
+        resolved,
+        home,
+        process.env,
+        { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+      )
+      const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+      const result = await run.result()
+      expect(result.status).toBe("completed")
+      expect(result.text).toBe(`read:${sibling}=ENOENT`)
+    })
+  }
+
+  test("a non-allowlisted install dir is file-only and still spawns", async () => {
+    const home = temp("af-home-")
+    const dir = join(home, ".local", "share", "pkg", "bin")
+    mkdirSync(dir, { recursive: true })
+    const entry = join(dir, "x.ts")
+    writeFileSync(entry, `#!/usr/bin/env bun\n${readFileSync(fakeHarness, "utf8")}`, { mode: 0o755 })
+    const workspace = temp("af-ws-")
+    const resolved = resolveWorkspace(workspace, home)
+    const inside = join(workspace, "inside.txt")
+    const resolution = resolveHarness({
+      id: "fake",
+      profile: "coding",
+      command: entry,
+      args: [JSON.stringify({ scenario: "writes", writes: [inside] })],
+    })
+    if (!resolution.ok) throw new Error("entry did not resolve")
+    const definition = sandboxHarness(
+      resolution.resolved.definition,
+      profileFor("fake"),
+      resolved,
+      home,
+      process.env,
+      { entryDirs: resolution.resolved.dirs, entryFiles: resolution.resolved.files },
+    )
+    const run = createRuntime().run({ harness: definition, cwd: resolved, prompt: "go" })
+    const result = await run.result()
+    expect(result.text).toBe(`${inside}=ok`)
+  })
 
   for (const root of ["/tmp", "/var/tmp"]) {
     test(`a sibling in ${root} is not visible when the entry is directly in ${root}`, async () => {
