@@ -5,6 +5,7 @@ import {
   FOLLOW_STOP_STATUSES,
   HubApiError,
   HubClient,
+  envToken,
   normalizeAfter,
   reconnectDelay,
 } from "@agenticform/client"
@@ -81,9 +82,9 @@ const TOOLS = [
 
 function client(): HubClient {
   const url = process.env.AGENTICFORM_HUB_URL
-  const token = process.env.AGENTICFORM_ADMIN_TOKEN
+  const token = envToken()
   if (!url) throw new Error("AGENTICFORM_HUB_URL is required")
-  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN is required")
+  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN is required")
   return new HubClient({ url, token })
 }
 

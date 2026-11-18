@@ -1,5 +1,7 @@
 import type {
+  CallerTokenView,
   ErrorCode,
+  IssuedCallerToken,
   NodeView,
   RunEventWire,
   RunRequest,
@@ -7,7 +9,16 @@ import type {
   RunView,
 } from "@agenticform/protocol"
 
-export type { ErrorCode, NodeView, RunEventWire, RunRequest, RunStatus, RunView } from "@agenticform/protocol"
+export type {
+  CallerTokenView,
+  ErrorCode,
+  IssuedCallerToken,
+  NodeView,
+  RunEventWire,
+  RunRequest,
+  RunStatus,
+  RunView,
+} from "@agenticform/protocol"
 
 /**
  * Terminal run statuses (contracts/http-api.md, "Terminal states"). A
@@ -55,6 +66,14 @@ export class HubApiError extends Error {
 }
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
+
+/**
+ * The bearer token from the environment: the admin token first, else a caller
+ * token. Never from argv, a URL or a file (FR-005).
+ */
+export function envToken(env: Record<string, string | undefined> = process.env): string | undefined {
+  return env.AGENTICFORM_ADMIN_TOKEN || env.AGENTICFORM_TOKEN || undefined
+}
 
 export interface ClientOptions {
   url: string
@@ -154,6 +173,20 @@ export class HubClient {
     return body?.nodes ?? []
   }
 
+  /** Issue a `runs` token. The returned `token` is the only copy (FR-004). */
+  issueToken(name: string): Promise<IssuedCallerToken> {
+    return this.request<IssuedCallerToken>("POST", "/v1/tokens", { name, scope: "runs" })
+  }
+
+  async listTokens(): Promise<CallerTokenView[]> {
+    const body = await this.request<{ tokens: CallerTokenView[] } | undefined>("GET", "/v1/tokens")
+    return body?.tokens ?? []
+  }
+
+  revokeToken(id: string): Promise<CallerTokenView> {
+    return this.request<CallerTokenView>("POST", `/v1/tokens/${encodeURIComponent(id)}/revoke`)
+  }
+
   createRun(request: RunRequest): Promise<RunView> {
     return this.request<RunView>("POST", "/v1/runs", request)
   }
@@ -216,6 +249,11 @@ export class HubClient {
         .join("\n")
       if (!data) return false
       const event = JSON.parse(data) as RunEventWire
+      // The hub ends a revoked follow with `event: error` and no seq (FR-003).
+      if (typeof event.seq !== "number") {
+        const code = (event as unknown as { code?: string }).code ?? "internal"
+        throw new HubApiError(code, code, code === "unauthorized" ? 401 : 500)
+      }
       last = event.seq
       onEvent(event)
       return signal?.aborted === true

@@ -16,6 +16,12 @@ const STATUS: Record<ErrorCode, number> = {
   no_eligible_node: 422,
   recovery_precondition_failed: 422,
   workspace_missing: 422,
+  name_taken: 409,
+  permission_resolved: 409,
+  permission_expired: 409,
+  permission_unsupported: 409,
+  parent_not_found: 404,
+  depth_exceeded: 422,
   internal: 500,
 }
 

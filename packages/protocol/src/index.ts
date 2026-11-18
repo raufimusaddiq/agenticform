@@ -19,6 +19,12 @@ export type ErrorCode =
   | "no_eligible_node"
   | "recovery_precondition_failed"
   | "workspace_missing"
+  | "name_taken"
+  | "permission_resolved"
+  | "permission_expired"
+  | "permission_unsupported"
+  | "parent_not_found"
+  | "depth_exceeded"
   | "internal"
 
 export interface ApiErrorBody {
@@ -215,8 +221,22 @@ export interface RunView {
   lastSeq?: number
 }
 
-export interface RunEventWire {
-  seq: number
+/** A caller token as listed. The secret is never part of a view (FR-004). */
+export interface CallerTokenView {
+  id: string
+  name: string
+  scope: string
+  createdAt: string
+  lastUsedAt: string | null
+  revokedAt: string | null
+}
+
+/** The issue response: the only place the token itself appears. */
+export interface IssuedCallerToken extends CallerTokenView {
+  token: string
+}
+
+export interface RunEventWire {  seq: number
   key: string
   type: string
   at: string

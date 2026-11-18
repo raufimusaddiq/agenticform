@@ -4,6 +4,7 @@ import {
   FOLLOW_STOP_STATUSES,
   HubApiError,
   HubClient,
+  envToken,
   normalizeAfter,
   reconnectDelay,
 } from "@agenticform/client"
@@ -16,16 +17,19 @@ const USAGE = `usage: af <command>
   af run get <runId>
   af run events <runId> [--after <seq>] [--follow]
   af run cancel <runId>
+  af token issue <name>
+  af token list
+  af token revoke <id>
 
 Flags also accept --flag=value. Use that form when a value starts with "--".
 
-Environment: AGENTICFORM_HUB_URL, AGENTICFORM_ADMIN_TOKEN`
+Environment: AGENTICFORM_HUB_URL, AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN`
 
 function client(): HubClient {
   const url = process.env.AGENTICFORM_HUB_URL
-  const token = process.env.AGENTICFORM_ADMIN_TOKEN
+  const token = envToken()
   if (!url) throw new Error("AGENTICFORM_HUB_URL is required")
-  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN is required")
+  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN is required")
   return new HubClient({ url, token })
 }
 
@@ -86,6 +90,20 @@ async function main(argv: string[]): Promise<void> {
   if (group === "nodes") {
     rejectUnknownFlags(argv.slice(1), [])
     return print(await client().listNodes())
+  }
+
+  if (group === "token") {
+    rejectUnknownFlags(argv.slice(1), [])
+    if (action === "issue") {
+      if (!id) throw new Error("af token issue <name>")
+      return print(await client().issueToken(id))
+    }
+    if (action === "list") return print(await client().listTokens())
+    if (action === "revoke") {
+      if (!id) throw new Error("af token revoke <id>")
+      return print(await client().revokeToken(id))
+    }
+    throw new Error(USAGE)
   }
 
   if (group === "run" && action === "start") {

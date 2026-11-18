@@ -63,7 +63,7 @@ Every environment variable below is read by at least one package. Empty defaults
 
 The hub also serves a small operator UI at `/` from the same origin. It asks for the admin token in the browser, keeps it in `sessionStorage`, and sends it only in the `Authorization` header; the token never appears in a URL, the page, or a log.
 
-The CLI (`af`) and the MCP server (`agenticform-mcp`) are thin clients of the same API. Both read `AGENTICFORM_HUB_URL` and `AGENTICFORM_ADMIN_TOKEN` from the environment and never accept the token as an argument.
+The CLI (`af`) and the MCP server (`agenticform-mcp`) are thin clients of the same API. Both read `AGENTICFORM_HUB_URL` and a bearer token from the environment — `AGENTICFORM_ADMIN_TOKEN` first, else `AGENTICFORM_TOKEN` — and never accept the token as an argument.
 
 ```bash
 af nodes
@@ -75,7 +75,9 @@ af run cancel <runId>
 
 | Variable | Package | Default | Meaning |
 |---|---|---|---|
-| `AGENTICFORM_ADMIN_TOKEN` | hub, cli, mcp | none (required) | Secret. Bearer token for caller and operator routes; the hub refuses to start below 32 characters |
+| `AGENTICFORM_ADMIN_TOKEN` | hub, cli, mcp | none (required for hub) | Secret. Admin bearer token; the hub refuses to start below 32 characters. The CLI and MCP prefer it over `AGENTICFORM_TOKEN` |
+| `AGENTICFORM_TOKEN` | cli, mcp | none | Secret. Caller bearer token, typically a hub-issued `afc_<id>_<secret>` `runs` token. Used when `AGENTICFORM_ADMIN_TOKEN` is unset; never accepted as an argument |
+| `AGENTICFORM_RUN_MAX_DEPTH` | hub | `3` | Deepest `parentRunId` chain allowed; a child past it is `422 depth_exceeded` |
 | `AGENTICFORM_HUB_URL` | hub, node, cli, mcp | none (required except in hub) | Public origin. Nodes, CLI and MCP require it; a non-local value must be HTTPS |
 | `AGENTICFORM_STATE_DIR` | hub, node | `$HOME/.agenticform-hub`, `$HOME/.agenticform-node` | Directory for durable state |
 | `AGENTICFORM_HUB_DB` | hub | `$AGENTICFORM_STATE_DIR/hub.sqlite` | Explicit SQLite database path |
