@@ -402,7 +402,8 @@ describe("executor", () => {
     expect(connected).toBe(0)
   })
 
-  test("refuses a payload generation that differs from the envelope", async () => {    let connected = 0
+  test("refuses a payload generation that differs from the envelope", async () => {
+    let connected = 0
     const executor = new Executor({ runtime: runtime(fakeDriver(() => (connected += 1))) })
     const outcome = await executor.execute(
       command({ payload: { ...command().payload, generation: 2 } }),
