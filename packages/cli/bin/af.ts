@@ -102,9 +102,19 @@ async function main(argv: string[]): Promise<void> {
     const gitBackedFlag = rest.find((arg) => arg === "--git-backed" || arg.startsWith("--git-backed="))
     let gitBacked: boolean | undefined
     if (gitBackedFlag !== undefined) {
-      const value = gitBackedFlag.includes("=") ? gitBackedFlag.split("=")[1] : "true"
-      if (value !== "true" && value !== "false") throw new Error("--git-backed must be true or false")
-      gitBacked = value === "true"
+      if (gitBackedFlag === "--git-backed") {
+        // Bare --git-backed means true. A space-separated value would be
+        // silently ignored, so reject it and point at the = form.
+        const next = rest[rest.indexOf("--git-backed") + 1]
+        if (next === "true" || next === "false") {
+          throw new Error(`--git-backed takes no space-separated value; use --git-backed=${next}`)
+        }
+        gitBacked = true
+      } else {
+        const value = gitBackedFlag.slice("--git-backed=".length)
+        if (value !== "true" && value !== "false") throw new Error("--git-backed must be true or false")
+        gitBacked = value === "true"
+      }
     }
     const request: RunRequest = {
       idempotencyKey,
@@ -144,6 +154,10 @@ async function main(argv: string[]): Promise<void> {
     // and never replays the event when `after` is already past it.
     const run = await hub.getRun(id)
     if (run.status === "disconnected") {
+      // Drain history first: the stream stays open and never replays events
+      // already past `after`, so a bare exit would drop them.
+      const page = await hub.getEvents(id, after)
+      for (const event of page.events) print(event)
       console.error(
         `run ${id} disconnected; recover it with POST /v1/runs/${id}/recover then follow again`,
       )
@@ -157,6 +171,7 @@ async function main(argv: string[]): Promise<void> {
 
     const before = after
     const controller = new AbortController()
+    let aborted = false
     try {
       lastSeen = await hub.followEvents(
         id,
@@ -165,7 +180,10 @@ async function main(argv: string[]): Promise<void> {
           lastSeen = event.seq
           print(event)
           // The hub keeps the stream open after run.disconnected; stop here.
-          if (event.type === "run.disconnected") controller.abort()
+          if (event.type === "run.disconnected") {
+            aborted = true
+            controller.abort()
+          }
         },
         controller.signal,
       )
@@ -175,6 +193,8 @@ async function main(argv: string[]): Promise<void> {
       if (error instanceof HubApiError) throw error
       after = lastSeen
     }
+    // Aborted on run.disconnected: re-check the run now instead of sleeping.
+    if (aborted) continue
     if (after > before) attempt = 0
     await reconnectDelay(attempt)
     attempt += 1

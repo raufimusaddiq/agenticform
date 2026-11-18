@@ -43,6 +43,12 @@ const server = Bun.serve({
       )
     }
     if (url.pathname === "/v1/runs/d1/events") {
+      if (url.searchParams.get("stream") !== "sse") {
+        return Response.json({
+          events: [{ seq: 1, key: "k1", type: "run.disconnected", at: new Date().toISOString(), data: {} }],
+          lastSeq: 1,
+        })
+      }
       return new Response(
         new ReadableStream({
           start(controller) {
@@ -52,6 +58,21 @@ const server = Bun.serve({
         }),
         { headers: { "content-type": "text/event-stream" } },
       )
+    }
+    if (url.pathname === "/v1/runs/t1/events") {
+      return Response.json({
+        events: [{ seq: 1, key: "k1", type: "run.finished", at: new Date().toISOString(), data: {} }],
+        lastSeq: 1,
+      })
+    }
+    if (url.pathname === "/v1/runs/t1") {
+      return Response.json({
+        runId: "t1",
+        status: "completed",
+        nodeId: null,
+        generation: 1,
+        createdAt: new Date().toISOString(),
+      })
     }
     if (url.pathname === "/v1/runs/d1") {
       return Response.json({
@@ -113,9 +134,25 @@ describe("af run events --follow", () => {
   test("stops on a disconnected run with exit 3 and a recover hint", async () => {
     const result = await cli(["run", "events", "d1", "--follow"])
     expect(result.code).toBe(3)
+    expect(result.out).toContain('"type": "run.disconnected"')
     expect(result.err).toContain(
       "run d1 disconnected; recover it with POST /v1/runs/d1/recover then follow again",
     )
+  })
+
+  test("drains history before exiting on a terminal run", async () => {
+    const result = await cli(["run", "events", "t1", "--follow"])
+    expect(result.code).toBe(0)
+    expect(result.out).toContain('"type": "run.finished"')
+    expect(streams).toBe(0)
+  })
+
+  test("rejects a space-separated --git-backed value", async () => {
+    const result = await cli([
+      "run", "start", "--key", "k", "--harness", "codex", "--prompt", "p", "--git-backed", "false",
+    ])
+    expect(result.code).toBe(1)
+    expect(result.err).toContain("--git-backed takes no space-separated value; use --git-backed=false")
   })
 
   test("--after rejects a non-negative integer violation", async () => {
