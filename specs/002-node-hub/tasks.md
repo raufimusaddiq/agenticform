@@ -48,12 +48,12 @@ in `docs/node-hub-invariants.md` gets a test task.
 - [x] T023 [US2] Add enqueue, lease, renew and complete with guarded updates in `packages/hub/src/commands.ts` (FR-026, FR-027)
 - [x] T024 [US2] Add event append, `seq` assignment and replay in `packages/hub/src/events.ts` (FR-020)
 - [x] T025 [US2] Add SSE streaming with `Last-Event-ID` in `packages/hub/src/events.ts`
-- [ ] T026 [US2] Add the node signed client with timeout and backoff in `packages/node/src/client.ts`
-- [ ] T027 [US2] Add the heartbeat loop in `packages/node/src/heartbeat.ts` (FR-004)
-- [ ] T028 [US2] Add the command poller and lease renewal in `packages/node/src/poller.ts` (FR-004)
-- [ ] T029 [US2] Add `run.start`, `run.cancel` and `run.inspect` execution through `runtime` in `packages/node/src/executor.ts` (FR-019)
-- [ ] T030 [US2] Add event normalisation and batching in `packages/node/src/events.ts`
-- [ ] T031 [US2] Add the hub entry point serving one versioned API and the node daemon entry point (FR-003)
+- [x] T026 [US2] Add the node signed client with timeout and backoff in `packages/node/src/client.ts`
+- [x] T027 [US2] Add the heartbeat loop in `packages/node/src/heartbeat.ts` (FR-004)
+- [x] T028 [US2] Add the command poller and lease renewal in `packages/node/src/poller.ts` (FR-004)
+- [x] T029 [US2] Add `run.start`, `run.cancel` and `run.inspect` execution through `runtime` in `packages/node/src/executor.ts` (FR-019)
+- [x] T030 [US2] Add event normalisation and batching in `packages/node/src/events.ts`
+- [x] T031 [US2] Add the hub entry point serving one versioned API and the node daemon entry point (FR-003)
 - [x] T032 [US2] Test: one fake node runs a prompt end to end with ordered events and one terminal event (SC-001)
 - [x] T033 [US2] Test: no eligible node fails with `no_eligible_node` and queues nothing (FR-017)
 - [x] T034 [US2] Test: missing required capability is skipped at placement and reported, not degraded (FR-016)

@@ -3,6 +3,7 @@ import { hostname } from "node:os"
 import type { EnrollRequest, EnrollResponse } from "@agenticform/protocol"
 import { loadConfig, type NodeConfig } from "../src/config.ts"
 import { generateKeyPair, loadIdentity, saveIdentity } from "../src/identity.ts"
+import { createNode } from "../src/index.ts"
 
 export interface EnrollOptions {
   token: string
@@ -47,25 +48,49 @@ export async function enroll(
   return enrolled
 }
 
-if (import.meta.main) {
-  const [command] = process.argv.slice(2)
-  if (command !== "enroll") {
-    console.error("usage: agenticform-node enroll")
-    process.exit(1)
-  }
-  const token = process.env.AGENTICFORM_ENROLL_TOKEN
-  if (!token) {
-    console.error("AGENTICFORM_ENROLL_TOKEN is required")
-    process.exit(1)
-  }
-  const harnesses = (process.env.AGENTICFORM_NODE_HARNESSES ?? "")
+const list = (value: string | undefined): string[] =>
+  (value ?? "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean)
-  const enrolled = await enroll(loadConfig(), {
-    token,
-    name: process.env.AGENTICFORM_NODE_NAME ?? hostname(),
-    harnesses,
-  })
-  console.log(`enrolled node ${enrolled.nodeId}`)
+
+if (import.meta.main) {
+  const [command] = process.argv.slice(2)
+  if (command === "enroll") {
+    const token = process.env.AGENTICFORM_ENROLL_TOKEN
+    if (!token) {
+      console.error("AGENTICFORM_ENROLL_TOKEN is required")
+      process.exit(1)
+    }
+    const enrolled = await enroll(loadConfig(), {
+      token,
+      name: process.env.AGENTICFORM_NODE_NAME ?? hostname(),
+      harnesses: list(process.env.AGENTICFORM_NODE_HARNESSES),
+    })
+    console.log(`enrolled node ${enrolled.nodeId}`)
+  } else if (command === undefined || command === "run" || command === "start") {
+    const config = loadConfig()
+    const identity = loadIdentity(config.stateDir)
+    if (!identity) {
+      console.error("node is not enrolled; run `agenticform-node enroll` first")
+      process.exit(1)
+    }
+    const slots = Number(process.env.AGENTICFORM_NODE_SLOTS ?? 1)
+    const node = createNode(config, identity, {
+      capabilities: list(process.env.AGENTICFORM_NODE_CAPABILITIES),
+      harnesses: list(process.env.AGENTICFORM_NODE_HARNESSES),
+      slots: Number.isInteger(slots) && slots > 0 ? slots : 1,
+    })
+    node.start()
+    console.log(`node ${identity.nodeId} connected to ${config.hubUrl}`)
+    const shutdown = async () => {
+      await node.stop()
+      process.exit(0)
+    }
+    process.on("SIGINT", shutdown)
+    process.on("SIGTERM", shutdown)
+  } else {
+    console.error("usage: agenticform-node [enroll|run]")
+    process.exit(1)
+  }
 }

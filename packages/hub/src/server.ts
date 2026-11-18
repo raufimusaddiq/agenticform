@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto"
 import type { Database } from "bun:sqlite"
 import type {
+  CommandType,
   CompletionRequest,
   EnrollRequest,
   EventBatch,
@@ -94,6 +95,22 @@ function parseBody(raw: Uint8Array): Record<string, unknown> {
 function requireBody(body: unknown): Record<string, unknown> {
   if (body === undefined) fail("invalid_input", "a JSON body is required")
   return body as Record<string, unknown>
+}
+
+const COMMAND_TYPES = new Set<CommandType>(["run.start", "run.cancel", "run.inspect"])
+
+/** Optional `types` filter so a full node can still lease cancels and inspects. */
+function parseCommandTypes(value: string | null): CommandType[] | undefined {
+  if (value === null || value === "") return undefined
+  const types = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+  if (types.length === 0) return undefined
+  for (const type of types) {
+    if (!COMMAND_TYPES.has(type as CommandType)) fail("invalid_input", "unknown command type")
+  }
+  return types as CommandType[]
 }
 
 /** Constant-time bearer compare with no anonymous fallback (N8.1). */
@@ -197,7 +214,13 @@ export function createHub(config: HubConfig): Hub {
       return json(heartbeat(db, config, node, requireBody(body) as unknown as HeartbeatRequest))
     }
     if (request.method === "GET" && url.pathname === "/v1/node/commands/next") {
-      const command = leaseNext(db, config, node)
+      const command = leaseNext(
+        db,
+        config,
+        node,
+        Date.now(),
+        parseCommandTypes(url.searchParams.get("types")),
+      )
       return command ? json(command) : empty(204)
     }
     const action = /^\/v1\/node\/commands\/([^/]+)\/(renew|events|complete)$/.exec(url.pathname)

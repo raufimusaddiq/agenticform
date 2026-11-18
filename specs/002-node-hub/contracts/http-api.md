@@ -84,6 +84,16 @@ ignored.
 
 `200` → one command; `204` → nothing queued, not an error.
 
+Optional query parameter `types` filters the lease by command type. Allowed
+values are `run.start`, `run.cancel` and `run.inspect`, comma-separated. Omitted
+or empty means all types. An unknown value returns `400 invalid_input`. A full
+node uses `?types=run.cancel,run.inspect` so it never leases a `run.start` it
+cannot run while cancels and inspects stay deliverable.
+
+The query string is part of the signed path: the canonical string covers the
+exact request path including `?types=...` (see
+[node-protocol.md](node-protocol.md) §1).
+
 ```json
 {
   "commandId": "uuid",

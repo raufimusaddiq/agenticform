@@ -20,7 +20,9 @@ X-AF-Signature: <base64 Ed25519 signature>
 - `nonce` matches `[A-Za-z0-9._:-]{16,128}`, generated from 128 random bits.
 - `signature` is base64 over the UTF-8 canonical string below.
 - The path is the exact request path, excluding scheme and host, including the
-  `v1` prefix and any query string.
+  `v1` prefix and any query string. The optional `types` filter on
+  `GET /v1/node/commands/next` is part of that path, so it is covered by the
+  signature.
 
 ### Canonical string
 
@@ -90,6 +92,14 @@ Length-prefixing keeps concatenation unambiguous. `JSON.stringify` uses the exac
 bytes received, before any parsing round-trip, so the hub must send the fingerprint
 of the body it transmitted. A reused `commandId` with a different fingerprint is
 refused (`409 ambiguous_replay`), with no side effect.
+
+`run.inspect` returns a snapshot in the completion result:
+`{ "status": "inspected", "runId", "state", "generation" }` for an active run, or
+`{ "status": "absent", "runId", "state": "absent", "generation": null }` when the
+node holds no runtime for that run. It never reports `completed` for an absent
+run. A `run.start` for a run that is already active is refused as `fence_stale`
+when its generation is equal or older; a newer generation fences the old runtime
+before it is replaced.
 
 ## 5. Generation fencing
 
