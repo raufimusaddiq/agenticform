@@ -161,7 +161,7 @@ include manual work on Linux hosts, marked **(manual)**.
 ### Implementation for User Story 3
 
 - [X] T034 [US3] In `createRun` in `packages/hub/src/runs.ts`, validate `parentRunId`, compute `depth`, refuse past `config.maxDepth` before insert, store `parent_run_id` and `depth`, and add `parentRunId` and `depth` to the run view. Add `parentRunId?: string` to `RunRequest` in `packages/protocol/src/index.ts`
-- [X] T035 [P] [US3] Pass `parentRunId` through `startRun` in `packages/client/src/index.ts`, `--parent <id>` in `af run start` (`packages/cli/bin/af.ts`), and the `parentRunId` property of the MCP `start_run` tool (`packages/mcp/bin/mcp.ts`)
+- [X] T035 [P] [US3] Pass `parentRunId` through `--parent <id>` in `af run start` (`packages/cli/bin/af.ts`) and the `parentRunId` property of the MCP `start_run` tool (`packages/mcp/bin/mcp.ts`). The client needs no change: `createRun` in `packages/client/src/index.ts` already forwards the request unchanged.
 
 **Checkpoint**: agent-created chains are bounded.
 

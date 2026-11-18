@@ -61,8 +61,9 @@ function valid(request: RunRequest): void {
   if (request.nodeId !== undefined && typeof request.nodeId !== "string") {
     fail("invalid_input", "nodeId must be a string")
   }
-  if (request.parentRunId !== undefined && typeof request.parentRunId !== "string") {
-    fail("invalid_input", "parentRunId must be a string")
+  if (request.parentRunId !== undefined) {
+    if (typeof request.parentRunId !== "string") fail("invalid_input", "parentRunId must be a string")
+    if (!request.parentRunId) fail("invalid_input", "parentRunId is empty")
   }
 }
 
@@ -78,7 +79,11 @@ export function createRun(
     .query<RunRow, [string]>("SELECT * FROM runs WHERE idempotency_key = ?")
     .get(request.idempotencyKey)
   if (existing) {
-    if (existing.request_json !== requestJson) fail("idempotency_conflict", "idempotency key reused with a different payload")
+    // Compare normalised payloads, not raw strings: a row written before a
+    // field gained a default would otherwise conflict on retry after upgrade.
+    if (normalize(JSON.parse(existing.request_json) as RunRequest) !== requestJson) {
+      fail("idempotency_conflict", "idempotency key reused with a different payload")
+    }
     return { run: existing, created: false }
   }
 

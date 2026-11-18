@@ -177,6 +177,10 @@ describe("run lineage", () => {
 
     const grandchild = await createRun(hub as Hub, { parentRunId: child.body.runId })
     expect(grandchild.body.depth).toBe(2)
+
+    const read = await api(hub as Hub, "GET", `/v1/runs/${child.body.runId}`)
+    expect(read.body.depth).toBe(1)
+    expect(read.body.parentRunId).toBe(root.body.runId)
   })
 
   test("depth past the limit is 422 depth_exceeded and inserts no row", async () => {
@@ -201,6 +205,29 @@ describe("run lineage", () => {
     expect(response.status).toBe(404)
     expect(response.body.error.code).toBe("parent_not_found")
     expect(hub?.db.query("SELECT COUNT(*) AS n FROM runs").get()).toEqual({ n: 0 })
+  })
+
+  test("an empty parent is 400 invalid_input", async () => {
+    await roomy()
+    const response = await createRun(hub as Hub, { parentRunId: "" })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe("invalid_input")
+  })
+
+  test("a row written before parentRunId existed still matches its key", async () => {
+    await roomy()
+    const first = await createRun(hub as Hub, { idempotencyKey: "legacy-1" })
+    expect(first.status).toBe(201)
+    const row = hub?.db
+      .query<{ request_json: string }, [string]>("SELECT request_json FROM runs WHERE id = ?")
+      .get(first.body.runId)
+    const stored = JSON.parse(row?.request_json as string) as Record<string, unknown>
+    delete stored.parentRunId
+    hub?.db.query("UPDATE runs SET request_json = ? WHERE id = ?").run(JSON.stringify(stored), first.body.runId)
+
+    const retry = await createRun(hub as Hub, { idempotencyKey: "legacy-1" })
+    expect(retry.status).toBe(200)
+    expect(retry.body.runId).toBe(first.body.runId)
   })
 
   test("a limit of 0 refuses any child", async () => {
