@@ -267,7 +267,8 @@ into `node` or `hub`:
 
 Also not carried over: memory baselines. Legacy `memoryMb` is reported as `nil`
 (`node/cmd/agenticform-node/main.go:361`), so no number is inherited; measure Bun
-against the host once `node`/`hub` exist (host is 1 CPU / 2 GB).
+against the host once `node`/`hub` exist (the node is designed for a 1 CPU / 2 GB
+host).
 
 ## Non-goals
 

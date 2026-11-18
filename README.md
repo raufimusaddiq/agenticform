@@ -115,11 +115,23 @@ af run cancel <runId>
 
 ## Memory
 
-Idle resident memory, measured 2026-11-18 on the 1 CPU / 2 GB development host:
+Idle resident memory, measured 2026-11-18 on the development host (2 vCPU /
+7.6 GB, not pinned):
 `hub` 25.7 MB, `node` 44.4 MB. Method: start each process alone with a temporary
 state directory, wait two seconds after it reports ready, then read `VmRSS` from
 `/proc/<pid>/status`. The node is higher because it loads `runtime` and the ACP
 driver. These are idle figures; a run adds the harness process.
+
+## Isolation cost
+
+Measured 2026-11-18 on a 2 vCPU / 7.6 GB host, pinned to one CPU with `taskset`,
+bubblewrap 0.9.0, serially: the startup self-test takes 69 ms (median of three;
+66-79 ms) and one probe of `opencode` takes 3.6 s (median of three; 3.6-4.2 s).
+Method: call
+`selfTest()` and `probeHarness()` from `packages/node` three times each and time
+each call with `performance.now()`. The probe includes the sandbox spawn and the
+ACP `initialize` and `session/new` handshake, so most of it is the harness's own
+startup. A probe runs at most one at a time and never blocks a heartbeat.
 
 ## Documentation
 

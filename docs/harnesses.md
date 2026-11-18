@@ -42,6 +42,19 @@ harness with its status and reason. A run for a non-ready harness fails with
 child starts. A failed run invalidates that harness's cache entry, so a login is
 picked up on a later heartbeat without a restart.
 
+Probes run one at a time and never block a heartbeat: the heartbeat reports the
+last known status and a fresh result lands on a later beat. A probe's stderr is
+discarded and its output is reduced to a status and a reason code, so no raw
+harness output, path or credential reaches the heartbeat or hub storage.
+
+## Isolation limit
+
+The sandbox covers the local harness child: its filesystem writes, its
+environment and its process group. A gateway-backed harness may run tools through
+its own service, outside that child, so those tools are not covered by the local
+sandbox and are not claimed equal to a coding harness. The node still reports the
+harness's presence and authentication truthfully.
+
 ## Custom harnesses
 
 Pass a definition instead of an id. Any command that speaks ACP v1 over stdio works.

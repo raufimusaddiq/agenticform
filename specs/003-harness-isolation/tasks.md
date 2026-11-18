@@ -77,8 +77,8 @@ with the first story; phase 7 lands with the last.
 
 ## Phase 7: Polish
 
-- [ ] T042 [P] Amend `docs/architecture.md` with the isolation boundary and the gateway-backed limit
-- [ ] T043 [P] Amend `docs/harnesses.md` with the status meanings and the probe rules
-- [ ] T044 [P] Review every new error code against `contracts/isolation.md` §6 and `contracts/harness-detection.md` §5; remove unused ones
-- [ ] T045 [P] Record the sandbox self-test and probe cost on the 1 CPU / 2 GB host in the README
-- [ ] T046 [P] Confirm `bun run typecheck` and `bun test packages` pass with `bwrap` present and absent
+- [x] T042 [P] Amend `docs/architecture.md` with the isolation boundary and the gateway-backed limit
+- [x] T043 [P] Amend `docs/harnesses.md` with the status meanings and the probe rules
+- [x] T044 [P] Review every new error code against `contracts/isolation.md` §6 and `contracts/harness-detection.md` §5; remove unused ones
+- [x] T045 [P] Record the sandbox self-test and probe cost on the 1 CPU / 2 GB host in the README
+- [x] T046 [P] Confirm `bun run typecheck` and `bun test packages` pass with `bwrap` present and absent

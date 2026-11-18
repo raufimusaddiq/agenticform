@@ -1,6 +1,7 @@
 # Research: Harness Isolation and Presence
 
-Checked on 2026-11-18 on the target host (Linux 6.8.0, 1 CPU / 2 GB, no root).
+Checked on 2026-11-18 on the development host (Linux 6.8.0, 2 vCPU / 7.6 GB, no
+root); the node is designed for a 1 CPU / 2 GB host.
 This is a design record, not a claim about shipped code. The binding behaviour is
 in [spec.md](spec.md); this file records what the host can actually do and the
 smallest choice that satisfies it.
@@ -37,7 +38,7 @@ use, not `command -v`.
 | Network | not unshared | `--unshare-all`: harnesses cannot reach their model |
 | Environment | `--clearenv` plus an allowlist | inheriting `process.env`: leaks the hub token into the harness |
 | Harness presence | ACP `initialize` + `session/new` probe inside the sandbox | reading credential files: fragile, and it reads secrets |
-| Probe cache | TTL 300 s non-ready, 1 h ready; re-probe after a failed run | probing every heartbeat: 8 harnesses × 15 s is wasteful on 1 CPU |
+| Probe cache | TTL 300 s non-ready, 1 h ready; re-probe after a failed run | probing every heartbeat: 8 harnesses × 15 s is wasteful on a 1 CPU node |
 | Heartbeat shape | additive `harnessReport` and `isolation` fields, `harnesses` keeps meaning "ready" | a protocol version bump: additive optional fields do not need one |
 
 ## Sandbox shape
@@ -199,7 +200,7 @@ working. No protocol version bump.
 |---|---|---|
 | Probe timeout | 20 s | A cold `bunx` start is slow; a hung harness must not stall a beat |
 | Probe cache TTL | 300 s non-ready, 1 h ready | A login is picked up within one beat cycle after the non-ready TTL; a ready harness is stable, so it is probed less often |
-| Probe concurrency | 1 | 1 CPU host; parallel cold starts would starve the run |
+| Probe concurrency | 1 | designed for a 1 CPU node; parallel cold starts would starve the run |
 | Sandbox self-test timeout | 10 s | A working bwrap returns in milliseconds |
 | Profile version | `1` | Bumped when the mount table or argv shape changes |
 
