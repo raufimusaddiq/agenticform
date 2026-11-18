@@ -70,6 +70,13 @@ outcome. At startup the node proves the sandbox shape with a self-test; when it
 fails, the node advertises no harnesses, probes none and refuses every run with
 `isolation_unavailable` until restart.
 
+The boundary is the local harness child. `runtime` spawns it and knows nothing
+about the sandbox; the node wraps the harness definition so the child is
+`bwrap -- ...`. A gateway-backed harness may run tools through its own service,
+outside that child, so the filesystem guarantee covers only the local process and
+is not claimed equal to a coding harness. See
+[harnesses](harnesses.md#isolation-limit).
+
 ## Process lifecycle
 
 Each run owns one child process, which leads its own process group, so wrappers such as `bunx` are stopped with their children. Cancellation has a grace period, after which the process is stopped.

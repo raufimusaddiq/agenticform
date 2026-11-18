@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-18
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Isolation around the agent process itself: per-harness mounts, read-only vs write profiles, write outside the workspace denied for every supported harness, harness CLIs stay owner-provided separate children. Heartbeat reports harnesses actually installed and authenticated, with a clear named failure when a harness is missing or unauthenticated."
 
