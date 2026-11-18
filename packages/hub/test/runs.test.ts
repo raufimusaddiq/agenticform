@@ -285,6 +285,70 @@ describe("harness report validation", () => {
   })
 })
 
+describe("node field length caps", () => {
+  const runtime = (over: Record<string, unknown>) => ({
+    runId: "run-1",
+    generation: 1,
+    runtimeType: "codex",
+    state: "running",
+    ...over,
+  })
+  const cases: { name: string; at: Record<string, unknown>; over: Record<string, unknown> }[] = [
+    {
+      name: "harnesses count",
+      at: { harnesses: Array.from({ length: 32 }, (_, i) => `h${i}`) },
+      over: { harnesses: Array.from({ length: 33 }, (_, i) => `h${i}`) },
+    },
+    {
+      name: "harness length",
+      at: { harnesses: ["x".repeat(64)] },
+      over: { harnesses: ["x".repeat(65)] },
+    },
+    {
+      name: "capabilities count",
+      at: { capabilities: Array.from({ length: 32 }, (_, i) => `c${i}`) },
+      over: { capabilities: Array.from({ length: 33 }, (_, i) => `c${i}`) },
+    },
+    {
+      name: "capability length",
+      at: { capabilities: ["x".repeat(64)] },
+      over: { capabilities: ["x".repeat(65)] },
+    },
+    {
+      name: "runtimeType length",
+      at: { runtimes: [runtime({ runtimeType: "x".repeat(64) })] },
+      over: { runtimes: [runtime({ runtimeType: "x".repeat(65) })] },
+    },
+    {
+      name: "runtimeSessionId length",
+      at: { runtimes: [runtime({ runtimeSessionId: "x".repeat(256) })] },
+      over: { runtimes: [runtime({ runtimeSessionId: "x".repeat(257) })] },
+    },
+    {
+      name: "state length",
+      at: { runtimes: [runtime({ state: "x".repeat(64) })] },
+      over: { runtimes: [runtime({ state: "x".repeat(65) })] },
+    },
+  ]
+
+  for (const item of cases) {
+    test(`${item.name} at the limit is accepted`, async () => {
+      hub = startHub()
+      const node = await enroll(hub)
+      const response = await heartbeat(hub, node, item.at)
+      expect(response.status).toBe(200)
+    })
+
+    test(`${item.name} over the limit is rejected`, async () => {
+      hub = startHub()
+      const node = await enroll(hub)
+      const response = await heartbeat(hub, node, item.over)
+      expect(response.status).toBe(400)
+      expect(response.body.error.code).toBe("invalid_input")
+    })
+  }
+})
+
 describe("isolation report", () => {
   test("a valid report is stored and returned on the node view", async () => {
     hub = startHub()

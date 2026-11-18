@@ -134,3 +134,51 @@ describe("enrollment", () => {
     expect(index?.name).toBe("runs_node")
   })
 })
+
+describe("enrollment field caps (T-34)", () => {
+  const attempt = async (patch: Record<string, unknown>) => {
+    const issued = await api(hub as Hub, "POST", "/v1/enrollment-tokens")
+    const { publicKey } = generateKeyPairSync("ed25519")
+    return api(hub as Hub, "POST", "/v1/enroll", {
+      token: issued.body.token,
+      name: "n",
+      publicKey: publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+      protocolVersion: 1,
+      harnesses: ["codex"],
+      ...patch,
+    })
+  }
+  const many = (n: number, prefix: string): string[] => Array.from({ length: n }, (_, i) => `${prefix}${i}`)
+
+  test("name at the limit is accepted, one over is rejected", async () => {
+    hub = startHub()
+    expect((await attempt({ name: "n".repeat(64) })).status).toBe(201)
+    const over = await attempt({ name: "n".repeat(65) })
+    expect(over.status).toBe(400)
+    expect(over.body.error.code).toBe("invalid_input")
+  })
+
+  test("labels at the limit are accepted, one over is rejected", async () => {
+    hub = startHub()
+    const labels = Object.fromEntries(many(32, "k").map((key) => [key, "v"]))
+    expect((await attempt({ labels })).status).toBe(201)
+    const over = await attempt({ labels: { ...labels, extra: "v" } })
+    expect(over.status).toBe(400)
+    expect(over.body.error.code).toBe("invalid_input")
+  })
+
+  test("label key and value at the limit are accepted, one over is rejected", async () => {
+    hub = startHub()
+    expect((await attempt({ labels: { ["k".repeat(64)]: "v".repeat(64) } })).status).toBe(201)
+    expect((await attempt({ labels: { ["k".repeat(65)]: "v" } })).status).toBe(400)
+    expect((await attempt({ labels: { k: "v".repeat(65) } })).status).toBe(400)
+  })
+
+  test("harnesses at the limit are accepted, one over is rejected", async () => {
+    hub = startHub()
+    expect((await attempt({ harnesses: many(32, "h") })).status).toBe(201)
+    expect((await attempt({ harnesses: many(33, "h") })).status).toBe(400)
+    expect((await attempt({ harnesses: ["x".repeat(64)] })).status).toBe(201)
+    expect((await attempt({ harnesses: ["x".repeat(65)] })).status).toBe(400)
+  })
+})

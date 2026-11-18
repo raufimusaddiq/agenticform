@@ -1055,6 +1055,21 @@ describe("isolation gate", () => {
     }
   })
 
+  test("createNode refuses an over-limit advertisement before any network call", () => {
+    const many = (n: number): string[] => Array.from({ length: n }, (_, i) => `h${i}`)
+    const build = (options: Parameters<typeof createNode>[2]) =>
+      createNode({ ...config("http://127.0.0.1:1") }, identity(), { runtime: runtime(), ...options })
+
+    expect(() => build({ harnesses: many(32) })).not.toThrow()
+    expect(() => build({ harnesses: many(33) })).toThrow(/AGENTICFORM_NODE_HARNESSES.*32/)
+    expect(() => build({ capabilities: many(32) })).not.toThrow()
+    expect(() => build({ capabilities: many(33) })).toThrow(/AGENTICFORM_NODE_CAPABILITIES.*32/)
+    expect(() => build({ harnesses: ["x".repeat(65)] })).toThrow(/AGENTICFORM_NODE_HARNESSES.*64/)
+    expect(() =>
+      build({ runtime: createRuntime({ harnesses: { ["x".repeat(65)]: { id: "x".repeat(65), profile: "coding", command: "x" } } }) }),
+    ).toThrow(/catalog.*64/)
+  })
+
   test("the heartbeat carries the isolation mode, profile and self-test", async () => {
     const bodies: HeartbeatRequest[] = []
     const node = createNode(

@@ -1,10 +1,18 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import type { Database } from "bun:sqlite"
 import type { EnrollRequest, EnrollResponse } from "@agenticform/protocol"
-import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
+import {
+  NODE_HARNESSES_MAX_COUNT,
+  NODE_LABEL_MAX_LENGTH,
+  NODE_LABELS_MAX_COUNT,
+  NODE_NAME_MAX_LENGTH,
+  NODE_STRING_MAX_LENGTH,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@agenticform/protocol"
 import { sha256Hex } from "@agenticform/protocol/canonical"
 import type { HubConfig } from "./config.ts"
 import { fail, unauthorized } from "./errors.ts"
+import { boundedStrings } from "./nodes.ts"
 import type { NodeRow } from "./schema.ts"
 import { isEd25519Spki } from "./signatures.ts"
 
@@ -34,15 +42,16 @@ export function enrollNode(
   if (typeof body.token !== "string" || typeof body.name !== "string" || !body.name.trim()) {
     fail("invalid_input", "token and name are required")
   }
+  if (body.name.length > NODE_NAME_MAX_LENGTH) {
+    fail("invalid_input", `name exceeds ${NODE_NAME_MAX_LENGTH} characters`)
+  }
   if (!Number.isInteger(body.protocolVersion)) {
     fail("invalid_input", "protocolVersion must be an integer")
   }
   if (!SUPPORTED_PROTOCOL_VERSIONS.includes(body.protocolVersion)) {
     fail("version_unsupported", "protocol version is not supported")
   }
-  if (!Array.isArray(body.harnesses) || body.harnesses.some((h) => typeof h !== "string")) {
-    fail("invalid_input", "harnesses must be a string array")
-  }
+  const harnesses = boundedStrings(body.harnesses, "harnesses", NODE_HARNESSES_MAX_COUNT, NODE_STRING_MAX_LENGTH)
   if (body.labels !== undefined) {
     if (
       body.labels === null ||
@@ -51,6 +60,18 @@ export function enrollNode(
       Object.values(body.labels).some((value) => typeof value !== "string")
     ) {
       fail("invalid_input", "labels must be a flat string map")
+    }
+    const entries = Object.entries(body.labels)
+    if (entries.length > NODE_LABELS_MAX_COUNT) {
+      fail("invalid_input", `labels exceeds ${NODE_LABELS_MAX_COUNT} entries`)
+    }
+    for (const [key, value] of entries) {
+      if (key.length > NODE_LABEL_MAX_LENGTH) {
+        fail("invalid_input", `label key exceeds ${NODE_LABEL_MAX_LENGTH} characters`)
+      }
+      if (value.length > NODE_LABEL_MAX_LENGTH) {
+        fail("invalid_input", `label value exceeds ${NODE_LABEL_MAX_LENGTH} characters`)
+      }
     }
   }
   if (typeof body.publicKey !== "string" || !isEd25519Spki(body.publicKey)) {
@@ -80,7 +101,7 @@ export function enrollNode(
       body.name,
       body.publicKey,
       body.protocolVersion,
-      JSON.stringify(body.harnesses),
+      JSON.stringify(harnesses),
       JSON.stringify(body.labels ?? {}),
       now,
       now,

@@ -1,9 +1,18 @@
 import type { Database } from "bun:sqlite"
 import type { HarnessReport, HarnessReportReason, HeartbeatRequest, HeartbeatResponse, IsolationReport, NodeView, RuntimeInventoryEntry } from "@agenticform/protocol"
 import {
+  HARNESS_ID_MAX_LENGTH,
+  HARNESS_REPORT_MAX_COUNT,
   HARNESS_REPORT_REASON_SET,
   ISOLATION_PROFILE_MAX_LENGTH,
   ISOLATION_PROFILE_PATTERN,
+  NODE_CAPABILITIES_MAX_COUNT,
+  NODE_HARNESSES_MAX_COUNT,
+  NODE_STRING_MAX_LENGTH,
+  RUNTIME_INVENTORY_MAX_COUNT,
+  RUNTIME_SESSION_ID_MAX_LENGTH,
+  RUNTIME_STATE_MAX_LENGTH,
+  RUNTIME_TYPE_MAX_LENGTH,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
@@ -21,21 +30,47 @@ export interface RuntimeInventoryInput {
   state: unknown
 }
 
-const MAX_INVENTORY = 1_000
-const MAX_REPORT = 64
 const STATUSES = new Set(["ready", "missing", "unauthenticated", "unknown"])
+
+/**
+ * Node-supplied strings are stored, so they are bounded (T-34): a count and a
+ * per-entry length, both from the protocol constants the contract documents.
+ */
+export function boundedStrings(
+  value: unknown,
+  field: string,
+  maxCount: number,
+  maxLength: number,
+): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    fail("invalid_input", `${field} must be a string array`)
+  }
+  if (value.length > maxCount) fail("invalid_input", `${field} exceeds ${maxCount} entries`)
+  if (value.some((entry) => (entry as string).length > maxLength)) {
+    fail("invalid_input", `${field} entry exceeds ${maxLength} characters`)
+  }
+  return value as string[]
+}
+
+function boundedString(value: unknown, field: string, maxLength: number): string {
+  if (typeof value !== "string" || !value) fail("invalid_input", `${field} must be a string`)
+  if (value.length > maxLength) fail("invalid_input", `${field} exceeds ${maxLength} characters`)
+  return value
+}
 
 /** FR-027: only a status and a reason code; raw harness output is refused. */
 function validateReport(report: unknown): HarnessReport[] {
   if (!Array.isArray(report)) fail("invalid_input", "harnessReport must be an array")
-  if (report.length > MAX_REPORT) fail("invalid_input", "harnessReport exceeds the maximum length")
+  if (report.length > HARNESS_REPORT_MAX_COUNT) fail("invalid_input", "harnessReport exceeds the maximum length")
   return report.map((entry) => {
     const item = entry as Partial<HarnessReport>
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
       fail("invalid_input", "each harnessReport entry must be an object")
     }
     if (typeof item.id !== "string" || !item.id) fail("invalid_input", "harnessReport.id must be a string")
-    if (item.id.length > 64) fail("invalid_input", "harnessReport.id exceeds 64 characters")
+    if (item.id.length > HARNESS_ID_MAX_LENGTH) {
+      fail("invalid_input", `harnessReport.id exceeds ${HARNESS_ID_MAX_LENGTH} characters`)
+    }
     if (typeof item.status !== "string" || !STATUSES.has(item.status)) {
       fail("invalid_input", "harnessReport.status must be ready, missing, unauthenticated or unknown")
     }
@@ -87,7 +122,7 @@ function validateIsolation(isolation: unknown, harnesses: string[], report: Harn
 
 function validateInventory(runtimes: unknown): RuntimeInventoryEntry[] {
   if (!Array.isArray(runtimes)) fail("invalid_input", "runtimes must be an array")
-  if (runtimes.length > MAX_INVENTORY) fail("invalid_input", "runtimes exceeds the maximum length")
+  if (runtimes.length > RUNTIME_INVENTORY_MAX_COUNT) fail("invalid_input", "runtimes exceeds the maximum length")
   return runtimes.map((entry) => {
     const item = entry as Partial<RuntimeInventoryInput>
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
@@ -95,19 +130,20 @@ function validateInventory(runtimes: unknown): RuntimeInventoryEntry[] {
     }
     if (typeof item.runId !== "string" || !item.runId) fail("invalid_input", "runtime.runId must be a string")
     if (!Number.isInteger(item.generation)) fail("invalid_input", "runtime.generation must be an integer")
-    if (typeof item.runtimeType !== "string" || !item.runtimeType) {
-      fail("invalid_input", "runtime.runtimeType must be a string")
-    }
+    const runtimeType = boundedString(item.runtimeType, "runtime.runtimeType", RUNTIME_TYPE_MAX_LENGTH)
     if (item.runtimeSessionId !== undefined && item.runtimeSessionId !== null && typeof item.runtimeSessionId !== "string") {
       fail("invalid_input", "runtime.runtimeSessionId must be a string")
     }
-    if (typeof item.state !== "string" || !item.state) fail("invalid_input", "runtime.state must be a string")
+    if (typeof item.runtimeSessionId === "string" && item.runtimeSessionId.length > RUNTIME_SESSION_ID_MAX_LENGTH) {
+      fail("invalid_input", `runtime.runtimeSessionId exceeds ${RUNTIME_SESSION_ID_MAX_LENGTH} characters`)
+    }
+    const state = boundedString(item.state, "runtime.state", RUNTIME_STATE_MAX_LENGTH)
     return {
       runId: item.runId,
       generation: item.generation as number,
-      runtimeType: item.runtimeType,
+      runtimeType,
       runtimeSessionId: (item.runtimeSessionId as string | null | undefined) ?? null,
-      state: item.state,
+      state,
     } as RuntimeInventoryEntry
   })
 }
@@ -125,14 +161,11 @@ export function heartbeat(
   if (!SUPPORTED_PROTOCOL_VERSIONS.includes(body.protocolVersion)) {
     fail("version_unsupported", "protocol version is not supported")
   }
-  if (!Array.isArray(body.harnesses) || body.harnesses.some((h) => typeof h !== "string")) {
-    fail("invalid_input", "harnesses must be a string array")
-  }
-  if (body.capabilities !== undefined) {
-    if (!Array.isArray(body.capabilities) || body.capabilities.some((c) => typeof c !== "string")) {
-      fail("invalid_input", "capabilities must be a string array")
-    }
-  }
+  const harnesses = boundedStrings(body.harnesses, "harnesses", NODE_HARNESSES_MAX_COUNT, NODE_STRING_MAX_LENGTH)
+  const capabilities =
+    body.capabilities === undefined
+      ? []
+      : boundedStrings(body.capabilities, "capabilities", NODE_CAPABILITIES_MAX_COUNT, NODE_STRING_MAX_LENGTH)
   if (body.capacity !== undefined) {
     if (
       body.capacity === null ||
@@ -146,8 +179,7 @@ export function heartbeat(
   }
   const inventory = body.runtimes === undefined ? [] : validateInventory(body.runtimes)
   const report = body.harnessReport === undefined ? [] : validateReport(body.harnessReport)
-  const isolation = validateIsolation(body.isolation, body.harnesses, report)
-  const capabilities = Array.isArray(body.capabilities) ? body.capabilities : []
+  const isolation = validateIsolation(body.isolation, harnesses, report)
   const slots = body.capacity?.slots ?? node.capacity_slots
   const active = db
     .query<{ n: number }, [string]>(
@@ -164,7 +196,7 @@ export function heartbeat(
        WHERE id = ?`,
     ).run(
       body.protocolVersion,
-      JSON.stringify(body.harnesses),
+      JSON.stringify(harnesses),
       JSON.stringify(capabilities),
       slots,
       used,
