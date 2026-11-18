@@ -197,7 +197,9 @@ export function selfTest(
   const timeoutMs = options.timeoutMs ?? 10_000
   const workspace = selfTestWorkspace()
   const profile: IsolationProfile = { version: PROFILE_VERSION, workspace: "write", state: [] }
-  const args = sandboxArgs(profile, workspace, homedir(), options.env ?? process.env, {
+  // The empty profile has no state paths, so the home is never bound; a fixed
+  // value keeps the self-test independent of the host's /home layout.
+  const args = sandboxArgs(profile, workspace, "/nonexistent", options.env ?? process.env, {
     remountRoot: options.remountRoot,
   })
   const run = (command: string[]) =>
