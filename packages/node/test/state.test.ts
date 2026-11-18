@@ -7,7 +7,7 @@ import {
   type RuntimeDriver,
 } from "@agenticform/runtime"
 import { Executor } from "../src/executor.ts"
-import { NodeState, fingerprintOf, payloadGenerationError } from "../src/state.ts"
+import { NodeState, fingerprintError, fingerprintOf, payloadGenerationError } from "../src/state.ts"
 
 const supported: Capabilities["supported"] = {
   cancel: true,
@@ -48,17 +48,29 @@ const countingDriver = (): { driver: RuntimeDriver; connected: () => number } =>
 const runtime = (driver: RuntimeDriver) =>
   createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: "fake" } } })
 
-const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => ({
-  commandId: "cmd-1",
-  type: "run.start",
-  runId: "run-1",
-  generation: 1,
-  idempotencyKey: "run:run-1:run.start:1",
-  leasedUntil: new Date().toISOString(),
-  leaseId: "lease-1",
-  payload: { fingerprint: "sha256:x", generation: 1, harness: "fake", cwd: "/tmp", prompt: "go" },
-  ...overrides,
-})
+/** Builds a command with the payload fingerprint the node recomputes (N5.3). */
+const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => {
+  const payload = {
+    fingerprint: "",
+    generation: 1,
+    harness: "fake",
+    cwd: "/tmp",
+    prompt: "go",
+    ...overrides.payload,
+  }
+  const envelope: CommandEnvelope = {
+    commandId: "cmd-1",
+    type: "run.start",
+    runId: "run-1",
+    generation: 1,
+    idempotencyKey: "run:run-1:run.start:1",
+    leasedUntil: new Date().toISOString(),
+    leaseId: "lease-1",
+    ...overrides,
+    payload,
+  }
+  return { ...envelope, payload: { ...payload, fingerprint: fingerprintOf(envelope) } }
+}
 
 const context = () => ({ emit: () => {}, signal: new AbortController().signal })
 
@@ -68,6 +80,19 @@ describe("node state", () => {
     expect(payloadGenerationError(command({ generation: 2 }))).toBe(
       "payload generation differs from envelope",
     )
+  })
+
+  test("refuses a missing or mismatched payload fingerprint", () => {
+    const good = command()
+    expect(fingerprintError(good)).toBeNull()
+
+    const mismatched = command()
+    mismatched.payload = { ...mismatched.payload, fingerprint: "sha256:other" }
+    expect(fingerprintError(mismatched)).toBe("command payload fingerprint does not match")
+
+    const missing = command()
+    Reflect.deleteProperty(missing.payload, "fingerprint")
+    expect(fingerprintError(missing)).toBe("command payload fingerprint is missing")
   })
 
   test("keeps runtime generations monotonic", () => {
@@ -111,6 +136,32 @@ describe("executor reuse and monotonic fencing", () => {
       error: { code: "idempotency_conflict", message: "command id reused with a different fingerprint" },
     })
     expect(counting.connected()).toBe(1)
+  })
+
+  test("refuses a mismatched payload fingerprint before any effect", async () => {
+    const counting = countingDriver()
+    const executor = new Executor({ runtime: runtime(counting.driver) })
+    const bad = command()
+    bad.payload = { ...bad.payload, fingerprint: "sha256:forged" }
+    const outcome = await executor.execute(bad, context())
+    expect(outcome).toEqual({
+      status: "failed",
+      error: { code: "idempotency_conflict", message: "command payload fingerprint does not match" },
+    })
+    expect(counting.connected()).toBe(0)
+  })
+
+  test("refuses a command with no payload fingerprint before any effect", async () => {
+    const counting = countingDriver()
+    const executor = new Executor({ runtime: runtime(counting.driver) })
+    const missing = command()
+    Reflect.deleteProperty(missing.payload, "fingerprint")
+    const outcome = await executor.execute(missing, context())
+    expect(outcome).toEqual({
+      status: "failed",
+      error: { code: "idempotency_conflict", message: "command payload fingerprint is missing" },
+    })
+    expect(counting.connected()).toBe(0)
   })
 
   test("an older generation never replaces the recorded runtime", async () => {

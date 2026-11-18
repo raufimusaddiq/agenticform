@@ -10,6 +10,8 @@ export type CommandAdmission = "new" | "replay" | "conflict"
  */
 export class NodeState {
   private readonly generations = new Map<string, number>()
+  // Keyed by command id for process lifetime: eviction would forget a reuse and
+  // break FR-028. The T045 ledger replaces this map with durable receipts.
   private readonly commands = new Map<string, string>()
 
   /** Highest generation accepted for a run, or null when the run is unseen. */
@@ -50,6 +52,19 @@ export function payloadGenerationError(command: CommandEnvelope): string | null 
   return command.payload.generation === command.generation
     ? null
     : "payload generation differs from envelope"
+}
+
+/**
+ * Contract http-api.md: the node recomputes `payload.fingerprint` and refuses a
+ * mismatch or a missing value before any side effect (N5.3).
+ */
+export function fingerprintError(command: CommandEnvelope): string | null {
+  if (typeof command.payload.fingerprint !== "string" || command.payload.fingerprint.length === 0) {
+    return "command payload fingerprint is missing"
+  }
+  return command.payload.fingerprint === fingerprintOf(command)
+    ? null
+    : "command payload fingerprint does not match"
 }
 
 /** N5.3: SHA-256 over type, idempotency key, generation and the payload. */

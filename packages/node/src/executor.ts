@@ -9,7 +9,7 @@ import {
 } from "@agenticform/runtime"
 import type { CommandEnvelope } from "@agenticform/protocol"
 import { normaliseEvent } from "./events.ts"
-import { NodeState, payloadGenerationError } from "./state.ts"
+import { NodeState, fingerprintError, payloadGenerationError } from "./state.ts"
 
 export interface ExecutionContext {
   emit(event: RunEventInput): void
@@ -93,6 +93,10 @@ export class Executor {
     if (generationError) {
       this.staleCount += 1
       return { status: "failed", error: { code: "fence_stale", message: generationError } }
+    }
+    const fingerprintProblem = fingerprintError(command)
+    if (fingerprintProblem) {
+      return { status: "failed", error: { code: "idempotency_conflict", message: fingerprintProblem } }
     }
     // FR-028: a reused command id with a different fingerprint is refused
     // before it can reach any handler or runtime.

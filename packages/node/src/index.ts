@@ -15,6 +15,7 @@ export { Executor, type ExecutionContext, type ExecutionOutcome, type ExecutorOp
 export { startHeartbeat, type HeartbeatLoop, type HeartbeatOptions } from "./heartbeat.ts"
 export { startPoller, type Poller, type PollerOptions } from "./poller.ts"
 export {
+  fingerprintError,
   fingerprintOf,
   NodeState,
   payloadGenerationError,

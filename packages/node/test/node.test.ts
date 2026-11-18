@@ -17,6 +17,7 @@ import { startHeartbeat } from "../src/heartbeat.ts"
 import { generateKeyPair, type NodeIdentity } from "../src/identity.ts"
 import { createNode } from "../src/node.ts"
 import { startPoller } from "../src/poller.ts"
+import { fingerprintOf } from "../src/state.ts"
 
 const config = (hubUrl: string): NodeConfig => ({
   hubUrl,
@@ -148,25 +149,31 @@ const generationDriver = (): {
   return { driver, firstStarted, secondStarted, cancelled: () => cancelCount }
 }
 
-const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => ({
-  commandId: "cmd-1",
-  type: "run.start",
-  runId: "run-1",
-  generation: 1,
-  idempotencyKey: "run:run-1:run.start:1",
-  leasedUntil: new Date().toISOString(),
-  leaseId: "lease-1",
-  payload: {
-    fingerprint: "sha256:x",
+/** Builds a command with the payload fingerprint the node recomputes (N5.3). */
+const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => {
+  const payload = {
+    fingerprint: "",
     generation: 1,
     harness: "fake",
     cwd: tmpdir(),
     prompt: "go",
     requires: [],
     mcpServers: [],
-  },
-  ...overrides,
-})
+    ...overrides.payload,
+  }
+  const envelope: CommandEnvelope = {
+    commandId: "cmd-1",
+    type: "run.start",
+    runId: "run-1",
+    generation: 1,
+    idempotencyKey: "run:run-1:run.start:1",
+    leasedUntil: new Date().toISOString(),
+    leaseId: "lease-1",
+    ...overrides,
+    payload,
+  }
+  return { ...envelope, payload: { ...payload, fingerprint: fingerprintOf(envelope) } }
+}
 
 let stop: (() => void) | undefined
 afterEach(() => {
