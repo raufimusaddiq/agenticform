@@ -1046,7 +1046,7 @@ describe("isolation gate", () => {
     try {
       node.start()
       for (let i = 0; i < 100 && bodies.length === 0; i += 1) await Bun.sleep(20)
-      expect(bodies[0]?.isolation).toEqual({ mode: "none", profile: "1", selfTest: "fail" })
+      expect(bodies[0]?.isolation).toEqual({ mode: "none", profile: "2", selfTest: "fail" })
       expect(bodies[0]?.harnesses).toEqual([])
       expect(connects).toBe(0)
     } finally {
@@ -1084,7 +1084,7 @@ describe("isolation gate", () => {
     try {
       node.start()
       for (let i = 0; i < 100 && bodies.length === 0; i += 1) await Bun.sleep(20)
-      expect(bodies[0]?.isolation).toEqual({ mode: "bwrap", profile: "1", selfTest: "pass" })
+      expect(bodies[0]?.isolation).toEqual({ mode: "bwrap", profile: "2", selfTest: "pass" })
     } finally {
       await node.stop()
     }

@@ -90,11 +90,11 @@ Rules:
 - The argv is built from the profile table and the resolved entry point only. No
   run input may add a bind.
 - A profile `env` value is a literal from the table, never run input, the host
-  path or the node's environment. A value that is an absolute path under the
-  sandbox home MUST equal the in-sandbox path of a state entry the same profile
-  declares; a value that is not absolute, or that names a path with no matching
-  state entry, is a profile error: the node refuses that harness and no child
-  starts.
+  path or the node's environment. A value MUST be absolute and MUST equal the
+  in-sandbox path of a `rw` state entry the same profile declares, wherever that
+  path is. A value that is not absolute, that names no declared state entry
+  (for example `/etc/claude`), or that names a `ro` entry, is a profile error:
+  the node refuses that harness and no child starts.
 
 ## 3. Environment
 
@@ -158,18 +158,23 @@ One profile declares an `env` entry:
 
 Rules for a config-directory entry:
 
-- The value is the in-sandbox path of the profile's own state entry and nothing
-  else. A path that does not match a declared state entry, or a relative value,
-  is a profile error and the harness is not started.
+- The value is the in-sandbox path of the profile's own `rw` state entry and
+  nothing else, and that requirement holds for any absolute path, not only one
+  under the sandbox home. A value that is relative, that names no declared state
+  entry (for example `/etc/claude`), or that names a `ro` entry is a profile
+  error: the harness is not started.
 - A file bind is never used for `.claude.json`. Claude Code writes it by rename
   (`<name>.tmp.<pid>.<hash>` then `rename`), and a rename over a bound file fails
   with `EBUSY`; verified on this host.
-- A missing state directory is created `0700`, as for any `rw` entry. A directory
-  that cannot be created, is not a directory, or is not readable and writable by
-  the node user is `state_dir_unusable`: the harness is `unknown` and a run fails
-  with `harness_unavailable`, because Claude Code silently starts with an empty
-  config when its config directory is unusable (verified: exit 0, no file
-  written).
+- A missing state directory is created `0700`, as for any `rw` entry. For the
+  directory a profile `env` value names, a directory that cannot be created, is
+  not a directory, or is not readable, writable and traversable
+  (`R_OK | W_OK | X_OK`) by the node user is `state_dir_unusable`: the harness is
+  `unknown` and a run fails with `harness_unavailable`, because Claude Code
+  silently starts with an empty config when its config directory is unusable
+  (verified: exit 0, no file written). The check covers only that directory;
+  another `rw` state directory keeps the create-and-continue behaviour, so a
+  failure there is not newly refused.
 - The operator's migration is documented in
   [research.md](../research.md#harness-config-directory): set
   `CLAUDE_CONFIG_DIR=~/.claude` for the interactive harness as well and move

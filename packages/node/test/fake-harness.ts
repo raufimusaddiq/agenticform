@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process"
 import { readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 
 /**
  * A real ACP child that runs inside the sandbox. It speaks NDJSON JSON-RPC
@@ -15,6 +16,7 @@ const spec = JSON.parse(process.argv[2] ?? "{}") as {
   lists?: string[]
   marker?: string
   exec?: string
+  config?: Record<string, unknown>
 }
 
 let cancelled: (() => void) | null = null
@@ -94,6 +96,22 @@ async function handle(message: { id?: unknown; method?: string; params?: any }):
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([name, value]) => `${name}=${value}`)
       say(sessionId, lines.join("\n"))
+      reply(id, { stopReason: "end_turn" })
+      return
+    }
+    if (spec.scenario === "config") {
+      // Claude Code keeps `.claude.json` in `$CLAUDE_CONFIG_DIR` when it is set.
+      const dir = process.env.CLAUDE_CONFIG_DIR ?? ""
+      const file = join(dir, ".claude.json")
+      let current: Record<string, unknown> = {}
+      try {
+        current = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>
+      } catch {
+        // A first run starts from an empty file.
+      }
+      const next = { ...current, ...(spec.config ?? {}) }
+      writeFileSync(file, JSON.stringify(next))
+      say(sessionId, JSON.stringify({ dir, file, config: next }))
       reply(id, { stopReason: "end_turn" })
       return
     }

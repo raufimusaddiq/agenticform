@@ -34,7 +34,7 @@ no prompt and makes no tool call.
 | `ready` | The entry point resolved and the sandboxed handshake completed | yes |
 | `missing` | The entry point is absent (`not_installed`) or the pinned `bunx` version is not cached (`version_not_cached`) | no |
 | `unauthenticated` | The harness answered `auth_required` | no |
-| `unknown` | The probe timed out or the process exited before the handshake | no |
+| `unknown` | The probe timed out, the process exited before the handshake, or a declared state directory is unusable (`state_dir_unusable`) | no |
 
 The heartbeat advertises only `ready` harnesses and reports every configured
 harness with its status and reason. A run for a non-ready harness fails with
@@ -54,6 +54,40 @@ environment and its process group. A gateway-backed harness may run tools throug
 its own service, outside that child, so those tools are not covered by the local
 sandbox and are not claimed equal to a coding harness. The node still reports the
 harness's presence and authentication truthfully.
+
+## `claude` config directory
+
+[CC] keeps `.claude.json` and `.credentials.json` at the home root unless
+`CLAUDE_CONFIG_DIR` is set. The node's `claude` profile sets it to
+`/home/agent/.claude` inside the sandbox, the same directory the profile already
+binds, so one directory bind covers config, credentials and state. The value is a
+fixed catalog constant: it never comes from the run request, the host path or the
+node's environment, so every run sees the same file.
+
+Before the sandbox is built the node creates a missing directory `0700` and
+checks that it is a directory the node user can read, write and traverse. An
+unusable directory is `unknown` with reason `state_dir_unusable`: the harness is
+not advertised and a run fails with `harness_unavailable`, because [CC] exits 0
+and silently starts with an empty config when its directory is unusable. Only
+the directory named by a profile `env` value is checked, and that value must
+name one of the profile's own writable state directories; another `rw` state
+directory is created and bound as before, with no new refusal.
+
+Operator migration, once, so the interactive harness and the sandboxed one read
+the same file:
+
+1. Stop any running `claude`.
+2. `mv ~/.claude.json ~/.claude/.claude.json` (keep a copy if unsure).
+3. `export CLAUDE_CONFIG_DIR=~/.claude` in your shell profile.
+
+The node never moves or edits operator files. Skipping the migration does not
+break runs: the sandboxed harness writes `~/.claude/.claude.json` while the
+interactive one keeps `~/.claude.json`, so the two fork and trust and MCP edits
+stop crossing over.
+
+Linux only: on macOS [CC] keeps credentials in the keychain, and the
+`sandbox-exec` shape is unverified, so the config directory is not claimed to
+carry credentials there.
 
 ## Custom harnesses
 
