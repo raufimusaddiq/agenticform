@@ -154,8 +154,7 @@ a dotted number of at most 11 characters (`1`, `1.2`, `1.2.3`); the pattern is
 in `packages/protocol`, so the node and the hub cannot drift. The hub refuses a
 report that contradicts this section: a sandbox mode with `selfTest: "fail"`,
 `mode: "none"` with `selfTest: "pass"`, `mode: "none"` with a non-empty
-`harnesses` list, or `mode: "none"` with a `ready` harness report is
-`invalid_input`.
+`harnesses` list, or `mode: "none"` with any harness report is `invalid_input`.
 
 ## 6. Failure codes
 

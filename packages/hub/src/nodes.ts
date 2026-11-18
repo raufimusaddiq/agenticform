@@ -55,8 +55,9 @@ const ISOLATION_MODES = new Set(["bwrap", "sandbox-exec", "none"])
 /**
  * FR-016: the mode, profile version and self-test outcome, nothing else. The
  * contract ties the three together: a passing self-test means a sandbox mode,
- * a failing one means `none`, no advertised harness and no ready report
- * (contracts/isolation.md §5). An inconsistent report is refused, not stored.
+ * a failing one means `none`, no advertised harness and no harness report at
+ * all (contracts/isolation.md §5). An inconsistent report is refused, not
+ * stored.
  */
 function validateIsolation(isolation: unknown, harnesses: string[], report: HarnessReport[]): IsolationReport | null {
   if (isolation === undefined || isolation === null) return null
@@ -77,9 +78,7 @@ function validateIsolation(isolation: unknown, harnesses: string[], report: Harn
   if (item.mode === "none") {
     if (item.selfTest !== "fail") fail("invalid_input", "isolation.mode none requires selfTest fail")
     if (harnesses.length > 0) fail("invalid_input", "isolation.mode none requires no advertised harnesses")
-    if (report.some((entry) => entry.status === "ready")) {
-      fail("invalid_input", "isolation.mode none requires no ready harness report")
-    }
+    if (report.length > 0) fail("invalid_input", "isolation.mode none requires an empty harness report")
   } else if (item.selfTest !== "pass") {
     fail("invalid_input", "a sandbox mode requires selfTest pass")
   }
