@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
@@ -98,6 +98,41 @@ describe("isolation argv", () => {
   test("an unknown harness gets an empty profile", () => {
     expect(profileFor("nope").state).toEqual([])
     expect(profileFor("claude").state.length).toBeGreaterThan(0)
+  })
+
+  test("a read-write state path is created 0700 and an absent read-only path is skipped", () => {
+    const home = temp("af-home-")
+    const profile: IsolationProfile = {
+      version: 1,
+      workspace: "write",
+      state: [
+        { path: "~/.newstate", mode: "rw" },
+        { path: "~/.absent", mode: "ro" },
+      ],
+    }
+    const args = sandboxArgs(profile, "/tmp/ws", home, {})
+    const created = join(home, ".newstate")
+    expect(statSync(created).mode & 0o777).toBe(0o700)
+    expect(args).toContain(created)
+    expect(args).not.toContain(join(home, ".absent"))
+  })
+
+  test("a profile is data: the table is the only source of binds", () => {
+    const first = profileFor("claude")
+    const second = profileFor("claude")
+    expect(first).toEqual(second)
+    expect(first.state).not.toBe(second.state)
+    // A caller that mutates its copy cannot widen the table for the next run.
+    first.state.push({ path: "/etc", mode: "rw" })
+    expect(profileFor("claude").state).toEqual(second.state)
+    // An unknown harness gets the workspace bind and no state bind.
+    const args = sandboxArgs(profileFor("nope"), "/tmp/ws", "/tmp/home", {})
+    const system = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/etc", "/run"]
+    const binds = args.flatMap((arg, index) => {
+      const source = args[index + 1]
+      return (arg === "--bind" || arg === "--ro-bind") && source !== undefined ? [source] : []
+    })
+    expect(binds.filter((path) => !system.includes(path))).toEqual(["/tmp/ws"])
   })
 
   test("the workspace is resolved and / and the home root are refused", () => {
@@ -228,5 +263,92 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
     await run.result()
     await Bun.sleep(200)
     expect(alive(marker)).toBe(false)
+  })
+
+  test("claude: ~/.claude is writable and undeclared home paths are absent", async () => {
+    const home = temp("af-home-")
+    mkdirSync(join(home, ".claude"))
+    mkdirSync(join(home, ".config", "claude"), { recursive: true })
+    mkdirSync(join(home, ".ssh"))
+    writeFileSync(join(home, ".ssh", "id_ed25519"), "secret")
+    const workspace = temp("af-ws-")
+    const { result } = await runFake(
+      "claude",
+      {
+        scenario: "writes",
+        writes: ["/home/agent/.claude/session.json", "/home/agent/.config/claude/settings.json"],
+        reads: ["/home/agent/.ssh/id_ed25519", "/home/agent/.ssh"],
+      },
+      { workspace, home },
+    )
+    expect(result.text).toBe(
+      [
+        "/home/agent/.claude/session.json=ok",
+        "/home/agent/.config/claude/settings.json=ENOENT",
+        "read:/home/agent/.ssh/id_ed25519=ENOENT",
+        "read:/home/agent/.ssh=ENOENT",
+      ].join("\n"),
+    )
+  })
+
+  test("opencode: the data dir is writable and the config dir is read-only", async () => {
+    const home = temp("af-home-")
+    mkdirSync(join(home, ".local", "share", "opencode", "log"), { recursive: true })
+    mkdirSync(join(home, ".config", "opencode"), { recursive: true })
+    const workspace = temp("af-ws-")
+    const { result } = await runFake(
+      "opencode",
+      {
+        scenario: "writes",
+        writes: ["/home/agent/.local/share/opencode/log/run.log", "/home/agent/.config/opencode/opencode.jsonc"],
+      },
+      { workspace, home },
+    )
+    expect(result.text).toBe(
+      [
+        "/home/agent/.local/share/opencode/log/run.log=ok",
+        "/home/agent/.config/opencode/opencode.jsonc=EROFS",
+      ].join("\n"),
+    )
+  })
+
+  test("an unknown harness sees only the workspace and an empty home", async () => {
+    const home = temp("af-home-")
+    mkdirSync(join(home, ".ssh"))
+    mkdirSync(join(home, ".claude"))
+    const workspace = temp("af-ws-")
+    const { result } = await runFake(
+      "nope",
+      {
+        scenario: "list",
+        lists: ["/home/agent", "/home/agent/.ssh", "/home/agent/.claude"],
+      },
+      { workspace, home },
+    )
+    expect(result.text).toBe(
+      ["list:/home/agent=", "list:/home/agent/.ssh=ENOENT", "list:/home/agent/.claude=ENOENT"].join("\n"),
+    )
+  })
+
+  test("no AGENTICFORM_* variable or node secret reaches the harness", async () => {
+    const saved = { ...process.env }
+    process.env.AGENTICFORM_ADMIN_TOKEN = "admin-secret"
+    process.env.AGENTICFORM_ENROLLMENT_TOKEN = "enroll-secret"
+    process.env.AGENTICFORM_HUB_URL = "https://hub.example"
+    process.env.NODE_SECRET = "node-secret"
+    try {
+      const { result } = await runFake("claude", { scenario: "env" })
+      expect(result.text).not.toContain("AGENTICFORM_")
+      expect(result.text).not.toContain("admin-secret")
+      expect(result.text).not.toContain("enroll-secret")
+      expect(result.text).not.toContain("node-secret")
+      expect(result.text).toContain("HOME=/home/agent")
+      expect(result.text).toContain("PATH=/usr/local/bin:/usr/bin:/bin")
+    } finally {
+      for (const name of ["AGENTICFORM_ADMIN_TOKEN", "AGENTICFORM_ENROLLMENT_TOKEN", "AGENTICFORM_HUB_URL", "NODE_SECRET"]) {
+        if (saved[name] === undefined) delete process.env[name]
+        else process.env[name] = saved[name]
+      }
+    }
   })
 })

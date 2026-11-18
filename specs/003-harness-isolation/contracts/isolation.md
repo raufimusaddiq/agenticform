@@ -95,7 +95,7 @@ type IsolationProfile = {
 
 | Harness | `rw` state | `ro` state |
 |---|---|---|
-| `claude` | `~/.claude` | `~/.config/claude` |
+| `claude` | `~/.claude` | — |
 | `codex` | `~/.codex` | — |
 | `opencode` | `~/.local/share/opencode` | `~/.config/opencode` |
 | `omp` | `~/.omp` | — |
@@ -105,10 +105,14 @@ type IsolationProfile = {
 | `openclaw` | `~/.openclaw` | — |
 | custom or unknown | none | none |
 
-The table is the intended contract, not yet verified per harness. Each entry must
-be confirmed against the harness's own documentation and a real run (T023) before
-it is final. A harness that needs another path is a table change with a
-conformance run, not a runtime widening.
+The table is the contract. Each entry was checked against the harness's own
+documentation and, where the harness is installed on the verification host, a
+real run (T023); the evidence is in
+[research.md](../research.md#per-harness-mount-table). A harness that needs
+another path is a table change with a conformance run, not a runtime widening.
+
+The table lists state directories only. The harness entry point must be resolved
+and made reachable separately (entry-point resolution); it is not a state mount.
 
 ## 5. Self-test
 

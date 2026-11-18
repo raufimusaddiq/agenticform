@@ -43,13 +43,13 @@ with the first story; phase 7 lands with the last.
 
 ## Phase 4: User Story 2 - Each harness sees only its own state (P2)
 
-- [ ] T017 [US2] Bind declared state paths `rw`/`ro`, creating `rw` paths `0700` and skipping absent `ro` paths (FR-009, FR-011)
-- [ ] T018 [US2] Give an unknown harness an empty profile and empty home (FR-010)
-- [ ] T019 [US2] Test: `claude` sees `~/.claude` writable and no `~/.ssh` (FR-009, SC-002)
-- [ ] T020 [US2] Test: an unknown harness sees only the workspace and an empty home (FR-010)
-- [ ] T021 [US2] Test: no `AGENTICFORM_*` variable or node secret reaches the harness environment (FR-007, SC-006)
-- [ ] T022 [US2] Test: a profile change is a table edit; no runtime widening path exists (FR-012)
-- [ ] T023 [US2] Verify each harness's real state and config directories against its documentation and a real run; update the research and contract tables before they are final (FR-009)
+- [x] T017 [US2] Bind declared state paths `rw`/`ro`, creating `rw` paths `0700` and skipping absent `ro` paths (FR-009, FR-011)
+- [x] T018 [US2] Give an unknown harness an empty profile and empty home (FR-010)
+- [x] T019 [US2] Test: `claude` sees `~/.claude` writable and no `~/.ssh` (FR-009, SC-002)
+- [x] T020 [US2] Test: an unknown harness sees only the workspace and an empty home (FR-010)
+- [x] T021 [US2] Test: no `AGENTICFORM_*` variable or node secret reaches the harness environment (FR-007, SC-006)
+- [x] T022 [US2] Test: a profile change is a table edit; no runtime widening path exists (FR-012)
+- [x] T023 [US2] Verify each harness's real state and config directories against its documentation and a real run; update the research and contract tables before they are final (FR-009)
 
 ## Phase 5: User Story 3 - No sandbox means no run (P1)
 
