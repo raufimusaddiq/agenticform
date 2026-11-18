@@ -17,6 +17,7 @@ import { startHeartbeat } from "../src/heartbeat.ts"
 import { generateKeyPair, type NodeIdentity } from "../src/identity.ts"
 import { createNode } from "../src/node.ts"
 import { startPoller } from "../src/poller.ts"
+import { fingerprintOf } from "../src/state.ts"
 
 const config = (hubUrl: string): NodeConfig => ({
   hubUrl,
@@ -148,25 +149,31 @@ const generationDriver = (): {
   return { driver, firstStarted, secondStarted, cancelled: () => cancelCount }
 }
 
-const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => ({
-  commandId: "cmd-1",
-  type: "run.start",
-  runId: "run-1",
-  generation: 1,
-  idempotencyKey: "run:run-1:run.start:1",
-  leasedUntil: new Date().toISOString(),
-  leaseId: "lease-1",
-  payload: {
-    fingerprint: "sha256:x",
+/** Builds a command with the payload fingerprint the node recomputes (N5.3). */
+const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => {
+  const payload = {
+    fingerprint: "",
     generation: 1,
     harness: "fake",
     cwd: tmpdir(),
     prompt: "go",
     requires: [],
     mcpServers: [],
-  },
-  ...overrides,
-})
+    ...overrides.payload,
+  }
+  const envelope: CommandEnvelope = {
+    commandId: "cmd-1",
+    type: "run.start",
+    runId: "run-1",
+    generation: 1,
+    idempotencyKey: "run:run-1:run.start:1",
+    leasedUntil: new Date().toISOString(),
+    leaseId: "lease-1",
+    ...overrides,
+    payload,
+  }
+  return { ...envelope, payload: { ...payload, fingerprint: fingerprintOf(envelope) } }
+}
 
 let stop: (() => void) | undefined
 afterEach(() => {
@@ -417,7 +424,12 @@ describe("executor", () => {
     await blocking.started
 
     const stale = await executor.execute(
-      command({ type: "run.cancel", generation: 1, payload: { fingerprint: "sha256:x", generation: 1 } }),
+      command({
+        commandId: "cmd-cancel-stale",
+        type: "run.cancel",
+        generation: 1,
+        payload: { fingerprint: "sha256:x", generation: 1 },
+      }),
       { emit: () => {}, signal: new AbortController().signal },
     )
     expect(stale).toEqual({
@@ -428,7 +440,12 @@ describe("executor", () => {
     expect(executor.staleObservations).toBe(1)
 
     const fresh = await executor.execute(
-      command({ type: "run.cancel", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+      command({
+        commandId: "cmd-cancel-fresh",
+        type: "run.cancel",
+        generation: 2,
+        payload: { fingerprint: "sha256:x", generation: 2 },
+      }),
       { emit: () => {}, signal: new AbortController().signal },
     )
     expect(fresh.status).toBe("succeeded")
@@ -446,20 +463,35 @@ describe("executor", () => {
     await blocking.started
 
     const stale = await executor.execute(
-      command({ type: "run.inspect", generation: 1, payload: { fingerprint: "sha256:x", generation: 1 } }),
+      command({
+        commandId: "cmd-inspect-stale",
+        type: "run.inspect",
+        generation: 1,
+        payload: { fingerprint: "sha256:x", generation: 1 },
+      }),
       { emit: () => {}, signal: new AbortController().signal },
     )
     expect(stale.status).toBe("failed")
     expect(executor.staleObservations).toBe(1)
 
     const fresh = await executor.execute(
-      command({ type: "run.inspect", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+      command({
+        commandId: "cmd-inspect-fresh",
+        type: "run.inspect",
+        generation: 2,
+        payload: { fingerprint: "sha256:x", generation: 2 },
+      }),
       { emit: () => {}, signal: new AbortController().signal },
     )
     expect(fresh.status).toBe("succeeded")
 
     await executor.cancel(
-      command({ type: "run.cancel", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+      command({
+        commandId: "cmd-inspect-cancel",
+        type: "run.cancel",
+        generation: 2,
+        payload: { fingerprint: "sha256:x", generation: 2 },
+      }),
     )
     await start
   })
@@ -485,7 +517,7 @@ describe("executor", () => {
     await generations.firstStarted
 
     const second = executor.execute(
-      command({ generation: 2, payload: { ...command().payload, generation: 2 } }),
+      command({ commandId: "cmd-2", generation: 2, payload: { ...command().payload, generation: 2 } }),
       { emit: () => {}, signal: new AbortController().signal },
     )
     await generations.secondStarted
@@ -495,12 +527,17 @@ describe("executor", () => {
     ])
 
     const inspect = executor.inspect(
-      command({ type: "run.inspect", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+      command({
+        commandId: "cmd-inspect",
+        type: "run.inspect",
+        generation: 2,
+        payload: { fingerprint: "sha256:x", generation: 2 },
+      }),
     )
     expect(inspect.result).toMatchObject({ status: "inspected", generation: 2, state: "running" })
 
     const stale = await executor.execute(
-      command({ generation: 1, payload: { ...command().payload, generation: 1 } }),
+      command({ commandId: "cmd-stale", generation: 1, payload: { ...command().payload, generation: 1 } }),
       { emit: () => {}, signal: new AbortController().signal },
     )
     expect(stale).toEqual({
@@ -510,7 +547,12 @@ describe("executor", () => {
     expect(executor.staleObservations).toBe(1)
 
     const cancel = await executor.cancel(
-      command({ type: "run.cancel", generation: 2, payload: { fingerprint: "sha256:x", generation: 2 } }),
+      command({
+        commandId: "cmd-cancel",
+        type: "run.cancel",
+        generation: 2,
+        payload: { fingerprint: "sha256:x", generation: 2 },
+      }),
     )
     expect(cancel.status).toBe("succeeded")
     expect((await first).status).toBe("succeeded")

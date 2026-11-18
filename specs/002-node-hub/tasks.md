@@ -62,14 +62,14 @@ in `docs/node-hub-invariants.md` gets a test task.
 ## Phase 5: User Story 3 - Fencing and replay (P1)
 
 - [x] T036 [US3] Add generation stamping, lease-time cancellation and completion-time rejection (FR-022, FR-023)
-- [ ] T037 [US3] Add node-side envelope/payload generation check and monotonic state in `packages/node/src/state.ts` (FR-021, FR-024)
+- [x] T037 [US3] Add node-side envelope/payload generation check and monotonic state in `packages/node/src/state.ts` (FR-021, FR-024)
 - [x] T038 [US3] Add protocol version refusal for enqueue and lease (FR-005)
 - [x] T039 [US3] Test: advance generation before lease cancels the command (FR-023)
 - [x] T040 [US3] Test: stale completion is refused with no state change (FR-023)
 - [x] T041 [US3] Test: signed request replay is rejected; a bad signature does not burn the nonce (FR-007, FR-009)
 - [x] T042 [US3] Test: timestamp outside skew and unknown node both return the same generic error (FR-013)
 - [x] T043 [US3] Test: nonce at the expiry boundary is refused; cleanup deletes expired rows (FR-010)
-- [ ] T044 [US3] Test: node rejects a reused command id with a different fingerprint (FR-028)
+- [x] T044 [US3] Test: node rejects a reused command id with a different fingerprint (FR-028)
 
 ## Phase 6: User Story 4 - Durable receipts (P2)
 
