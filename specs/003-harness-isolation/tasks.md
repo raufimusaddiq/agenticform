@@ -49,35 +49,36 @@ with the first story; phase 7 lands with the last.
 - [ ] T020 [US2] Test: an unknown harness sees only the workspace and an empty home (FR-010)
 - [ ] T021 [US2] Test: no `AGENTICFORM_*` variable or node secret reaches the harness environment (FR-007, SC-006)
 - [ ] T022 [US2] Test: a profile change is a table edit; no runtime widening path exists (FR-012)
+- [ ] T023 [US2] Verify each harness's real state and config directories against its documentation and a real run; update the research and contract tables before they are final (FR-009)
 
 ## Phase 5: User Story 3 - No sandbox means no run (P1)
 
-- [ ] T023 [US3] Wire the self-test result into startup: `isolation.mode`, no advertised harnesses on failure (FR-013, FR-014)
-- [ ] T024 [US3] Fail a run with `isolation_unavailable` when the sandbox cannot start, with no unsandboxed retry (FR-015)
-- [ ] T025 [US3] Report `isolation` in the heartbeat (FR-016)
-- [ ] T026 [US3] Test: with `bwrap` hidden from `PATH`, startup reports `isolation_unavailable` and spawns no harness (FR-014, SC-003)
-- [ ] T027 [US3] Test: a sandbox that exists but cannot create the shape fails the self-test (FR-013)
-- [ ] T028 [US3] Test: a per-run sandbox failure fails the run and never retries unsandboxed (FR-015)
-- [ ] T029 [US3] Test: the heartbeat carries `mode`, `profile` and `selfTest` (FR-016)
+- [ ] T024 [US3] Wire the self-test result into startup: `isolation.mode`, no advertised harnesses on failure (FR-013, FR-014)
+- [ ] T025 [US3] Fail a run with `isolation_unavailable` when the sandbox cannot start, with no unsandboxed retry (FR-015)
+- [ ] T026 [US3] Report `isolation` in the heartbeat (FR-016)
+- [ ] T027 [US3] Test: with `bwrap` hidden from `PATH`, startup reports `isolation_unavailable` and spawns no harness (FR-014, SC-003)
+- [ ] T028 [US3] Test: a sandbox that exists but cannot create the shape fails the self-test (FR-013)
+- [ ] T029 [US3] Test: a per-run sandbox failure fails the run and never retries unsandboxed (FR-015)
+- [ ] T030 [US3] Test: the heartbeat carries `mode`, `profile` and `selfTest` (FR-016)
 
 ## Phase 6: User Story 4 - The heartbeat tells the truth about harnesses (P1)
 
-- [ ] T030 [US4] Add entry-point resolution without network, including the Bun cache check for `bunx` entries (FR-018, FR-019)
-- [ ] T031 [US4] Add the sandboxed ACP handshake probe and the classification table (FR-017, FR-018)
-- [ ] T032 [US4] Add the TTL cache, single-flight and invalidation after a failed run (FR-020, FR-021)
-- [ ] T033 [US4] Advertise only `ready` harnesses and add `harnessReport` to the heartbeat (FR-022)
-- [ ] T034 [US4] Map non-ready harnesses to `harness_missing`, `harness_unauthenticated` and `harness_unavailable` before any child starts (FR-023, FR-024)
-- [ ] T035 [US4] Name the harness and best-known status in the hub's `no_eligible_node` message (FR-025)
-- [ ] T036 [US4] Test: one ready, one `auth_required` and one absent harness produce the three statuses in one heartbeat (SC-004)
-- [ ] T037 [US4] Test: a run for each non-ready harness fails with its named code and spawns no child (FR-023, FR-024, SC-005)
-- [ ] T038 [US4] Test: a probe timeout yields `unknown` and the heartbeat keeps beating (FR-020)
-- [ ] T039 [US4] Test: a login is picked up after the TTL without a restart (FR-021)
-- [ ] T040 [US4] Test: a pinned version absent from the cache is `missing` and nothing is downloaded (FR-019)
+- [ ] T031 [US4] Add entry-point resolution without network, including the Bun cache check for `bunx` entries (FR-018, FR-019)
+- [ ] T032 [US4] Add the sandboxed ACP handshake probe and the classification table (FR-017, FR-018)
+- [ ] T033 [US4] Add the TTL cache, single-flight and invalidation after a failed run (FR-020, FR-021)
+- [ ] T034 [US4] Advertise only `ready` harnesses and add `harnessReport` to the heartbeat (FR-022)
+- [ ] T035 [US4] Map non-ready harnesses to `harness_missing`, `harness_unauthenticated` and `harness_unavailable` before any child starts (FR-023, FR-024)
+- [ ] T036 [US4] Name the harness and best-known status in the hub's `no_eligible_node` message (FR-025)
+- [ ] T037 [US4] Test: one ready, one `auth_required` and one absent harness produce the three statuses in one heartbeat (SC-004)
+- [ ] T038 [US4] Test: a run for each non-ready harness fails with its named code and spawns no child (FR-023, FR-024, SC-005)
+- [ ] T039 [US4] Test: a probe timeout yields `unknown` and the heartbeat keeps beating (FR-020)
+- [ ] T040 [US4] Test: a login is picked up after the TTL without a restart (FR-021)
+- [ ] T041 [US4] Test: a pinned version absent from the cache is `missing` and nothing is downloaded (FR-019)
 
 ## Phase 7: Polish
 
-- [ ] T041 [P] Amend `docs/architecture.md` with the isolation boundary and the gateway-backed limit
-- [ ] T042 [P] Amend `docs/harnesses.md` with the status meanings and the probe rules
-- [ ] T043 [P] Review every new error code against `contracts/isolation.md` §6 and `contracts/harness-detection.md` §5; remove unused ones
-- [ ] T044 [P] Record the sandbox self-test and probe cost on the 1 CPU / 2 GB host in the README
-- [ ] T045 [P] Confirm `bun run typecheck` and `bun test packages` pass with `bwrap` present and absent
+- [ ] T042 [P] Amend `docs/architecture.md` with the isolation boundary and the gateway-backed limit
+- [ ] T043 [P] Amend `docs/harnesses.md` with the status meanings and the probe rules
+- [ ] T044 [P] Review every new error code against `contracts/isolation.md` §6 and `contracts/harness-detection.md` §5; remove unused ones
+- [ ] T045 [P] Record the sandbox self-test and probe cost on the 1 CPU / 2 GB host in the README
+- [ ] T046 [P] Confirm `bun run typecheck` and `bun test packages` pass with `bwrap` present and absent

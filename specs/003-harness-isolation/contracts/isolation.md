@@ -96,8 +96,10 @@ type IsolationProfile = {
 | `openclaw` | `~/.openclaw` | — |
 | custom or unknown | none | none |
 
-The table is the contract. A harness that needs another path is a table change
-with a conformance run, not a runtime widening.
+The table is the intended contract, not yet verified per harness. Each entry must
+be confirmed against the harness's own documentation and a real run (T023) before
+it is final. A harness that needs another path is a table change with a
+conformance run, not a runtime widening.
 
 ## 5. Self-test
 

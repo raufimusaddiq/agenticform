@@ -107,8 +107,6 @@ af run cancel <runId>
 | `AGENTICFORM_NODE_SLOTS` | node | `1` | Concurrent commands the node accepts |
 | `AGENTICFORM_NODE_HARNESSES` | node | empty (none) | Comma-separated harness ids the node advertises |
 | `AGENTICFORM_NODE_CAPABILITIES` | node | empty (none) | Comma-separated capability overrides for the node |
-| `AGENTICFORM_HARNESS_PROBE_TTL_SECONDS` | node | `300` | How long a harness presence and login result is reused before re-probing |
-| `AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS` | node | `20` | Upper bound on one harness handshake probe |
 | `AGENTICFORM_CONFORMANCE_HARNESS` | runtime | unset (suite skipped) | Opt-in: run the conformance suite against this harness; may use paid inference |
 | `AGENTICFORM_CONFORMANCE_CWD` | runtime | process cwd | Working directory given to the conformance harness |
 

@@ -73,9 +73,11 @@ with an unavailable one. `--unshare-net` is deliberately absent.
 
 ## Per-harness mount table
 
-The table is the contract. A harness whose real state directory differs is a
-table bug, fixed by editing the table and re-running the conformance probe, never
-by widening the mount for everyone.
+**To be verified per harness, not final.** These paths are the intended shape,
+not a checked fact: each entry must be confirmed against the harness's own
+documentation and a real run before the table is treated as the contract. A wrong
+entry is a table bug, fixed by editing the table and re-running the conformance
+probe, never by widening the mount for everyone.
 
 | Harness | Read-write | Read-only |
 |---|---|---|

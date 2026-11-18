@@ -55,20 +55,9 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 
 ## Isolation
 
-The node starts every harness inside a sandbox: minimal read-only system paths, a
-private home and `/tmp`, the workspace bound read-write or read-only, and only the
-harness's declared state directories. Writes outside the workspace fail for every
-harness in the catalog. The node's own environment is cleared, so hub and
-enrollment secrets never reach a harness.
-
-When no sandbox can be created, the node advertises no harnesses and refuses runs
-with `isolation_unavailable`; it never falls back to an unsandboxed child. The
-heartbeat reports the isolation mode and each harness's status, so a missing or
-unauthenticated harness is a named failure rather than an opaque one. The design
-is [`specs/003-harness-isolation`](../specs/003-harness-isolation/spec.md).
-
-Gateway-backed agentic harnesses may run tools outside the local process, so the
-filesystem guarantee covers the local child only.
+Planned (spec 003), not implemented yet: the node and heartbeat do not sandbox
+harnesses or report harness presence today. The design is
+[`specs/003-harness-isolation`](../specs/003-harness-isolation/spec.md).
 
 ## Process lifecycle
 
