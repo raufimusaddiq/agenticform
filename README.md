@@ -155,3 +155,7 @@ To run the conformance suite against a real harness, which may use paid inferenc
 ```bash
 AGENTICFORM_CONFORMANCE_HARNESS=codex bun test packages
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
