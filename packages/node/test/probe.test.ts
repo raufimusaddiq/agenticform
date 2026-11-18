@@ -132,7 +132,7 @@ describe("entry-point resolution", () => {
 
   test("a bunx entry resolves from the local cache without network", () => {
     const cache = temp("af-cache-")
-    const root = join(cache, ".bunx-1000", "@scope", "pkg@1.0.0")
+    const root = join(cache, `.bunx-${process.getuid?.() ?? 0}`, "@scope", "pkg@1.0.0")
     const pkg = join(root, "node_modules", "@scope", "pkg")
     mkdirSync(pkg, { recursive: true })
     writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@scope/pkg", bin: { pkg: "index.js" } }))
