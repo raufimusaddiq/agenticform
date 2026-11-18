@@ -27,14 +27,29 @@ export interface ClientOptions {
   fetch?: typeof fetch
   now?: () => number
   nonce?: () => string
-  sleep?: (ms: number) => Promise<void>
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
   random?: () => number
   maxAttempts?: number
   baseBackoffMs?: number
   maxBackoffMs?: number
 }
 
-const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const defaultSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason)
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
 
 /**
  * Signed, outbound-only hub client (N2.1). Every attempt gets a fresh nonce and
@@ -46,7 +61,7 @@ export class NodeClient {
   private readonly fetchImpl: typeof fetch
   private readonly now: () => number
   private readonly nonce: () => string
-  private readonly sleep: (ms: number) => Promise<void>
+  private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>
   private readonly random: () => number
   private readonly maxAttempts: number
   private readonly baseBackoffMs: number
@@ -68,36 +83,39 @@ export class NodeClient {
     this.maxBackoffMs = options.maxBackoffMs ?? 30_000
   }
 
-  heartbeat(body: HeartbeatRequest): Promise<HeartbeatResponse> {
-    return this.request<HeartbeatResponse>("POST", "/v1/node/heartbeat", body)
+  heartbeat(body: HeartbeatRequest, signal?: AbortSignal): Promise<HeartbeatResponse> {
+    return this.request<HeartbeatResponse>("POST", "/v1/node/heartbeat", body, signal)
   }
 
-  async nextCommand(types?: readonly CommandType[]): Promise<CommandEnvelope | null> {
+  async nextCommand(types?: readonly CommandType[], signal?: AbortSignal): Promise<CommandEnvelope | null> {
     const query = types && types.length > 0 ? `?types=${encodeURIComponent(types.join(","))}` : ""
-    return this.requestOptional<CommandEnvelope>("GET", `/v1/node/commands/next${query}`)
+    return this.requestOptional<CommandEnvelope>("GET", `/v1/node/commands/next${query}`, undefined, signal)
   }
 
-  renew(commandId: string): Promise<{ leasedUntil: string }> {
+  renew(commandId: string, signal?: AbortSignal): Promise<{ leasedUntil: string }> {
     return this.request<{ leasedUntil: string }>(
       "POST",
       `/v1/node/commands/${encodeURIComponent(commandId)}/renew`,
       {},
+      signal,
     )
   }
 
-  appendEvents(commandId: string, batch: EventBatch): Promise<EventBatchResponse> {
+  appendEvents(commandId: string, batch: EventBatch, signal?: AbortSignal): Promise<EventBatchResponse> {
     return this.request<EventBatchResponse>(
       "POST",
       `/v1/node/commands/${encodeURIComponent(commandId)}/events`,
       batch,
+      signal,
     )
   }
 
-  complete(commandId: string, body: CompletionRequest): Promise<unknown> {
+  complete(commandId: string, body: CompletionRequest, signal?: AbortSignal): Promise<unknown> {
     return this.request<unknown>(
       "POST",
       `/v1/node/commands/${encodeURIComponent(commandId)}/complete`,
       body,
+      signal,
     )
   }
 
@@ -106,14 +124,24 @@ export class NodeClient {
     return ceiling + Math.floor(this.random() * this.baseBackoffMs)
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const result = await this.send<T>(method, path, body, false)
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const result = await this.send<T>(method, path, body, false, signal)
     if (result === null) throw new NodeClientError(204, "internal", "unexpected empty response")
     return result
   }
 
-  private async requestOptional<T>(method: string, path: string, body?: unknown): Promise<T | null> {
-    return this.send<T>(method, path, body, true)
+  private async requestOptional<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T | null> {
+    return this.send<T>(method, path, body, true, signal)
   }
 
   private async send<T>(
@@ -121,6 +149,7 @@ export class NodeClient {
     path: string,
     body: unknown,
     allowEmpty: boolean,
+    signal?: AbortSignal,
   ): Promise<T | null> {
     const raw = body === undefined ? "" : JSON.stringify(body)
     for (let attempt = 1; ; attempt += 1) {
@@ -143,12 +172,14 @@ export class NodeClient {
       }
       if (body !== undefined) headers["content-type"] = "application/json"
 
+      const timeout = AbortSignal.timeout(this.config.requestTimeoutMs)
+      const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
       try {
         const response = await this.fetchImpl(this.config.hubUrl + path, {
           method,
           headers,
           ...(body === undefined ? {} : { body: raw }),
-          signal: AbortSignal.timeout(this.config.requestTimeoutMs),
+          signal: combined,
         })
         if (response.status === 204) {
           if (allowEmpty) return null
@@ -156,15 +187,15 @@ export class NodeClient {
         }
         if (response.ok) return (await response.json()) as T
         const error = await this.errorFrom(response)
-        if (response.status >= 500 && attempt < this.maxAttempts) {
-          await this.sleep(this.backoff(attempt))
+        if (response.status >= 500 && attempt < this.maxAttempts && !signal?.aborted) {
+          await this.sleep(this.backoff(attempt), signal)
           continue
         }
         throw error
       } catch (error) {
         if (error instanceof NodeClientError) throw error
-        if (attempt >= this.maxAttempts) throw error
-        await this.sleep(this.backoff(attempt))
+        if (signal?.aborted || attempt >= this.maxAttempts) throw error
+        await this.sleep(this.backoff(attempt), signal)
       }
     }
   }

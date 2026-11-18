@@ -11,6 +11,7 @@ export interface NodeOptions {
   capabilities?: string[]
   harnesses?: string[]
   slots?: number
+  stopTimeoutMs?: number
   fetch?: typeof fetch
   onError?: (error: unknown) => void
 }
@@ -71,11 +72,12 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
         leaseRenewMs: config.leaseRenewMs,
         executor,
         slots,
+        ...(options.stopTimeoutMs === undefined ? {} : { stopTimeoutMs: options.stopTimeoutMs }),
         onError,
       })
     },
     async stop() {
-      heartbeat?.stop()
+      await heartbeat?.stop()
       heartbeat = undefined
       await poller?.stop()
       poller = undefined

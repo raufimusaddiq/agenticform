@@ -9,6 +9,8 @@ export interface PollerOptions {
   executor: Executor
   /** Local run.start slots; matches the capacity advertised in the heartbeat. */
   slots?: number
+  /** Upper bound on draining in-flight work during stop. Default 10s. */
+  stopTimeoutMs?: number
   onError?: (error: unknown) => void
 }
 
@@ -67,6 +69,7 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
     command: CommandEnvelope,
     outcome: ExecutionOutcome,
     batcher: EventBatcher,
+    signal: AbortSignal,
   ): Promise<void> => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const body: CompletionRequest = {
@@ -77,7 +80,7 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
         ...(batcher.lastSeq > 0 ? { eventsToSeq: batcher.lastSeq } : {}),
       }
       try {
-        await client.complete(command.commandId, body)
+        await client.complete(command.commandId, body, signal)
         return
       } catch (error) {
         if (error instanceof NodeClientError && error.code === "events_pending") {
@@ -96,28 +99,37 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
     const controller = new AbortController()
     controllers.add(controller)
     const batcher = new EventBatcher({
-      send: (events) => client.appendEvents(command.commandId, { leaseId: command.leaseId, events }),
+      send: (events) =>
+        client.appendEvents(command.commandId, { leaseId: command.leaseId, events }, controller.signal),
       ...(options.onError ? { onError: options.onError } : {}),
     })
     const renew = setInterval(() => {
-      void client.renew(command.commandId).catch((error) => controller.abort(error))
+      void client.renew(command.commandId, controller.signal).catch((error) => controller.abort(error))
     }, Math.max(1_000, options.leaseRenewMs))
 
     try {
       const isStart = command.type === "run.start"
       let acquired = reserved
+      let entered = false
       let outcome: ExecutionOutcome
       try {
         if (isStart && !acquired) {
           await acquire(controller.signal)
           acquired = true
         }
+        entered = true
         outcome = await options.executor.execute(command, {
           emit: (event) => batcher.add(event),
           signal: controller.signal,
         })
       } catch (error) {
         options.onError?.(error)
+        if (!entered) {
+          // The command never reached the executor (for example, a parked
+          // run.start aborted by stop). Do not complete it as failed; leave the
+          // lease to expire so the hub can redeliver it.
+          return
+        }
         outcome = {
           status: "failed",
           error: { code: "internal", message: error instanceof Error ? error.message : "execution failed" },
@@ -128,7 +140,7 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
 
       await batcher.close().catch((error) => options.onError?.(error))
       // A completion failure is surfaced once by the caller (tick), not here.
-      await complete(command, outcome, batcher)
+      await complete(command, outcome, batcher, controller.signal)
     } finally {
       clearInterval(renew)
       controllers.delete(controller)
@@ -187,7 +199,15 @@ export function startPoller(client: NodeClient, options: PollerOptions): Poller 
       // Abort first: a parked run.start must not start while we drain.
       for (const controller of controllers) controller.abort(new Error("poller stopped"))
       waiters.splice(0)
-      await Promise.allSettled([...inflight])
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      const bound = new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, options.stopTimeoutMs ?? 10_000)
+      })
+      try {
+        await Promise.race([Promise.allSettled([...inflight]), bound])
+      } finally {
+        if (timeout !== undefined) clearTimeout(timeout)
+      }
     },
   }
 }

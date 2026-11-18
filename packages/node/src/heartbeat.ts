@@ -9,40 +9,46 @@ export interface HeartbeatOptions {
 }
 
 export interface HeartbeatLoop {
-  stop(): void
+  stop(): Promise<void>
   tick(): Promise<void>
 }
 
 /**
  * Pull, never push (N1.2): the node heartbeats on an interval and the hub can
  * never open a connection to it. A failed beat is logged and retried; it never
- * stops the daemon.
+ * stops the daemon. `stop` aborts an in-flight beat and waits for it.
  */
 export function startHeartbeat(client: NodeClient, options: HeartbeatOptions): HeartbeatLoop {
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
+  let inflight: Promise<void> | undefined
+  const controller = new AbortController()
 
   const tick = async (): Promise<void> => {
     if (stopped) return
     try {
-      const response = await client.heartbeat(await options.body())
+      const response = await client.heartbeat(await options.body(), controller.signal)
       options.onResponse?.(response)
     } catch (error) {
-      options.onError?.(error)
+      if (!stopped) options.onError?.(error)
     }
   }
 
   const loop = async (): Promise<void> => {
-    await tick()
+    inflight = tick()
+    await inflight
+    inflight = undefined
     if (!stopped) timer = setTimeout(() => void loop(), options.intervalMs)
   }
   void loop()
 
   return {
     tick,
-    stop() {
+    async stop() {
       stopped = true
       if (timer !== undefined) clearTimeout(timer)
+      controller.abort(new Error("heartbeat stopped"))
+      await inflight
     },
   }
 }

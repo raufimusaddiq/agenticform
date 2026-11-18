@@ -13,7 +13,9 @@ import { NodeClient, NodeClientError } from "../src/client.ts"
 import type { NodeConfig } from "../src/config.ts"
 import { EventBatcher, normaliseEvent } from "../src/events.ts"
 import { Executor } from "../src/executor.ts"
+import { startHeartbeat } from "../src/heartbeat.ts"
 import { generateKeyPair, type NodeIdentity } from "../src/identity.ts"
+import { createNode } from "../src/node.ts"
 import { startPoller } from "../src/poller.ts"
 
 const config = (hubUrl: string): NodeConfig => ({
@@ -275,6 +277,47 @@ describe("signed client", () => {
       .catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(NodeClientError)
     expect((error as NodeClientError).status).toBe(204)
+  })
+
+  test("aborts an in-flight request through the caller's signal", async () => {
+    const controller = new AbortController()
+    let fetchSignal: AbortSignal | undefined
+    const client = new NodeClient(config("http://127.0.0.1:1"), identity(), {
+      fetch: (async (_url: string | URL | Request, init?: RequestInit) => {
+        fetchSignal = init?.signal ?? undefined
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true })
+        })
+      }) as unknown as typeof fetch,
+    })
+    const pending = client.complete("cmd-1", { leaseId: "lease-1", status: "succeeded" }, controller.signal)
+    await Bun.sleep(1)
+    controller.abort(new Error("stop"))
+    const error = await pending.catch((caught: unknown) => caught)
+    expect(fetchSignal?.aborted).toBe(true)
+    expect(error).toBeInstanceOf(Error)
+  })
+
+  test("threads the caller's signal into a backoff sleep", async () => {
+    const controller = new AbortController()
+    let sleepSignal: AbortSignal | undefined
+    const client = new NodeClient(config("http://127.0.0.1:1"), identity(), {
+      maxAttempts: 3,
+      baseBackoffMs: 1,
+      fetch: (async () => {
+        throw new Error("network down")
+      }) as unknown as typeof fetch,
+      sleep: async (_ms, signal) => {
+        sleepSignal = signal
+        controller.abort(new Error("stop"))
+        throw new Error("aborted")
+      },
+    })
+    const error = await client
+      .complete("cmd-1", { leaseId: "lease-1", status: "succeeded" }, controller.signal)
+      .catch((caught: unknown) => caught)
+    expect(sleepSignal).toBe(controller.signal)
+    expect(error).toBeInstanceOf(Error)
   })
 })
 
@@ -663,6 +706,7 @@ describe("poller", () => {
     ]
     let index = 0
     const errors: unknown[] = []
+    const completed: string[] = []
     const client = {
       // Ignores the type filter on purpose, forcing the second start to park.
       async nextCommand() {
@@ -671,7 +715,8 @@ describe("poller", () => {
       async appendEvents(_commandId: string, batch: { events: RunEventInput[] }) {
         return { accepted: batch.events.length, lastSeq: batch.events.length }
       },
-      async complete() {
+      async complete(commandId: string) {
+        completed.push(commandId)
         return {}
       },
       async renew() {
@@ -691,6 +736,107 @@ describe("poller", () => {
     expect(prompts).toBe(1)
     expect(connects).toBe(1)
     expect(cancelled).toBe(1)
+    expect(completed).toEqual(["cmd-1"])
     expect(errors.some((error) => error instanceof Error && error.message === "poller stopped")).toBe(true)
+  })
+
+  test("stop resolves promptly when a completion hangs", async () => {
+    const executor = new Executor({ runtime: runtime() })
+    let delivered = false
+    let markComplete: (() => void) | undefined
+    const completeStarted = new Promise<void>((resolve) => {
+      markComplete = resolve
+    })
+    const client = {
+      async nextCommand() {
+        if (delivered) return null
+        delivered = true
+        return command()
+      },
+      async appendEvents(_commandId: string, batch: { events: RunEventInput[] }) {
+        return { accepted: batch.events.length, lastSeq: batch.events.length }
+      },
+      async complete() {
+        markComplete?.()
+        return new Promise(() => {})
+      },
+      async renew() {
+        return { leasedUntil: new Date().toISOString() }
+      },
+    }
+    const poller = startPoller(client as never, {
+      pollMs: 5,
+      leaseRenewMs: 60_000,
+      executor,
+      stopTimeoutMs: 50,
+    })
+    await completeStarted
+    const begin = Date.now()
+    await poller.stop()
+    expect(Date.now() - begin).toBeLessThan(500)
+  })
+})
+
+describe("shutdown", () => {
+  test("heartbeat stop aborts and awaits an in-flight beat", async () => {
+    let markStarted: (() => void) | undefined
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    let aborted = false
+    const client = {
+      heartbeat(_body: unknown, signal?: AbortSignal) {
+        markStarted?.()
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              aborted = true
+              reject(new Error("aborted"))
+            },
+            { once: true },
+          )
+        })
+      },
+    }
+    const loop = startHeartbeat(client as never, {
+      intervalMs: 60_000,
+      body: () => ({
+        protocolVersion: 1,
+        harnesses: [],
+        capabilities: [],
+        capacity: { slots: 1, inUse: 0 },
+        runtimes: [],
+      }),
+    })
+    await started
+    await loop.stop()
+    expect(aborted).toBe(true)
+  })
+
+  test("node stop awaits an in-flight heartbeat", async () => {
+    let markStarted: (() => void) | undefined
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes("/v1/node/heartbeat")) {
+        markStarted?.()
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true })
+        })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const node = createNode(config("http://127.0.0.1:1"), identity(), {
+      fetch: fetchImpl,
+      runtime: runtime(),
+    })
+    node.start()
+    await started
+    const begin = Date.now()
+    await node.stop()
+    expect(Date.now() - begin).toBeLessThan(500)
   })
 })
