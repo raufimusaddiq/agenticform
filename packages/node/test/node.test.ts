@@ -9,6 +9,7 @@ import {
   createRuntime,
   type Capabilities,
   type DriverConnection,
+  type HarnessDefinition,
   type RuntimeDriver,
 } from "@agenticform/runtime"
 import { NodeClient, NodeClientError } from "../src/client.ts"
@@ -31,6 +32,8 @@ const config = (hubUrl: string): NodeConfig => ({
   pollMs: 1_500,
   leaseRenewMs: 300_000,
   requestTimeoutMs: 5_000,
+  harnessProbeTtlMs: 300_000,
+  harnessProbeTimeoutMs: 20_000,
   protocolVersion: 1,
 })
 
@@ -388,6 +391,35 @@ describe("executor", () => {
     expect(events.map((event) => event.type)).toContain("message.delta")
     expect(events.some((event) => event.type === "run.finished")).toBe(false)
     expect(events[0]?.key).toBe("cmd-1:1")
+  })
+
+  test("spawns every run through bwrap", async () => {
+    const captured: { harness?: HarnessDefinition } = {}
+    const driver: RuntimeDriver = {
+      async connect(input): Promise<DriverConnection> {
+        captured.harness = input.harness
+        return {
+          capabilities: { protocolVersion: 1, agent: { name: "fake", version: "1" }, supported },
+          async openSession() {},
+          async prompt() {
+            return { stopReason: "end_turn" }
+          },
+          async cancel() {},
+          async close() {},
+          stderrTail() {
+            return ""
+          },
+        }
+      },
+    }
+    const executor = new Executor({
+      runtime: createRuntime({ driver, harnesses: { fake: { id: "fake", profile: "coding", command: "fake" } } }),
+    })
+    const outcome = await executor.execute(command(), { emit: () => {}, signal: new AbortController().signal })
+    expect(outcome.status).toBe("succeeded")
+    expect(captured.harness?.command).toBe("bwrap")
+    expect(captured.harness?.args).toContain("--")
+    expect(captured.harness?.args).toContain("--clearenv")
   })
 
   test("fails a run whose working directory is missing, before the harness starts", async () => {

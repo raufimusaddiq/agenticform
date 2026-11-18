@@ -9,6 +9,8 @@ const base = (patch: Partial<NodeConfig>): NodeConfig => ({
   pollMs: 1_500,
   leaseRenewMs: 300_000,
   requestTimeoutMs: 30_000,
+  harnessProbeTtlMs: 300_000,
+  harnessProbeTimeoutMs: 20_000,
   protocolVersion: 1,
   ...patch,
 })
@@ -48,6 +50,18 @@ describe("node config", () => {
     ).toThrow()
     expect(() => loadConfig({})).toThrow(/AGENTICFORM_HUB_URL/)
     expect(() => loadConfig({ AGENTICFORM_HUB_URL: "http://example.com" })).toThrow()
+  })
+
+  test("the harness probe settings default and validate", () => {
+    const config = loadConfig({ AGENTICFORM_HUB_URL: "https://hub.example.com" })
+    expect(config.harnessProbeTtlMs).toBe(300_000)
+    expect(config.harnessProbeTimeoutMs).toBe(20_000)
+    expect(() =>
+      loadConfig({ AGENTICFORM_HUB_URL: "https://hub.example.com", AGENTICFORM_HARNESS_PROBE_TTL_SECONDS: "0" }),
+    ).toThrow()
+    expect(() =>
+      loadConfig({ AGENTICFORM_HUB_URL: "https://hub.example.com", AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS: "abc" }),
+    ).toThrow()
   })
 
   test("the state directory defaults to HOME and can be overridden", () => {

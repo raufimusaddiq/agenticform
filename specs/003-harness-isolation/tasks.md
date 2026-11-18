@@ -18,28 +18,28 @@ with the first story; phase 7 lands with the last.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `AGENTICFORM_HARNESS_PROBE_TTL_SECONDS` and `AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS` to `packages/node/src/config.ts` with validation
-- [ ] T002 Document the two variables in the README environment table
-- [ ] T003 Add the optional `harnessReport` and `isolation` fields to `HeartbeatRequest` in `packages/protocol/src/index.ts` (types only)
+- [x] T001 Add `AGENTICFORM_HARNESS_PROBE_TTL_SECONDS` and `AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS` to `packages/node/src/config.ts` with validation
+- [x] T002 Document the two variables in the README environment table
+- [x] T003 Add the optional `harnessReport` and `isolation` fields to `HeartbeatRequest` in `packages/protocol/src/index.ts` (types only)
 
 ## Phase 2: Foundation
 
-- [ ] T004 Add the profile table and `IsolationProfile` type in `packages/node/src/isolation.ts` (FR-009, FR-010)
-- [ ] T005 Add the argv builder with the fixed order from `contracts/isolation.md` §2 (FR-001, FR-006, FR-011)
-- [ ] T006 Add the environment allowlist and `--clearenv` handling (FR-007)
-- [ ] T007 Add workspace resolution and the `/` and home-root rejection (FR-008)
-- [ ] T008 Add the startup self-test with the write-denial check (FR-013)
-- [ ] T009 Add a fake sandboxed child that attempts writes and reports `auth_required` on request, under `packages/node/test/fake-harness.ts`
+- [x] T004 Add the profile table and `IsolationProfile` type in `packages/node/src/isolation.ts` (FR-009, FR-010)
+- [x] T005 Add the argv builder with the fixed order from `contracts/isolation.md` §2 (FR-001, FR-006, FR-011)
+- [x] T006 Add the environment allowlist and `--clearenv` handling (FR-007)
+- [x] T007 Add workspace resolution and the `/` and home-root rejection (FR-008)
+- [x] T008 Add the startup self-test with the write-denial check (FR-013)
+- [x] T009 Add a fake sandboxed child that attempts writes and reports `auth_required` on request, under `packages/node/test/fake-harness.ts`
 
 ## Phase 3: User Story 1 - A run cannot write outside its workspace (P1)
 
-- [ ] T010 [US1] Apply the sandbox override in `packages/node/src/executor.ts` so every run spawns `bwrap -- ...` (FR-001, FR-004)
-- [ ] T011 [US1] Add the `write` and `read-only` workspace profiles, default `write` (FR-002)
-- [ ] T012 [US1] Give each run a private `/tmp` and home (FR-005)
-- [ ] T013 [US1] Test: for every catalog entry, a write inside the workspace succeeds and a write at `$HOME`, `/tmp` and a sibling project fails with `EROFS` (FR-003, SC-001)
-- [ ] T014 [US1] Test: a `read-only` run cannot write inside the workspace (FR-002)
-- [ ] T015 [US1] Test: a symlinked workspace binds its target and the target's parent stays read-only (FR-008)
-- [ ] T016 [US1] Test: the harness is a separate child in its own process group and cancel stops the group (FR-004)
+- [x] T010 [US1] Apply the sandbox override in `packages/node/src/executor.ts` so every run spawns `bwrap -- ...` (FR-001, FR-004)
+- [x] T011 [US1] Add the `write` and `read-only` workspace profiles, default `write` (FR-002)
+- [x] T012 [US1] Give each run a private `/tmp` and home (FR-005)
+- [x] T013 [US1] Test: for every catalog entry, a write inside the workspace succeeds and a write at `$HOME`, `/tmp` and a sibling project fails with `EROFS` (FR-003, SC-001)
+- [x] T014 [US1] Test: a `read-only` run cannot write inside the workspace (FR-002)
+- [x] T015 [US1] Test: a symlinked workspace binds its target and the target's parent stays read-only (FR-008)
+- [x] T016 [US1] Test: the harness is a separate child in its own process group and cancel stops the group (FR-004)
 
 ## Phase 4: User Story 2 - Each harness sees only its own state (P2)
 

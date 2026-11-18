@@ -19,6 +19,21 @@ export {
   type LedgerOutcome,
 } from "./ledger.ts"
 export { startHeartbeat, type HeartbeatLoop, type HeartbeatOptions } from "./heartbeat.ts"
+export {
+  IsolationError,
+  PROFILE_VERSION,
+  SANDBOX_HOME,
+  SANDBOX_PATH,
+  profileFor,
+  resolveWorkspace,
+  sandboxArgs,
+  sandboxHarness,
+  selfTest,
+  type IsolationProfile,
+  type SelfTestResult,
+  type StateMode,
+  type WorkspaceMode,
+} from "./isolation.ts"
 export { startPoller, type Poller, type PollerOptions } from "./poller.ts"
 export {
   fingerprintError,

@@ -7,6 +7,8 @@ export interface NodeConfig {
   pollMs: number
   leaseRenewMs: number
   requestTimeoutMs: number
+  harnessProbeTtlMs: number
+  harnessProbeTimeoutMs: number
   protocolVersion: number
 }
 
@@ -25,6 +27,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     pollMs: millis(env.AGENTICFORM_POLL_MS, 1_500),
     leaseRenewMs: seconds(env.AGENTICFORM_LEASE_RENEW_SECONDS, 300_000),
     requestTimeoutMs: seconds(env.AGENTICFORM_REQUEST_TIMEOUT_SECONDS, 30_000),
+    harnessProbeTtlMs: seconds(env.AGENTICFORM_HARNESS_PROBE_TTL_SECONDS, 300_000),
+    harnessProbeTimeoutMs: seconds(env.AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS, 20_000),
     protocolVersion: 1,
   }
   validateConfig(config)
@@ -43,6 +47,8 @@ export function validateConfig(config: NodeConfig): void {
     ["AGENTICFORM_POLL_MS", config.pollMs],
     ["AGENTICFORM_LEASE_RENEW_SECONDS", config.leaseRenewMs],
     ["AGENTICFORM_REQUEST_TIMEOUT_SECONDS", config.requestTimeoutMs],
+    ["AGENTICFORM_HARNESS_PROBE_TTL_SECONDS", config.harnessProbeTtlMs],
+    ["AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS", config.harnessProbeTimeoutMs],
   ]
   for (const [name, value] of numbers) {
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`)

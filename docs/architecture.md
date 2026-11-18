@@ -55,8 +55,14 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 
 ## Isolation
 
-Planned (spec 003), not implemented yet: the node and heartbeat do not sandbox
-harnesses or report harness presence today. The design is
+Every run is wrapped in a bubblewrap sandbox built from the harness's profile:
+minimal read-only system binds, a private `/tmp` and home, the resolved
+workspace bound read-write (or read-only), and only the harness's declared state
+directories. A write outside those paths fails with `EROFS`. The node never runs
+a harness unsandboxed: a sandbox that cannot start fails the run.
+
+Still planned (spec 003): the heartbeat does not yet report the isolation mode or
+probe harness presence. The design is
 [`specs/003-harness-isolation`](../specs/003-harness-isolation/spec.md).
 
 ## Process lifecycle
