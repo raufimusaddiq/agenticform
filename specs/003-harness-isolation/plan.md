@@ -132,9 +132,11 @@ failure cannot cause a flapping advertisement.
 ### Probe
 
 Resolve the entry point without network, then run the handshake inside the
-sandbox with a 20 s timeout. Classify to a status and a reason code. Cache for
-300 s; invalidate on a failed run. One probe at a time. The probe reuses the
-`runtime` handshake path rather than a second ACP implementation.
+sandbox with a 20 s timeout. The handshake is ACP `initialize` plus
+`session/new`, because `auth_required` only surfaces at `session/new`. Classify
+to a status and a reason code. Cache a non-ready result for 300 s and a `ready`
+one for 1 h; invalidate on a failed run. One probe at a time. The probe reuses
+the `runtime` handshake path rather than a second ACP implementation.
 
 ### Placement
 

@@ -36,8 +36,8 @@ use, not `command -v`.
 | Workspace mode | `write` or `read-only` per run, default `write` | A single global mode: read-only review runs are a real second user |
 | Network | not unshared | `--unshare-all`: harnesses cannot reach their model |
 | Environment | `--clearenv` plus an allowlist | inheriting `process.env`: leaks the hub token into the harness |
-| Harness presence | ACP handshake probe inside the sandbox | reading credential files: fragile, and it reads secrets |
-| Probe cache | TTL 300 s, re-probe after a failed run | probing every heartbeat: 8 harnesses × 15 s is wasteful on 1 CPU |
+| Harness presence | ACP `initialize` + `session/new` probe inside the sandbox | reading credential files: fragile, and it reads secrets |
+| Probe cache | TTL 300 s non-ready, 1 h ready; re-probe after a failed run | probing every heartbeat: 8 harnesses × 15 s is wasteful on 1 CPU |
 | Heartbeat shape | additive `harnessReport` and `isolation` fields, `harnesses` keeps meaning "ready" | a protocol version bump: additive optional fields do not need one |
 
 ## Sandbox shape
@@ -117,7 +117,11 @@ A harness is `ready` only when both hold:
    otherwise the status is `missing` with reason `version_not_cached`. The probe
    never invokes a package manager in a way that can download.
 2. **Handshake inside the sandbox.** Spawn the sandboxed harness, perform ACP
-   `initialize` only, then close. No session, no prompt, no tool call.
+   `initialize` and `session/new`, then close. No prompt, no tool call, no
+   permission request. `session/new` is part of the handshake because
+   `auth_required` only surfaces there: an `initialize`-only probe cannot tell a
+   logged-in harness from a logged-out one. The probe creates one empty session
+   per harness per TTL; that is the cost of an honest `unauthenticated` status.
 
 Classification:
 
@@ -129,9 +133,10 @@ Classification:
 | Handshake completes | `ready` | — |
 | Timeout, crash, protocol error | `unknown` | the runtime error code |
 
-Probe timeout 20 s, one probe at a time, cache TTL 300 s. A failed run invalidates
-that harness's cache entry so the next heartbeat re-probes. Probe output is
-reduced to status and reason; stderr is discarded, never logged or sent.
+Probe timeout 20 s, one probe at a time, cache TTL 300 s for a non-ready result
+and 1 h for a `ready` one. A failed run invalidates that harness's cache entry
+so the next heartbeat re-probes. Probe output is reduced to status and reason;
+stderr is discarded, never logged or sent.
 
 ## Heartbeat additions
 
@@ -158,7 +163,7 @@ working. No protocol version bump.
 | Setting | Default | Why |
 |---|---|---|
 | Probe timeout | 20 s | A cold `bunx` start is slow; a hung harness must not stall a beat |
-| Probe cache TTL | 300 s | A login is picked up within one beat cycle after the TTL |
+| Probe cache TTL | 300 s non-ready, 1 h ready | A login is picked up within one beat cycle after the non-ready TTL; a ready harness is stable, so it is probed less often |
 | Probe concurrency | 1 | 1 CPU host; parallel cold starts would starve the run |
 | Sandbox self-test timeout | 10 s | A working bwrap returns in milliseconds |
 | Profile version | `1` | Bumped when the mount table or argv shape changes |

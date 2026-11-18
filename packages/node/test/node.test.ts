@@ -33,6 +33,7 @@ const config = (hubUrl: string): NodeConfig => ({
   leaseRenewMs: 300_000,
   requestTimeoutMs: 5_000,
   harnessProbeTtlMs: 300_000,
+  harnessProbeReadyTtlMs: 3_600_000,
   harnessProbeTimeoutMs: 20_000,
   protocolVersion: 1,
 })

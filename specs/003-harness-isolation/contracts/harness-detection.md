@@ -55,12 +55,16 @@ The probe reads no credential file and sends no prompt. Its stderr is discarded.
 
 ## 3. Cache
 
-- TTL 300 s per harness.
+- TTL 300 s for a non-ready result and 1 h for a `ready` one, per harness. A
+  ready harness is stable, so it is probed less often; a non-ready one is
+  re-probed sooner so a login is picked up.
 - One probe at a time; a probe in flight is not duplicated.
 - A failed run invalidates that harness's entry, so the next heartbeat re-probes.
 - A probe never blocks a heartbeat: the heartbeat reports the last known status
   and the probe result lands on a later beat.
 - The cache is in memory; a restart re-probes.
+- Each probe creates one empty harness session, so a harness's own state
+  directory gains one session per harness per TTL.
 
 ## 4. Heartbeat
 
@@ -90,6 +94,8 @@ Rules:
 - `harnessReport` MUST include every harness the node is configured to offer,
   including `missing` and `unauthenticated` ones.
 - `isolation.mode: "none"` implies `harnesses: []`.
+- `harnessReport[].id` MUST be at most 64 characters and `reason` at most 128;
+  a longer value is rejected with `invalid_input`, not truncated.
 - No raw harness output, path or credential appears in either field.
 
 ## 5. Run failure

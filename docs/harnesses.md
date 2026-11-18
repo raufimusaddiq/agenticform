@@ -19,11 +19,15 @@ OpenBot has no documented ACP mode. It would need its own driver, and more than 
 
 ## How the node sees a harness
 
-The node probes each configured harness at startup and after the probe cache
-expires (300 s by default). A probe resolves the entry point without network
-access, then runs an ACP `initialize` and `session/new` inside the sandbox. It
-never installs, updates or authenticates a harness, and it reads no credential
-file.
+The node probes each configured harness at startup and after its probe cache
+expires: 300 s for a non-ready result, 1 h for a `ready` one. A probe resolves
+the entry point without network access, then runs an ACP `initialize` and
+`session/new` inside the sandbox. It never installs, updates or authenticates a
+harness, and it reads no credential file.
+
+Each probe creates one empty harness session, so a harness's own state directory
+(for example `~/.claude`) gains one session per harness per TTL. The probe sends
+no prompt and makes no tool call.
 
 | Status | Meaning | Advertised |
 |---|---|---|

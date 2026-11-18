@@ -238,3 +238,34 @@ describe("end to end through a fake node", () => {
     await Bun.sleep(300)
   })
 })
+
+describe("harness report validation", () => {
+  test("an id longer than 64 characters is rejected", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      harnessReport: [{ id: "x".repeat(65), status: "ready" }],
+    })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe("invalid_input")
+  })
+
+  test("a reason longer than 128 characters is rejected", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      harnessReport: [{ id: "codex", status: "unknown", reason: "x".repeat(129) }],
+    })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe("invalid_input")
+  })
+
+  test("the caps are inclusive", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    const response = await heartbeat(hub, node, {
+      harnessReport: [{ id: "x".repeat(64), status: "unknown", reason: "x".repeat(128) }],
+    })
+    expect(response.status).toBe(200)
+  })
+})

@@ -189,6 +189,7 @@ describe.skipIf(!hasBwrap)("probe: real bwrap", () => {
     const prober = new HarnessProber({
       definitions: () => [{ id: "slow", profile: "coding", command: slow }],
       ttlMs: 60_000,
+      readyTtlMs: 60_000,
       timeoutMs: 500,
     })
     await prober.refresh()
@@ -216,7 +217,12 @@ describe.skipIf(!hasBwrap)("probe: real bwrap", () => {
     const ready = definition(fakeEntry(temp("af-entry-")), {}, "ready")
     const auth = definition(fakeEntry(temp("af-entry-")), { scenario: "auth" }, "auth")
     const absent: HarnessDefinition = { id: "absent", profile: "coding", command: join(temp("af-entry-"), "absent") }
-    const prober = new HarnessProber({ definitions: () => [ready, auth, absent], ttlMs: 60_000, timeoutMs: 20_000 })
+    const prober = new HarnessProber({
+      definitions: () => [ready, auth, absent],
+      ttlMs: 60_000,
+      readyTtlMs: 60_000,
+      timeoutMs: 20_000,
+    })
     await prober.refresh()
     expect(prober.report()).toEqual([
       { id: "ready", status: "ready" },
@@ -268,6 +274,7 @@ describe("probe cache", () => {
     const prober = new HarnessProber({
       definitions: () => [def],
       ttlMs: 1_000,
+      readyTtlMs: 1_000,
       timeoutMs: 1_000,
       now: () => now,
       probe: async () => {
@@ -283,12 +290,47 @@ describe("probe cache", () => {
     expect(calls).toBe(2)
   })
 
+  test("a ready result is cached longer than a non-ready one", async () => {
+    let now = 0
+    let calls = 0
+    let status: "ready" | "unauthenticated" = "unauthenticated"
+    const prober = new HarnessProber({
+      definitions: () => [def],
+      ttlMs: 1_000,
+      readyTtlMs: 10_000,
+      timeoutMs: 1_000,
+      now: () => now,
+      probe: async () => {
+        calls += 1
+        return status === "ready"
+          ? { id: "fake", status: "ready" }
+          : { id: "fake", status: "unauthenticated", reason: "auth_required" }
+      },
+    })
+    await prober.refresh()
+    expect(calls).toBe(1)
+    now = 1_001
+    await prober.refresh()
+    expect(calls).toBe(2)
+    status = "ready"
+    now = 2_002
+    await prober.refresh()
+    expect(calls).toBe(3)
+    now = 5_000
+    await prober.refresh()
+    expect(calls).toBe(3)
+    now = 12_003
+    await prober.refresh()
+    expect(calls).toBe(4)
+  })
+
   test("concurrent refreshes share one probe", async () => {
     let calls = 0
     let release: (() => void) | undefined
     const prober = new HarnessProber({
       definitions: () => [def],
       ttlMs: 1_000,
+      readyTtlMs: 1_000,
       timeoutMs: 1_000,
       probe: async () => {
         calls += 1
@@ -308,6 +350,7 @@ describe("probe cache", () => {
     const prober = new HarnessProber({
       definitions: () => [def],
       ttlMs: 60_000,
+      readyTtlMs: 60_000,
       timeoutMs: 1_000,
       probe: async () => {
         calls += 1
@@ -326,6 +369,7 @@ describe("probe cache", () => {
     const prober = new HarnessProber({
       definitions: () => [def],
       ttlMs: 1_000,
+      readyTtlMs: 1_000,
       timeoutMs: 1_000,
       now: () => now,
       probe: async () =>
@@ -345,6 +389,7 @@ describe("probe cache", () => {
     const prober = new HarnessProber({
       definitions: () => [def, { id: "other", profile: "coding", command: "other" }],
       ttlMs: 60_000,
+      readyTtlMs: 60_000,
       timeoutMs: 1_000,
       probe: async (definition) => ({ id: definition.id, status: "ready" }),
     })

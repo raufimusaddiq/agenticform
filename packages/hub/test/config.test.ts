@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import { mkdtempSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createHub, openDatabase } from "../src/index.ts"
 import { loadConfig, validateConfig, type HubConfig } from "../src/config.ts"
+import { toNodeView } from "../src/nodes.ts"
+import { migrate, SCHEMA, type NodeRow } from "../src/schema.ts"
 import { api, startHub, testConfig } from "./helpers.ts"
 
 const base = (patch: Partial<HubConfig>): HubConfig => ({ ...testConfig(), port: 8787, ...patch })
@@ -89,6 +92,30 @@ describe("hub config", () => {
     db.exec("PRAGMA user_version = 99")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)
+  })
+
+  test("migration 2 adds harness_report without losing a v1 node row", () => {
+    const root = mkdtempSync(join(tmpdir(), "af-db-"))
+    const file = join(root, "hub.sqlite")
+    const db = new Database(file, { create: true })
+    db.exec(SCHEMA)
+    db.exec("PRAGMA user_version = 1")
+    db.query("INSERT INTO nodes (id, name, public_key, protocol_version, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      "n1",
+      "node",
+      "pk",
+      1,
+      0,
+    )
+    migrate(db)
+    const row = db.query<NodeRow, [string]>("SELECT * FROM nodes WHERE id = ?").get("n1")
+    expect(row?.harness_report).toBe("[]")
+    expect(toNodeView(row as NodeRow).harnessReport).toEqual([])
+    // Re-running the migration is a no-op.
+    migrate(db)
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 2 })
+    expect(db.query("SELECT COUNT(*) AS n FROM nodes").get()).toEqual({ n: 1 })
+    db.close()
   })
 
   test("the advertised URL uses AGENTICFORM_HUB_URL", () => {

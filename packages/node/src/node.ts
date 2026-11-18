@@ -50,6 +50,7 @@ export function createNode(config: NodeConfig, identity: NodeIdentity, options: 
   const prober = new HarnessProber({
     definitions: configured,
     ttlMs: config.harnessProbeTtlMs,
+    readyTtlMs: config.harnessProbeReadyTtlMs,
     timeoutMs: config.harnessProbeTimeoutMs,
   })
   const executor = new Executor({

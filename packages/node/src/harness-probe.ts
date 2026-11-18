@@ -274,7 +274,10 @@ export async function probeHarness(definition: HarnessDefinition, options: Probe
 
 export interface HarnessProberOptions {
   definitions: () => HarnessDefinition[]
+  /** TTL for a non-ready result. */
   ttlMs: number
+  /** TTL for a ready result; a ready harness is stable, so it is cached longer. */
+  readyTtlMs: number
   timeoutMs: number
   home?: string
   env?: Record<string, string | undefined>
@@ -320,7 +323,9 @@ export class HarnessProber {
 
   private fresh(id: string): boolean {
     const entry = this.cache.get(id)
-    return entry !== undefined && this.now() - entry.at < this.options.ttlMs
+    if (entry === undefined) return false
+    const ttl = entry.report.status === "ready" ? this.options.readyTtlMs : this.options.ttlMs
+    return this.now() - entry.at < ttl
   }
 
   private async run(): Promise<void> {

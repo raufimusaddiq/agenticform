@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
 
-const SCHEMA = `
+export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS nodes (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,

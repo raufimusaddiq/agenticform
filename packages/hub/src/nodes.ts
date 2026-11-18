@@ -30,11 +30,15 @@ function validateReport(report: unknown): HarnessReport[] {
       fail("invalid_input", "each harnessReport entry must be an object")
     }
     if (typeof item.id !== "string" || !item.id) fail("invalid_input", "harnessReport.id must be a string")
+    if (item.id.length > 64) fail("invalid_input", "harnessReport.id exceeds 64 characters")
     if (typeof item.status !== "string" || !STATUSES.has(item.status)) {
       fail("invalid_input", "harnessReport.status must be ready, missing, unauthenticated or unknown")
     }
     if (item.reason !== undefined && typeof item.reason !== "string") {
       fail("invalid_input", "harnessReport.reason must be a string")
+    }
+    if (item.reason !== undefined && item.reason.length > 128) {
+      fail("invalid_input", "harnessReport.reason exceeds 128 characters")
     }
     return {
       id: item.id,
