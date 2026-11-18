@@ -70,14 +70,26 @@ function print(value: unknown): void {
   console.log(JSON.stringify(value, null, 2))
 }
 
+/** Reject unknown --flags; booleans are listed too. */
+function rejectUnknownFlags(args: string[], allowed: readonly string[]): void {
+  for (const arg of args) {
+    if (!arg.startsWith("--")) continue
+    const name = arg.slice(2).split("=")[0] as string
+    if (!allowed.includes(name)) throw new Error(`unknown flag --${name}\n\n${USAGE}`)
+  }
+}
+
 async function main(argv: string[]): Promise<void> {
   const [group, action, id] = argv
-  const rest = argv.slice(action === "start" ? 2 : 3)
-  const hub = client()
 
-  if (group === "nodes") return print(await hub.listNodes())
+  if (group === "nodes") {
+    rejectUnknownFlags(argv.slice(1), [])
+    return print(await client().listNodes())
+  }
 
   if (group === "run" && action === "start") {
+    const rest = argv.slice(2)
+    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label"])
     const harness = flag(rest, "harness")
     const prompt = flag(rest, "prompt")
     const idempotencyKey = flag(rest, "key")
@@ -95,56 +107,62 @@ async function main(argv: string[]): Promise<void> {
       ...(requires === undefined ? {} : { requires: requires.split(",").filter(Boolean) }),
       ...(Object.keys(labels).length ? { labels } : {}),
     }
-    return print(await hub.createRun(request))
+    return print(await client().createRun(request))
   }
 
-  if (group === "run" && action === "get" && id) return print(await hub.getRun(id))
-  if (group === "run" && action === "cancel" && id) return print(await hub.cancelRun(id))
-
-  if (group === "run" && action === "events" && id) {
-    let after = normalizeAfter(flag(rest, "after") ?? 0)
-    if (!rest.includes("--follow")) {
-      const page = await hub.getEvents(id, after)
-      return print(page)
-    }
-    let lastSeen = after
-    let attempt = 0
-    while (true) {
-      const before = after
-      const controller = new AbortController()
-      try {
-        lastSeen = await hub.followEvents(
-          id,
-          after,
-          (event) => {
-            lastSeen = event.seq
-            print(event)
-            // The hub keeps the stream open after run.disconnected; stop here.
-            if (event.type === "run.disconnected") controller.abort()
-          },
-          controller.signal,
-        )
-        after = lastSeen
-      } catch (error) {
-        // A dropped connection is no progress: back off, then resume from the last seq seen.
-        if (error instanceof HubApiError) throw error
-        after = lastSeen
-      }
-      const run = await hub.getRun(id)
-      if (run.status === "disconnected") {
-        console.error(
-          `run ${id} disconnected; recover it with POST /v1/runs/${id}/recover then follow again`,
-        )
-        process.exit(3)
-      }
-      if (FOLLOW_STOP_STATUSES.has(run.status)) return
-      if (after > before) attempt = 0
-      await reconnectDelay(attempt)
-      attempt += 1
-    }
+  if (group !== "run" || !action || !id || !["get", "events", "cancel"].includes(action)) {
+    throw new Error(USAGE)
   }
 
-  throw new Error(USAGE)
+  const rest = argv.slice(3)
+  if (action === "get" || action === "cancel") {
+    rejectUnknownFlags(rest, [])
+    const hub = client()
+    return print(action === "get" ? await hub.getRun(id) : await hub.cancelRun(id))
+  }
+
+  rejectUnknownFlags(rest, ["after", "follow"])
+  const hub = client()
+  let after = normalizeAfter(flag(rest, "after") ?? 0)
+  if (!rest.includes("--follow")) {
+    const page = await hub.getEvents(id, after)
+    return print(page)
+  }
+  let lastSeen = after
+  let attempt = 0
+  while (true) {
+    const before = after
+    const controller = new AbortController()
+    try {
+      lastSeen = await hub.followEvents(
+        id,
+        after,
+        (event) => {
+          lastSeen = event.seq
+          print(event)
+          // The hub keeps the stream open after run.disconnected; stop here.
+          if (event.type === "run.disconnected") controller.abort()
+        },
+        controller.signal,
+      )
+      after = lastSeen
+    } catch (error) {
+      // A dropped connection is no progress: back off, then resume from the last seq seen.
+      if (error instanceof HubApiError) throw error
+      after = lastSeen
+    }
+    const run = await hub.getRun(id)
+    if (run.status === "disconnected") {
+      console.error(
+        `run ${id} disconnected; recover it with POST /v1/runs/${id}/recover then follow again`,
+      )
+      process.exit(3)
+    }
+    if (FOLLOW_STOP_STATUSES.has(run.status)) return
+    if (after > before) attempt = 0
+    await reconnectDelay(attempt)
+    attempt += 1
+  }
 }
 
 if (import.meta.main) {

@@ -4,6 +4,7 @@ import { join } from "node:path"
 
 const bin = join(import.meta.dir, "..", "bin", "mcp.ts")
 const encoder = new TextEncoder()
+let staleStreams = 0
 
 const server = Bun.serve({
   port: 0,
@@ -26,6 +27,57 @@ const server = Bun.serve({
         }),
         { headers: { "content-type": "text/event-stream" } },
       )
+    }
+    if (url.pathname === "/v1/runs/live/events") {
+      // A live stream that never sends an event and never closes.
+      return new Response(new ReadableStream({ start() {} }), {
+        headers: { "content-type": "text/event-stream" },
+      })
+    }
+    if (url.pathname === "/v1/runs/live") {
+      return Response.json({
+        runId: "live",
+        status: "running",
+        nodeId: null,
+        generation: 1,
+        createdAt: new Date().toISOString(),
+      })
+    }
+    if (url.pathname === "/v1/runs/stale/events") {
+      const after = Number(url.searchParams.get("after") ?? 0)
+      staleStreams += 1
+      const current = staleStreams
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            if (current === 1) {
+              // Stale disconnected event: the run is already recovered and live.
+              controller.enqueue(
+                encoder.encode(
+                  `id: 1\ndata: ${JSON.stringify({ seq: 1, key: "k1", type: "run.disconnected", at: new Date().toISOString(), data: {} })}\n\n`,
+                ),
+              )
+            } else {
+              controller.enqueue(
+                encoder.encode(
+                  `id: ${after + 1}\ndata: ${JSON.stringify({ seq: after + 1, key: "k2", type: "run.finished", at: new Date().toISOString(), data: {} })}\n\n`,
+                ),
+              )
+              controller.close()
+            }
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      )
+    }
+    if (url.pathname === "/v1/runs/stale") {
+      return Response.json({
+        runId: "stale",
+        status: staleStreams >= 2 ? "cancelled" : "running",
+        nodeId: null,
+        generation: 2,
+        createdAt: new Date().toISOString(),
+      })
     }
     if (url.pathname === "/v1/runs/d1/events") {
       return new Response(
@@ -69,6 +121,8 @@ afterAll(() => server.stop(true))
 function mcp(): {
   call: (name: string, args: unknown) => Promise<any>
   request: (method: string, params?: unknown) => Promise<any>
+  send: (method: string, params?: unknown) => { id: number; response: Promise<any> }
+  notify: (method: string, params?: unknown) => void
   close: () => void
 } {
   const child = spawn(process.execPath, ["run", bin], {
@@ -94,22 +148,24 @@ function mcp(): {
       pending.delete(message.id)
     }
   })
+  const send = (method: string, params?: unknown): { id: number; response: Promise<any> } => {
+    const id = nextId++
+    const response = new Promise<any>((resolve) => {
+      pending.set(id, resolve)
+      child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`)
+    })
+    return { id, response }
+  }
   return {
     call(name, args) {
-      const id = nextId++
-      return new Promise((resolve) => {
-        pending.set(id, resolve)
-        child.stdin?.write(
-          `${JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } })}\n`,
-        )
-      })
+      return send("tools/call", { name, arguments: args }).response
     },
     request(method, params) {
-      const id = nextId++
-      return new Promise((resolve) => {
-        pending.set(id, resolve)
-        child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`)
-      })
+      return send(method, params).response
+    },
+    send,
+    notify(method, params) {
+      child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`)
     },
     close() {
       child.kill("SIGTERM")
@@ -197,6 +253,48 @@ describe("MCP list_events follow is bounded", () => {
       expect(page.status).toBe("disconnected")
       expect(page.nextAfter).toBe(1)
       expect(page.events).toHaveLength(1)
+    } finally {
+      client.close()
+    }
+  })
+})
+
+describe("MCP follow concurrency", () => {
+  test("answers ping and get_run while a follow is in flight", async () => {
+    const client = mcp()
+    try {
+      const follow = client.send("tools/call", {
+        name: "list_events",
+        arguments: { runId: "live", follow: true },
+      })
+      const started = Date.now()
+      const ping = await client.request("ping")
+      expect(ping.result).toEqual({})
+      const get = await client.call("get_run", { runId: "live" })
+      expect(JSON.parse(get.result.content[0].text).status).toBe("running")
+      expect(Date.now() - started).toBeLessThan(2_000)
+
+      client.notify("notifications/cancelled", { requestId: follow.id })
+      const cancelled = await follow.response
+      const page = JSON.parse(cancelled.result.content[0].text)
+      expect(page.cancelled).toBe(true)
+    } finally {
+      client.close()
+    }
+  })
+
+  test("a stale disconnected event on a recovered run keeps following", async () => {
+    const client = mcp()
+    try {
+      const response = await client.call("list_events", { runId: "stale", follow: true })
+      const page = JSON.parse(response.result.content[0].text)
+      expect(page.events.map((event: { type: string }) => event.type)).toEqual([
+        "run.disconnected",
+        "run.finished",
+      ])
+      expect(page.nextAfter).toBe(2)
+      expect(page.status).toBeUndefined()
+      expect(staleStreams).toBe(2)
     } finally {
       client.close()
     }

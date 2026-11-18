@@ -79,13 +79,14 @@ beforeEach(() => {
   resumes.length = 0
 })
 
-function cli(args: string[]): Promise<{ code: number; out: string; err: string }> {
+function cli(args: string[], overrides: Record<string, string> = {}): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ["run", bin, ...args], {
       env: {
         ...process.env,
         AGENTICFORM_HUB_URL: server.url.origin,
         AGENTICFORM_ADMIN_TOKEN: "test-token",
+        ...overrides,
       },
       stdio: ["ignore", "pipe", "pipe"],
     })
@@ -139,5 +140,26 @@ describe("af run events --follow", () => {
     ])
     expect(result.code).toBe(1)
     expect(result.err).toContain('invalid --label "broken": expected key=value')
+  })
+
+  test("no command prints usage before requiring env", async () => {
+    const result = await cli([], { AGENTICFORM_HUB_URL: "", AGENTICFORM_ADMIN_TOKEN: "" })
+    expect(result.code).toBe(1)
+    expect(result.err).toContain("usage: af")
+    expect(result.err).not.toContain("AGENTICFORM_HUB_URL is required")
+  })
+
+  test("an unknown command prints usage before requiring env", async () => {
+    const result = await cli(["bogus"], { AGENTICFORM_HUB_URL: "", AGENTICFORM_ADMIN_TOKEN: "" })
+    expect(result.code).toBe(1)
+    expect(result.err).toContain("usage: af")
+    expect(result.err).not.toContain("AGENTICFORM_HUB_URL is required")
+  })
+
+  test("an unknown flag exits non-zero with usage", async () => {
+    const result = await cli(["run", "start", "--key", "k", "--harness", "codex", "--prompt", "p", "--bogus", "x"])
+    expect(result.code).toBe(1)
+    expect(result.err).toContain("unknown flag --bogus")
+    expect(result.err).toContain("usage: af")
   })
 })

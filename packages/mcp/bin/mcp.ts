@@ -11,6 +11,11 @@ import {
 
 /** Cap buffered follow events per call; the caller pages with `nextAfter`. */
 const MAX_EVENTS = 1_000
+/** Follow time budget; a long follow returns `nextAfter` for the caller to page. */
+const FOLLOW_BUDGET_MS = 30_000
+
+/** In-flight cancellable requests, keyed by JSON-RPC id. */
+const inFlight = new Map<unknown, () => void>()
 
 const TOOLS = [
   {
@@ -137,7 +142,79 @@ function startRunRequest(args: Record<string, unknown>): RunRequest {
   return request
 }
 
-async function call(name: string, args: Record<string, unknown>): Promise<unknown> {
+async function followRun(
+  hub: HubClient,
+  runId: string,
+  after: number,
+  requestId: unknown,
+): Promise<unknown> {
+  const events: RunEventWire[] = []
+  let cursor = after
+  let attempt = 0
+  const deadline = Date.now() + FOLLOW_BUDGET_MS
+  let cancelled = false
+  let current: AbortController | undefined
+  const cancel = (): void => {
+    cancelled = true
+    current?.abort()
+  }
+  inFlight.set(requestId, cancel)
+  try {
+    while (true) {
+      if (Date.now() >= deadline) {
+        return { events, nextAfter: events.at(-1)?.seq ?? after, timedOut: true }
+      }
+      const before = cursor
+      // A fresh controller per iteration: a stale run.disconnected must not
+      // poison the next stream after the run is recovered.
+      current = new AbortController()
+      let abortedByEvent = false
+      const timer = setTimeout(() => current?.abort(), Math.max(0, deadline - Date.now()))
+      try {
+        cursor = await hub.followEvents(
+          runId,
+          cursor,
+          (event) => {
+            events.push(event)
+            // The hub keeps the stream open after run.disconnected; stop here.
+            if (event.type === "run.disconnected") {
+              abortedByEvent = true
+              current?.abort()
+            } else if (events.length >= MAX_EVENTS) {
+              current?.abort()
+            }
+          },
+          current.signal,
+        )
+      } catch (error) {
+        // A dropped connection is no progress; resume from the last event seen.
+        if (error instanceof HubApiError) throw error
+        cursor = events.at(-1)?.seq ?? cursor
+      } finally {
+        clearTimeout(timer)
+      }
+      const nextAfter = events.at(-1)?.seq ?? after
+      if (cancelled) return { events, nextAfter, cancelled: true }
+      if (Date.now() >= deadline) return { events, nextAfter, timedOut: true }
+      if (events.length >= MAX_EVENTS) return { events, nextAfter }
+      const run = await hub.getRun(runId)
+      if (run.status === "disconnected") return { status: "disconnected", events, nextAfter }
+      if (FOLLOW_STOP_STATUSES.has(run.status)) return { events, nextAfter }
+      if (abortedByEvent) {
+        // Stale disconnected event on a recovered run: keep following, no retry.
+        attempt = 0
+        continue
+      }
+      if (cursor > before) attempt = 0
+      await reconnectDelay(attempt)
+      attempt += 1
+    }
+  } finally {
+    inFlight.delete(requestId)
+  }
+}
+
+async function call(name: string, args: Record<string, unknown>, requestId: unknown): Promise<unknown> {
   const hub = client()
   switch (name) {
     case "list_nodes":
@@ -155,38 +232,7 @@ async function call(name: string, args: Record<string, unknown>): Promise<unknow
         const page = await hub.getEvents(runId, after)
         return { events: page.events, nextAfter: page.events.at(-1)?.seq ?? after }
       }
-      const events: RunEventWire[] = []
-      const controller = new AbortController()
-      let cursor = after
-      let attempt = 0
-      while (true) {
-        const before = cursor
-        try {
-          cursor = await hub.followEvents(
-            runId,
-            cursor,
-            (event) => {
-              events.push(event)
-              // The hub keeps the stream open after run.disconnected; stop here.
-              if (event.type === "run.disconnected") controller.abort()
-              else if (events.length >= MAX_EVENTS) controller.abort()
-            },
-            controller.signal,
-          )
-        } catch (error) {
-          // A dropped connection is no progress; resume from the last event seen.
-          if (error instanceof HubApiError) throw error
-          cursor = events.at(-1)?.seq ?? cursor
-        }
-        const nextAfter = events.at(-1)?.seq ?? after
-        if (events.length >= MAX_EVENTS) return { events, nextAfter }
-        const run = await hub.getRun(runId)
-        if (run.status === "disconnected") return { status: "disconnected", events, nextAfter }
-        if (FOLLOW_STOP_STATUSES.has(run.status)) return { events, nextAfter }
-        if (cursor > before) attempt = 0
-        await reconnectDelay(attempt)
-        attempt += 1
-      }
+      return followRun(hub, runId, after, requestId)
     }
     default:
       throw new Error(`unknown tool: ${name}`)
@@ -204,7 +250,11 @@ const send = (body: unknown): void => {
 async function handle(message: any): Promise<void> {
   const id = message?.id
   if (typeof message?.method !== "string") return
-  if (message.id === undefined) return // notification
+  if (message.method === "notifications/cancelled") {
+    inFlight.get(message.params?.requestId)?.()
+    return
+  }
+  if (message.id === undefined) return // other notifications
 
   if (message.method === "initialize") {
     const requested = message.params?.protocolVersion
@@ -228,7 +278,7 @@ async function handle(message: any): Promise<void> {
     const name = message.params?.name as string
     const args = (message.params?.arguments ?? {}) as Record<string, unknown>
     try {
-      const value = await call(name, args)
+      const value = await call(name, args, id)
       send({
         jsonrpc: "2.0",
         id,
@@ -251,12 +301,20 @@ async function handle(message: any): Promise<void> {
 const lines = createInterface({ input: process.stdin })
 for await (const line of lines) {
   if (!line.trim()) continue
-  let message: unknown
+  let message: any
   try {
     message = JSON.parse(line)
   } catch {
     send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })
     continue
   }
-  await handle(message)
+  // Dispatch concurrently so a long follow never blocks other requests.
+  void handle(message).catch((error) => {
+    if (message?.id === undefined) return
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+    })
+  })
 }
