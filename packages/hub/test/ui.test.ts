@@ -35,12 +35,47 @@ describe("ui assets", () => {
     const css = await get("/ui/app.css")
     expect(css.status).toBe(200)
     expect(css.headers.get("content-type")).toContain("text/css")
+
+    const favicon = await get("/ui/favicon.svg")
+    expect(favicon.status).toBe(200)
+    expect(favicon.headers.get("content-type")).toContain("image/svg+xml")
+    expect(favicon.headers.get("content-security-policy")).toContain("default-src 'self'")
+    expect(favicon.headers.get("x-content-type-options")).toBe("nosniff")
+
+    // The redesigned console includes tokens view, accessible live regions, and resume stream
+    expect(html).toContain('id="view-tokens"')
+    expect(html).toContain('id="events"')
+    expect(html).toContain('aria-live="polite"')
+    expect(html).toContain('role="alert"')
+    expect(js).toContain("loadTokens")
+    expect(js).toContain("resume-stream")
+  })
+
+  test("the page stays inside the CSP: no inline script or style, no external URL, no innerHTML", async () => {
+    hub = startHub()
+    const html = await (await get("/")).text()
+    const js = await (await get("/ui/app.js")).text()
+    const css = await (await get("/ui/app.css")).text()
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)/)
+    expect(html).not.toMatch(/\sstyle=/)
+    expect(html).not.toMatch(/\son[a-z]+=/)
+    expect(js).not.toMatch(/style:\s*["`]/)
+    expect(js).not.toContain("innerHTML")
+    expect(js).not.toContain("insertAdjacentHTML")
+    for (const body of [html, js, css]) expect(body).not.toMatch(/https?:\/\//)
+    expect(css).not.toContain("@import")
+    // The CSP itself is not loosened.
+    const csp = (await get("/")).headers.get("content-security-policy") ?? ""
+    expect(csp).not.toContain("unsafe-")
+    expect(csp).not.toMatch(/https?:/)
   })
 
   test("the token never appears in the page, assets or a URL", async () => {
     hub = startHub()
     const token = hub.config.adminToken
-    const bodies = await Promise.all(["/", "/ui/app.js", "/ui/app.css"].map(async (path) => (await get(path)).text()))
+    const bodies = await Promise.all(
+      ["/", "/ui/app.js", "/ui/app.css", "/ui/favicon.svg"].map(async (path) => (await get(path)).text()),
+    )
     for (const body of bodies) {
       expect(body).not.toContain(token)
       expect(body).not.toContain("?token")
