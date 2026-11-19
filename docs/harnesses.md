@@ -23,7 +23,7 @@ The node probes each configured harness at startup and after its probe cache
 expires: 300 s for a non-ready result, 1 h for a `ready` one. A probe resolves
 the entry point without network access, then runs an ACP `initialize` and
 `session/new` inside the sandbox. It never installs, updates or authenticates a
-harness, and it reads no credential file. A `bunx` harness runs the cached package
+harness, and it reads no credential file. A harness that completes the handshake while logged out can declare an auth check (see below). A `bunx` harness runs the cached package
 bin directly with `bun`, so it needs no registry lookup. If `/etc/resolv.conf` is a
 symlink to a regular file outside `/etc` and `/run` (as on WSL), the node binds that
 file read-only so the harness can resolve model hosts.
@@ -36,8 +36,8 @@ no prompt and makes no tool call.
 |---|---|---|
 | `ready` | The entry point resolved and the sandboxed handshake completed | yes |
 | `missing` | The entry point is absent (`not_installed`) or the pinned `bunx` version is not cached (`version_not_cached`) | no |
-| `unauthenticated` | The harness answered `auth_required` | no |
-| `unknown` | The probe timed out, the process exited before the handshake, or a declared state directory is unusable (`state_dir_unusable`) | no |
+| `unauthenticated` | The harness answered `auth_required`, or its declared auth check reported `loggedIn: false` | no |
+| `unknown` | The probe timed out, the process exited before the handshake, or a declared state directory is unusable (`state_dir_unusable`), or a declared auth check could not run or gave no clear answer (`auth_check_failed`) | no |
 
 The heartbeat advertises only `ready` harnesses and reports every configured
 harness with its status and reason. A run for a non-ready harness fails with
@@ -49,6 +49,53 @@ Probes run one at a time and never block a heartbeat: the heartbeat reports the
 last known status and a fresh result lands on a later beat. A probe's stderr is
 discarded and its output is reduced to a status and a reason code, so no raw
 harness output, path or credential reaches the heartbeat or hub storage.
+
+## Auth check
+
+Some harnesses finish `initialize` and `session/new` without credentials and only
+fail at the first prompt. For those, the catalog declares an `authCheck`: the
+harness's own status command (command, args and the JSON boolean to read). After a
+successful handshake the node runs it as a child inside the same sandbox and
+profile a run uses (same state binds, config dir and env allowlist). The node never
+opens a credential file; the harness reads its own. Only stdout is read, parsed
+strictly as a JSON object with a boolean field, reduced to that boolean and
+dropped. Stderr is never connected, and no output reaches events, the heartbeat,
+logs or the hub. The exit code is ignored. The check is bounded by the probe timeout
+and shares the probe's cache and single-flight.
+
+| Result | Report |
+|---|---|
+| `loggedIn: true` | `ready` |
+| `loggedIn: false` | `unauthenticated` / `auth_required` |
+| Binary absent in the sandbox, timeout, non-JSON, missing or non-boolean field, over 64 KiB | `unknown` / `auth_check_failed` |
+
+For `claude` the command is `claude auth status`, run from the CLI that
+`claude-agent-acp` bundles in its cached package (`node_modules/@anthropic-ai/claude-agent-sdk-linux-*/claude`), which is already inside the bound entry
+directory, so no bind is widened. A run that fails at its first prompt with
+"Authentication required" invalidates the entry, and the next heartbeat re-probes
+and reports `unauthenticated`.
+
+### Logged-out behaviour per harness
+
+Gap: `session/new` succeeds while logged out, so the handshake alone reports `ready`.
+Tested with a temporary `HOME` holding empty state, never the real config dirs.
+
+| Harness | Gap | Auth check | Evidence |
+|---|---|---|---|
+| `claude` | yes | yes (`claude auth status`) | tested on WSL, claude-agent-acp 0.100.0 (CLI 2.1.328): `session/new` succeeds, the first prompt fails; `auth status` prints `loggedIn: false` |
+| `codex` | no | no | tested on WSL, codex-acp 2.5.0 (codex-cli 0.159.0): `session/new` fails with "Authentication required" (`-32000`) |
+| `opencode` | no (built-in free models) | no | tested on WSL, opencode 1.19.6: `session/new` succeeds logged out and lists free models; a paid provider that is not configured fails at the prompt. `opencode auth list` reports providers, not a login boolean, so no check is declared |
+| `pi` | no | no | documentation only: pi-acp 0.0.34 source returns `auth_required` from `session/new` when no model is available; `pi` itself not installed |
+| `omp` | unknown | no | documentation only; not installed on WSL |
+| `dsh` | unknown | no | documentation only; not installed on WSL |
+| `hermes` | unknown | no | documentation only; not installed on WSL |
+| `openclaw` | unknown | no | documentation only; not installed on WSL |
+
+Limit: for a harness marked gap `unknown` or with no boolean status command, a
+logged-out harness can still be reported `ready` and fail at its first prompt.
+That failure is `agent_error`, and the entry is invalidated as for any failed run.
+Add an `authCheck` to the catalog row once the harness has such a command; no
+code change is needed.
 
 ## Isolation limit
 

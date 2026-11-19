@@ -47,7 +47,11 @@ permission request.
 | spawn fails | `missing` | `spawn_failed` |
 | profile config directory unusable | `unknown` | `state_dir_unusable` |
 | ACP error `auth_required` | `unauthenticated` | `auth_required` |
-| handshake completes | `ready` | — |
+| handshake completes, no auth check declared | `ready` | — |
+| handshake completes, auth check reports `loggedIn: false` | `unauthenticated` | `auth_required` |
+| handshake completes, auth check reports `loggedIn: true` | `ready` | — |
+| auth check binary absent in the sandbox, non-JSON, missing or non-boolean field, over 64 KiB | `unknown` | `auth_check_failed` |
+| auth check times out (the probe timeout) | `unknown` | `auth_check_failed` |
 | timeout after 20 s | `unknown` | `handshake_timeout` |
 | process exits before handshake | `unknown` | `process_exited` |
 | protocol or other runtime error | `unknown` | the runtime error code |

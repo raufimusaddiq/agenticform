@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { CommandEnvelope, HarnessStatus, HeartbeatRequest } from "@agenticform/protocol"
@@ -12,7 +12,7 @@ import {
   type RuntimeDriver,
 } from "@agenticform/runtime"
 import { Executor } from "../src/executor.ts"
-import { HarnessProber, probeHarness, resolveHarness, type ResolvedHarness } from "../src/harness-probe.ts"
+import { HarnessProber, probeHarness, resolveHarness, type HarnessResolution, type ResolvedHarness } from "../src/harness-probe.ts"
 import { startHeartbeat } from "../src/heartbeat.ts"
 import { fingerprintOf } from "../src/state.ts"
 
@@ -210,6 +210,88 @@ describe.skipIf(!hasBwrap)("probe: real bwrap", () => {
     const report = await probeHarness(definition(entry, { scenario: "auth" }), { timeoutMs: 20_000 })
     expect(report).toEqual({ id: "fake", status: "unauthenticated", reason: "auth_required" })
   }, 30_000)
+
+  describe("auth check", () => {
+    const SECRET = "sk-secret-sentinel"
+    /** A fake harness plus a `status` script beside it that runs `body`. */
+    const withStatus = (body: string, id = "fake"): HarnessDefinition => {
+      const dir = temp("af-entry-")
+      const entry = fakeEntry(dir)
+      writeFileSync(join(dir, "status"), `#!/bin/sh\n${body}\n`, { mode: 0o755 })
+      return { ...definition(entry, {}, id), authCheck: { bin: ["status"], args: [], loggedIn: "loggedIn" } }
+    }
+    const check = (body: string, timeoutMs = 20_000) => probeHarness(withStatus(body), { timeoutMs })
+
+    test("loggedIn true is ready", async () => {
+      expect(await check(`echo '{"loggedIn": true}'`)).toEqual({ id: "fake", status: "ready" })
+    }, 30_000)
+
+    test("loggedIn false is unauthenticated/auth_required even when the command exits non-zero", async () => {
+      const report = await check(`echo '{"loggedIn": false}'; exit 1`)
+      expect(report).toEqual({ id: "fake", status: "unauthenticated", reason: "auth_required" })
+    }, 30_000)
+
+    for (const [name, body] of [
+      ["garbage", `echo ${SECRET}`],
+      ["a non-boolean flag", `echo '{"loggedIn": "true"}'`],
+      ["a missing flag", `echo '{"other": true}'`],
+      ["an array", `echo '[{"loggedIn": true}]'`],
+      ["no output", "true"],
+      ["a failing command", "exit 3"],
+    ] as const) {
+      test(`${name} is unknown/auth_check_failed`, async () => {
+        expect(await check(body)).toEqual({ id: "fake", status: "unknown", reason: "auth_check_failed" })
+      }, 30_000)
+    }
+
+    test("a hanging status command times out as unknown/auth_check_failed", async () => {
+      const started = Date.now()
+      const report = await check("sleep 30", 3_000)
+      expect(report).toEqual({ id: "fake", status: "unknown", reason: "auth_check_failed" })
+      expect(Date.now() - started).toBeLessThan(15_000)
+    }, 30_000)
+
+    test("a declared binary that is absent is unknown/auth_check_failed", async () => {
+      const entry = fakeEntry(temp("af-entry-"))
+      const absent = { ...definition(entry), authCheck: { bin: ["nope"], args: [], loggedIn: "loggedIn" } }
+      expect(await probeHarness(absent, { timeoutMs: 20_000 })).toEqual({
+        id: "fake",
+        status: "unknown",
+        reason: "auth_check_failed",
+      })
+    }, 30_000)
+
+    test("the status output never reaches the report", async () => {
+      const def = withStatus(`echo '{"loggedIn": false, "email": "${SECRET}"}'; echo ${SECRET} >&2`)
+      const prober = new HarnessProber({
+        definitions: () => [def],
+        ttlMs: 60_000,
+        readyTtlMs: 60_000,
+        timeoutMs: 20_000,
+      })
+      await prober.refresh()
+      expect(JSON.stringify(prober.report())).not.toContain(SECRET)
+      expect(prober.report()).toEqual([{ id: "fake", status: "unauthenticated", reason: "auth_required" }])
+    }, 30_000)
+
+    test("the status command runs in the run's sandbox: private HOME and a cleared env", async () => {
+      const home = temp("af-home-")
+      const def = withStatus(
+        `if [ "$HOME" = /home/agent ] && [ -z "$AF_LEAK" ]; then echo '{"loggedIn": true}'; else echo '{"loggedIn": false}'; fi`,
+      )
+      process.env.AF_LEAK = "1"
+      try {
+        expect(await probeHarness(def, { timeoutMs: 20_000, home })).toEqual({ id: "fake", status: "ready" })
+      } finally {
+        delete process.env.AF_LEAK
+      }
+    }, 30_000)
+
+    test("a harness without a declaration keeps today's behaviour", async () => {
+      const entry = fakeEntry(temp("af-entry-"))
+      expect(await probeHarness(definition(entry), { timeoutMs: 20_000 })).toEqual({ id: "fake", status: "ready" })
+    }, 30_000)
+  })
 
   test("an absent entry point is missing/not_installed", async () => {
     const report = await probeHarness(
@@ -516,6 +598,49 @@ describe("non-ready runs", () => {
       error: { code: "harness_unavailable", message: "Harness is unavailable: unknown" },
     })
     expect(connected).toBe(1)
+  })
+
+  test("a prompt-time authentication failure invalidates, and the next heartbeat reports unauthenticated", async () => {
+    const def: HarnessDefinition = { id: "fake", profile: "coding", command: "fake" }
+    let loggedIn = true
+    const prober = new HarnessProber({
+      definitions: () => [def],
+      ttlMs: 60_000,
+      readyTtlMs: 60_000,
+      timeoutMs: 1_000,
+      probe: async () =>
+        loggedIn ? { id: "fake", status: "ready" } : { id: "fake", status: "unauthenticated", reason: "auth_required" },
+    })
+    await prober.refresh()
+    expect(prober.report()).toEqual([{ id: "fake", status: "ready" }])
+    const driver: RuntimeDriver = {
+      async connect(): Promise<DriverConnection> {
+        return {
+          ...(await fakeDriver(() => {}).connect({} as never, {} as never, undefined as never)),
+          async prompt() {
+            loggedIn = false
+            throw new RuntimeError("agent_error", "Authentication required")
+          },
+        }
+      },
+    }
+    const executor = new Executor({
+      isolation: SANDBOX,
+      runtime: createRuntime({
+        driver,
+        harnesses: { fake: { id: "fake", profile: "coding", command: process.execPath } },
+      }),
+      harnessStatus: (id) => prober.status(id),
+      harnessFailed: (id) => prober.invalidate(id),
+    })
+    const outcome = await executor.execute(command("fake", temp("af-ws-")), {
+      emit: () => {},
+      signal: new AbortController().signal,
+    })
+    expect(outcome.status).toBe("failed")
+    expect(prober.status("fake")).toBeUndefined()
+    await prober.refresh()
+    expect(prober.report()).toEqual([{ id: "fake", status: "unauthenticated", reason: "auth_required" }])
   })
 
   test("a failed run invalidates the harness probe entry", async () => {
@@ -963,6 +1088,23 @@ describe.skipIf(!hasBwrap)("real harnesses", () => {
   test.skipIf(!claudeReady)("claude: one short sandboxed handshake is ready", async () => {
     const report = await probeHarness(claude as HarnessDefinition, { timeoutMs: 30_000 })
     expect(report).toEqual({ id: "claude", status: "ready" })
+  }, 60_000)
+
+  const bundled = claude !== undefined && claudeReady ? resolveHarness(claude) : undefined
+  const bundledCli =
+    bundled?.ok === true
+      ? claude?.authCheck?.bin.some((bin) => existsSync(join(bundled.resolved.packageRoot ?? "", bin)))
+      : false
+
+  test.skipIf(!bundledCli)("claude logged out (private HOME, empty .claude) is unauthenticated/auth_required", async () => {
+    const home = temp("af-home-", "/tmp")
+    mkdirSync(join(home, ".claude"))
+    const report = await probeHarness(claude as HarnessDefinition, {
+      timeoutMs: 30_000,
+      home,
+      resolve: () => bundled as HarnessResolution,
+    })
+    expect(report).toEqual({ id: "claude", status: "unauthenticated", reason: "auth_required" })
   }, 60_000)
 
   test.skipIf(!opencodeReady)("opencode: one short sandboxed handshake is ready", async () => {

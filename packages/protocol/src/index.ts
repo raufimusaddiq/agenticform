@@ -83,6 +83,7 @@ export const HARNESS_REPORT_REASONS = [
   "protocol_unsupported",
   "capability_missing",
   "state_dir_unusable",
+  "auth_check_failed",
   "agent_error",
 ] as const
 

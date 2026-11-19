@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import { accessSync, closeSync, constants, existsSync, mkdtempSync, openSync, readSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, join } from "node:path"
@@ -19,6 +20,8 @@ export interface ResolvedHarness {
   dirs: string[]
   /** The entry file and its interpreter, for a dir that must not be bound whole. */
   files: string[]
+  /** The cached package's `node_modules`, where a bundled status command lives. */
+  packageRoot?: string
 }
 
 export type HarnessResolution =
@@ -182,6 +185,7 @@ function resolveBunx(definition: HarnessDefinition, options: ResolveOptions): Ha
       },
       dirs: unique([dirname(bunReal), join(root, "node_modules")]),
       files: unique([bunReal, script]),
+      packageRoot: join(root, "node_modules"),
     },
   }
 }
@@ -218,6 +222,106 @@ function classify(error: unknown): { status: HarnessStatus; reason: HarnessRepor
   if (reason === "auth_required") return { status: "unauthenticated", reason }
   if (reason === "spawn_failed") return { status: "missing", reason }
   return { status: "unknown", reason }
+}
+
+/** Longest status output kept; anything more is not a status. */
+const AUTH_OUTPUT_LIMIT = 64 * 1024
+
+/** The declared status command, inside the entry dirs the sandbox already binds. */
+function authCommand(definition: HarnessDefinition, resolved: ResolvedHarness): string | null {
+  const bases = [...(resolved.packageRoot ? [resolved.packageRoot] : []), ...resolved.dirs]
+  for (const candidate of definition.authCheck?.bin ?? []) {
+    for (const base of bases) {
+      const path = join(base, candidate)
+      try {
+        accessSync(path, constants.X_OK)
+        if (statSync(path).isFile()) return path
+      } catch {
+        // Not in this base.
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Strict parse: a JSON object whose declared field is a boolean. Anything else
+ * is `null` (not a status), never a guess.
+ */
+function parseLoggedIn(output: string, field: string): boolean | null {
+  try {
+    const value: unknown = JSON.parse(output)
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null
+    const flag = (value as Record<string, unknown>)[field]
+    return typeof flag === "boolean" ? flag : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The harness's own status command, run as a child in the same sandbox and
+ * profile a run uses (FR-018a). The node never opens a credential file: the
+ * harness reads its own. Only stdout is read, and it is reduced to one boolean
+ * and dropped; stderr is never connected. The exit code is ignored, because a
+ * logged-out status may exit non-zero. A check that cannot run or answer is
+ * `unknown`/`auth_check_failed`, never `ready`.
+ */
+async function authCheck(
+  definition: HarnessDefinition,
+  resolved: ResolvedHarness,
+  workspace: string,
+  options: ProbeOptions,
+): Promise<HarnessReport> {
+  const check = definition.authCheck
+  const failed: HarnessReport = { id: definition.id, status: "unknown", reason: "auth_check_failed" }
+  const command = check ? authCommand(definition, resolved) : null
+  if (!check || !command) return failed
+  let argv: string[]
+  try {
+    const sandboxed = sandboxHarness(
+      { id: definition.id, profile: definition.profile, command, args: check.args },
+      profileFor(definition.id),
+      workspace,
+      options.home ?? homedir(),
+      options.env ?? process.env,
+      { entryDirs: resolved.dirs, entryFiles: resolved.files },
+    )
+    argv = [...(sandboxed.args ?? [])]
+  } catch {
+    return failed
+  }
+  const loggedIn = await new Promise<boolean | null>((resolve) => {
+    let output = ""
+    let overflow = false
+    const child = spawn("bwrap", argv, {
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { PATH: (options.env ?? process.env).PATH ?? "" },
+    })
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL")
+      resolve(null)
+    }, options.timeoutMs)
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8")
+      if (output.length > AUTH_OUTPUT_LIMIT) {
+        overflow = true
+        child.kill("SIGKILL")
+      }
+    })
+    child.on("error", () => {
+      clearTimeout(timer)
+      resolve(null)
+    })
+    child.on("close", () => {
+      clearTimeout(timer)
+      resolve(overflow ? null : parseLoggedIn(output, check.loggedIn))
+    })
+  })
+  if (loggedIn === null) return failed
+  return loggedIn
+    ? { id: definition.id, status: "ready" }
+    : { id: definition.id, status: "unauthenticated", reason: "auth_required" }
 }
 
 async function bounded<T>(work: Promise<T>, timeoutMs: number, onTimeout: () => void): Promise<T> {
@@ -282,6 +386,7 @@ export async function probeHarness(definition: HarnessDefinition, options: Probe
         () => controller.abort(new RuntimeError("handshake_timeout", "probe close timed out")),
       ).catch(() => {})
     }
+    if (definition.authCheck) return await authCheck(definition, resolution.resolved, workspace, options)
     return { id: definition.id, status: "ready" }
   } catch (error) {
     return { id: definition.id, ...classify(error) }

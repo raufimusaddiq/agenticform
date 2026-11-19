@@ -173,8 +173,9 @@ with `harness_unauthenticated` or `harness_missing`.
 ### Harness presence and authentication
 
 - **FR-017**: The node MUST probe each configured harness and classify it as `ready`, `missing`, `unauthenticated` or `unknown`, with a machine-readable reason.
-- **FR-018**: A harness is `ready` only when its entry point resolves without network access and an ACP `initialize` and `session/new` handshake completes inside the sandbox.
-- **FR-019**: The probe MUST NOT install, update or authenticate a harness, and MUST NOT read harness credentials.
+- **FR-018**: A harness is `ready` only when its entry point resolves without network access and an ACP `initialize` and `session/new` handshake completes inside the sandbox. A harness whose handshake succeeds while logged out MAY declare an auth check (FR-018a); it is `ready` only when that check also reports logged in.
+- **FR-018a** (amendment 2026-11-19): A catalog entry MAY declare the harness's own non-interactive status command and the JSON boolean to read. The node runs it as a child inside the same sandbox and profile a run uses, bounded by the probe timeout. It keeps only the boolean: `false` is `unauthenticated` (`auth_required`); a check that cannot run, times out or gives anything but a JSON object with that boolean is `unknown` (`auth_check_failed`), never `ready`. A harness with no declaration keeps FR-018 unchanged.
+- **FR-019**: The probe MUST NOT install, update or authenticate a harness, and MUST NOT itself open, read, parse or copy harness credentials. A declared status command (FR-018a) reads its own files inside the sandbox; the node reads only its boolean result.
 - **FR-020**: The probe MUST be bounded by a timeout and run at most one at a time, so a hung harness cannot stall the heartbeat.
 - **FR-021**: Probe results MUST be cached for a bounded TTL, longer for `ready` than for non-ready, and re-probed after a run fails, so a login is picked up without a restart.
 - **FR-022**: The heartbeat MUST advertise only `ready` harnesses in the existing harness list, and MUST report every probed harness with its status and reason in an additive field.
@@ -185,7 +186,7 @@ with `harness_unauthenticated` or `harness_missing`.
 ### Security
 
 - **FR-026**: Harness stderr MUST stay out of events and out of the heartbeat, as it may contain credentials.
-- **FR-027**: Probe output MUST be reduced to a status and a reason code; raw harness output MUST NOT enter the heartbeat or hub storage.
+- **FR-027**: Probe output MUST be reduced to a status and a reason code (a status command's output is reduced to one boolean and discarded); raw harness output MUST NOT enter the heartbeat or hub storage.
 - **FR-028**: The node MUST NOT log the sandbox argv when it contains a path outside the workspace that could disclose operator layout; it logs the profile name instead.
 
 ### Key Entities
