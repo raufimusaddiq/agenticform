@@ -9,7 +9,7 @@ const run = runtime.run({
   requires: ["mcp.http"],           // optional
   mcpServers: [],                   // optional
   env: {},                          // optional additions to the child environment
-  permissionPolicy: "allow", // "allow" (default) | "ask" | "deny"
+  permissionPolicy: "ask", // "ask" (default: no sandbox here) | "allow" | "deny"
   onPermission: async (request) => "deny", // only used with "ask"; no handler denies
   signal,                           // optional AbortSignal
 })

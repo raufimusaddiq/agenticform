@@ -172,9 +172,16 @@ describe("permissions", () => {
     expect(resolved?.type === "permission.resolved" && resolved.decision).toBe("allow")
   })
 
-  test("the default policy allows with no handler and no wait", async () => {
+  test("the default policy is ask: no handler denies, a handler decides", async () => {
+    expect((await run("permission").result()).text).toBe("no")
+    expect((await run("permission", { onPermission: () => "allow" }).result()).text).toBe("once")
+    const timedOut = await run("permission", { onPermission: () => new Promise(() => {}), permissionTimeoutMs: 50 }).result()
+    expect(timedOut.text).toBe("no")
+  })
+
+  test("an explicit allow answers at once with no handler and logs both events", async () => {
     const started = Date.now()
-    const events = await collect(run("permission").events())
+    const events = await collect(run("permission", { permissionPolicy: "allow" }).events())
     expect(Date.now() - started).toBeLessThan(5_000)
     expect(events.some((event) => event.type === "permission.requested")).toBe(true)
     const resolved = events.find((event) => event.type === "permission.resolved")

@@ -107,7 +107,7 @@ export class Run {
   }
 
   private async decide(request: PermissionRequest): Promise<PermissionDecision> {
-    const policy = this.input.permissionPolicy ?? "allow"
+    const policy = this.input.permissionPolicy ?? "ask"
     if (policy === "allow") return "allow"
     if (policy === "deny") return "deny"
     const handler = this.input.onPermission
@@ -207,7 +207,7 @@ export class Run {
       if (this.harnessError) throw this.harnessError
       if (!isAbsolute(this.input.cwd)) throw new RuntimeError("invalid_input", "cwd must be an absolute path")
       if (!this.input.prompt) throw new RuntimeError("invalid_input", "prompt must not be empty")
-      const policy: unknown = this.input.permissionPolicy ?? "allow"
+      const policy: unknown = this.input.permissionPolicy ?? "ask"
       if (!permissionPolicies.includes(policy as PermissionPolicy)) {
         throw new RuntimeError("invalid_input", "permissionPolicy must be allow, ask or deny")
       }

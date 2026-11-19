@@ -43,7 +43,7 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 
 ## Safety rules
 
-- Permission requests follow the run's permission policy: `allow` (default), `ask` or `deny`. The sandbox is the boundary, the way a git worktree bounds rig's agents, so `allow` is safe by construction; a run with no working sandbox does not start. Only one-time grants are selected. Harness-native auto or bypass modes, such as claude-agent-acp's auto mode, are consistent with `allow`.
+- Permission requests follow the run's permission policy: `allow`, `ask` or `deny`. Runs placed through the hub and executed in the node default to `allow`: the sandbox is the boundary, the way a git worktree bounds rig's agents, and a run with no working sandbox does not start. The standalone runtime library has no sandbox, so it defaults to `ask`; the node always passes the policy explicitly. Only one-time grants are selected. Harness-native auto or bypass modes, such as claude-agent-acp's auto mode, are consistent with `allow`.
 - Unknown capabilities count as absent.
 - Prompts are never retried automatically, because a lost reply is ambiguous.
 - Harness stderr stays out of events, because it may contain sensitive output.
@@ -60,7 +60,7 @@ When a caller token is revoked, authentication fails on its next request (`401 u
 
 ## Permissions
 
-Policy `allow` (the default) answers every request at once, and `deny` refuses every request; both still
+Policy `allow` (the default for hub runs) answers every request at once, and `deny` refuses every request; both still
 log `permission.requested` and `permission.resolved`, and the hub lists them as resolved `by: policy`. Only
 a run started with `permissionPolicy: "ask"` (`af run start --permissions ask`) follows the flow below: a
 harness that asks before acting waits for the owner, not for the node. The runtime's `permissionTimeoutMs`

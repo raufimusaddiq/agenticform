@@ -56,7 +56,7 @@ A caller decides on agent permission requests, and can cancel or redirect a runn
 
 **Acceptance Scenarios**:
 
-1. **Given** no permission policy and no handler, **When** the agent asks permission, **Then** the request is allowed under the default policy; under policy `deny` it is denied.
+1. **Given** no permission policy and no handler, **When** the agent asks permission, **Then** the request is denied (the runtime default is `ask`, as the library has no sandbox); under policy `allow` it is allowed and under `deny` denied.
 2. **Given** policy `ask` and a handler that allows, **When** the agent asks, **Then** an allow option is selected and the decision appears in events. Under policy `ask` with no handler, or an unanswered request at the timeout, the request is denied.
 3. **Given** a running turn, **When** the caller cancels, **Then** the run ends as `cancelled`.
 4. **Given** a running turn, **When** the caller steers, **Then** the turn is cancelled, a new turn starts with the new prompt, and events mark the steer as emulated.
@@ -83,7 +83,7 @@ A maintainer runs one conformance suite against any harness and gets a comparabl
 - A cancelled agent ignores cancellation: the process is stopped after a grace period.
 - The handshake never completes: the run fails with `handshake_timeout`.
 - The agent negotiates an unsupported protocol version: the run fails with `protocol_unsupported`.
-- Under policy `ask`, the permission handler throws or the agent offers no matching option: the request is denied or cancelled. Under `allow`, an agent that offers no one-time allow option gets a deny or cancel, never a persistent grant.
+- Under policy `ask`, the permission handler throws or the agent offers no matching option: the request is denied or cancelled. Under an explicit `allow`, an agent that offers no one-time allow option gets a deny or cancel, never a persistent grant.
 - An unknown permission policy: the run fails with `invalid_input` before any process starts.
 - The caller's signal aborts before the run starts: no process remains.
 - An agent emits an unknown update: it is preserved as an `other` event and does not fail the run.
@@ -100,7 +100,7 @@ A maintainer runs one conformance suite against any harness and gets a comparabl
 - **FR-005**: The runtime MUST expose negotiated capabilities; unknown capabilities count as absent.
 - **FR-006**: The runtime MUST reject unmet requirements before sending a prompt.
 - **FR-007**: The runtime MUST pass caller-provided MCP servers to the session, subject to transport capability.
-- **FR-008**: The runtime MUST apply the run's permission policy, default `allow`; with no policy and no handler it allows. Policy `ask` calls the handler and denies on a throw, no handler or the timeout; policy `deny` refuses every request. Every request still emits `permission.requested` and `permission.resolved` events.
+- **FR-008**: The runtime MUST apply the run's permission policy. The standalone runtime has no sandbox, so its default is `ask`; with no policy and no handler it denies. The node, which sandboxes every run, passes `allow` explicitly unless the run opted out (hub default `allow`). Policy `ask` calls the handler and denies on a throw, no handler or the timeout; policy `deny` refuses every request. Every request still emits `permission.requested` and `permission.resolved` events.
 - **FR-009**: The runtime MUST support cancel and an emulated steer.
 - **FR-010**: The runtime MUST never retry a prompt automatically.
 - **FR-011**: The runtime MUST stop the child process when a run ends.
