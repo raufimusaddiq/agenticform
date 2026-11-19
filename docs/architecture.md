@@ -51,7 +51,7 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 
 ## Authentication and caller tokens
 
-Every call to the hub requires `Authorization: Bearer <token>`. Calling agents, scripts and tools do not use the admin token; the owner issues scoped caller tokens for external callers instead.
+Caller and operator routes require a bearer token (`Authorization: Bearer <token>`), either the admin token or a caller token. Calling agents, scripts and tools do not use the admin token; the owner issues scoped caller tokens for external callers instead.
 
 - **Admin token** (`AGENTICFORM_ADMIN_TOKEN`): configured at hub startup (must be at least 32 characters). Holds full administrative authority: node management, issuing and revoking caller tokens, node enrollment, answering permission requests, and recovering disconnected runs.
 - **Caller tokens** (`AGENTICFORM_TOKEN`): hub-issued, revocable bearer tokens scoped to `runs` (format `afc_<id>_<secret>`). Managed via `af token issue <name>`, `af token list`, and `af token revoke <id>` (or `POST /v1/tokens`). Stored as SHA-256 digests in SQLite. A `runs` token can submit runs, inspect runs, stream events via SSE, cancel runs, list nodes, and read pending permission requests. Any call to an administrative route is refused with `403 forbidden`.
