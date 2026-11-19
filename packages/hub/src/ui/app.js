@@ -32,6 +32,31 @@ function saveStoredRuns() {
   } catch {}
 }
 
+// harnesses holds only the ready (advertised) ids; missing, unauthenticated and
+// unknown ones appear only in harnessReport. Show the union: ready first, then
+// the rest, each group by id. An id without a report entry predates the report
+// field and counts as ready; a report entry keeps its own status either way.
+// harnessChipModels:start
+function harnessChipModels(node) {
+  const report = new Map()
+  if (Array.isArray(node.harnessReport)) {
+    for (const r of node.harnessReport) {
+      if (r && typeof r.id === "string") report.set(r.id, r)
+    }
+  }
+  const ids = new Set(Array.isArray(node.harnesses) ? node.harnesses.filter((h) => typeof h === "string") : [])
+  for (const id of report.keys()) ids.add(id)
+  const models = [...ids].map((id) => {
+    const r = report.get(id)
+    const status = typeof r?.status === "string" && r.status ? r.status : "ready"
+    const reason = typeof r?.reason === "string" ? r.reason : ""
+    return { id, status, reason }
+  })
+  const rank = (m) => (m.status === "ready" ? 0 : 1)
+  return models.sort((a, b) => rank(a) - rank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+// harnessChipModels:end
+
 // Safe DOM builder: text only goes in as text nodes, never parsed as markup
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag)
@@ -204,20 +229,12 @@ async function loadMachines() {
 
       // 3. Harnesses with report status & reason
       const harnessChips = el("div", { className: "harness-list" })
-      const reportMap = new Map()
-      if (Array.isArray(node.harnessReport)) {
-        for (const r of node.harnessReport) reportMap.set(r.id, r)
-      }
-
-      for (const h of node.harnesses) {
-        const report = reportMap.get(h)
-        const repStatus = report?.status ?? "ready"
-        const reason = report?.reason ? `: ${report.reason}` : ""
-        const chipClass = `badge badge-${repStatus}`
+      for (const { id, status, reason } of harnessChipModels(node)) {
+        const detail = reason ? `: ${reason}` : ""
         harnessChips.appendChild(
-          el("span", { className: chipClass, title: `${h} status: ${repStatus}${reason}` }, [
-            el("span", { className: "cell-strong" }, h),
-            el("span", { className: "chip-detail" }, ` (${repStatus}${reason})`),
+          el("span", { className: `badge badge-${status}`, title: `${id} status: ${status}${detail}` }, [
+            el("span", { className: "cell-strong" }, id),
+            el("span", { className: "chip-detail" }, ` (${status}${detail})`),
           ])
         )
       }

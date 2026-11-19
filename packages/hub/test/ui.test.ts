@@ -187,3 +187,56 @@ describe("browser journey", () => {
     expect(((await answered.json()) as any).status).toBe("answered")
   })
 })
+
+describe("machines view harness chips", () => {
+  type Chip = { id: string; status: string; reason: string }
+  const chipsFor = async (node: object): Promise<Chip[]> => {
+    hub = startHub()
+    const js = await (await get("/ui/app.js")).text()
+    const start = js.indexOf("// harnessChipModels:start")
+    const end = js.indexOf("// harnessChipModels:end")
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    return new Function(`${js.slice(start, end)}
+return harnessChipModels`)()(node)
+  }
+
+  test("a ready and an unauthenticated harness both render, ready first", async () => {
+    const chips = await chipsFor({
+      harnesses: ["codex"],
+      harnessReport: [
+        { id: "opencode", status: "unauthenticated", reason: "auth_required" },
+        { id: "codex", status: "ready" },
+      ],
+    })
+    expect(chips).toEqual([
+      { id: "codex", status: "ready", reason: "" },
+      { id: "opencode", status: "unauthenticated", reason: "auth_required" },
+    ])
+  })
+
+  test("a report-only missing harness keeps its status and reason", async () => {
+    const chips = await chipsFor({
+      harnesses: [],
+      harnessReport: [{ id: "claude", status: "missing", reason: "not_installed" }],
+    })
+    expect(chips).toEqual([{ id: "claude", status: "missing", reason: "not_installed" }])
+  })
+
+  test("a node without harnessReport shows its harnesses as ready", async () => {
+    const chips = await chipsFor({ harnesses: ["codex", "claude"] })
+    expect(chips).toEqual([
+      { id: "claude", status: "ready", reason: "" },
+      { id: "codex", status: "ready", reason: "" },
+    ])
+  })
+
+  test("nothing renders twice, and an inconsistent heartbeat does not crash", async () => {
+    const chips = await chipsFor({
+      harnesses: ["codex", "codex"],
+      harnessReport: [{ id: "codex", status: "ready" }, { id: "gemini", status: "ready" }, null, { status: "x" }],
+    })
+    expect(chips.map((c) => c.id)).toEqual(["codex", "gemini"])
+    expect(chips.every((c) => c.status === "ready")).toBe(true)
+  })
+})
