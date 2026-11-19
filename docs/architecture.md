@@ -49,6 +49,15 @@ Agentic platforms may run tools through their own gateway, so a sandbox around t
 - Harness stderr stays out of events, because it may contain sensitive output.
 - The remote path carries outbound-only nodes, fenced runtime identity, single-use nonces, idempotency and isolation. See [node/hub invariants](node-hub-invariants.md).
 
+## Authentication and caller tokens
+
+Every call to the hub requires `Authorization: Bearer <token>`. Calling agents, scripts and tools do not use the admin token; the owner issues scoped caller tokens for external callers instead.
+
+- **Admin token** (`AGENTICFORM_ADMIN_TOKEN`): configured at hub startup (must be at least 32 characters). Holds full administrative authority: node management, issuing and revoking caller tokens, node enrollment, answering permission requests, and recovering disconnected runs.
+- **Caller tokens** (`AGENTICFORM_TOKEN`): hub-issued, revocable bearer tokens scoped to `runs` (format `afc_<id>_<secret>`). Managed via `af token issue <name>`, `af token list`, and `af token revoke <id>` (or `POST /v1/tokens`). Stored as SHA-256 digests in SQLite. A `runs` token can submit runs, inspect runs, stream events via SSE, cancel runs, list nodes, and read pending permission requests. Any call to an administrative route is refused with `403 forbidden`.
+
+When a caller token is revoked, authentication fails on its next request (`401 unauthorized`). Open SSE event streams re-authenticate at every keepalive and terminate with an `unauthorized` error event within 30 s of revocation.
+
 ## Permissions
 
 A harness that asks before acting waits for the owner, not for the node. The
@@ -65,11 +74,13 @@ node ──lease (control lane)──▶ executor resolves the waiter ──▶ 
 runtime emits permission.resolved ──▶ hub marks the row resolved (or timed_out)
 ```
 
-Only the admin token answers; a `runs` token may read the list. A node that does
-not advertise `permissions.remote` is refused with `permission_unsupported`
-rather than emulated. A duplicate answer completes `{ applied: false }`, so the
-harness is never told twice. Run end cancels every open request in the same
-transaction as the status change, and a node restart never re-asks.
+The owner can inspect pending requests via `af run permissions <id>` (or MCP `list_permissions`) and answer them remotely via `af run answer <id> <requestId> allow|deny` (or MCP `answer_permission`, or the operator UI at `/`). Only the admin token answers; a `runs` token may read the list but cannot answer (`403 forbidden`). A node that does not advertise `permissions.remote` is refused with `permission_unsupported` rather than emulated. A duplicate answer completes `{ applied: false }`, so the harness is never told twice. Run end cancels every open request in the same transaction as the status change, and a node restart never re-asks.
+
+## Run lineage
+
+Runs can be linked in parent-child hierarchies by supplying `--parent <runId>` on submission (`parentRunId` on `POST /v1/runs`, or `parentRunId` in the MCP `start_run` tool). The hub records `parentRunId` and tracks tree depth: a root run has `depth: 0`, and a child run has `depth: parent.depth + 1`.
+
+To bound agent recursion and protect against runaway self-invoking agent cascades, the hub enforces a maximum depth via `AGENTICFORM_RUN_MAX_DEPTH` (default `3`). Submissions that would exceed this limit are rejected before inserting a database record with `422 depth_exceeded`. If the specified `parentRunId` does not exist, the submission returns `404 parent_not_found`. Submissions with the same idempotency key and same parent return the existing run; matching key with a different parent returns `409 idempotency_conflict`.
 
 ## Isolation
 
@@ -102,6 +113,13 @@ Each run owns one child process, which leads its own process group, so wrappers 
 Runs keep their events in memory. Durability belongs to `node` and `hub`: the
 node writes a command ledger before any effect, and the hub keeps runs, commands
 and events in SQLite with WAL.
+
+## Evidence and verification
+
+Release qualification and verification artifacts:
+- [Release evidence](release-evidence.md): test procedures and recorded results for the two-machine journey, multi-hour soak runs, and node packaging.
+- Soak test runner: [`scripts/soak.ts`](../scripts/soak.ts) tests multi-hour RSS stability across node restarts, orphan process cleanup, and remote permission mixes.
+- Node packaging test: [`scripts/package-node.ts`](../scripts/package-node.ts) measures size and cold-start latency for standalone binary builds (`bun build --compile`) versus production install trees (`bun install --production`).
 
 ## History
 
