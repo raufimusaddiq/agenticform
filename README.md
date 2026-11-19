@@ -154,6 +154,8 @@ Idle resident memory, measured 2026-11-18 on the development host (2 vCPU /
 state directory, wait two seconds after it reports ready, then read `VmRSS` from
 `/proc/<pid>/status`. The node is higher because it loads `runtime` and the ACP
 driver. These are idle figures; a run adds the harness process.
+After a 4-hour soak (16,160 runs, 3 node restarts) the node held about 90 MB with
+no growth (-1.2%); see [Release evidence](docs/release-evidence.md).
 
 ## Claude Code config directory
 

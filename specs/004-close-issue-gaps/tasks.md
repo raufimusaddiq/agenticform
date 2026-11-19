@@ -179,9 +179,9 @@ include manual work on Linux hosts, marked **(manual)**.
 - [X] T039 [P] [US4] Create `docs/release-evidence.md`:
   - the two-machine journey from FR-019 as numbered steps: enrol, two harnesses ready, a run on each, a remote permission answer, stop the node mid-run and restart, stale generation rejected, a bad signature does not consume a nonce, `ss -ltn` shows no node listener;
   - an empty results table with host, date and versions columns
-- [ ] T040 [US4] **(manual)** Run `scripts/soak.ts --hours 4 --restarts 3` on a Linux host and commit the result summary into `docs/release-evidence.md`
+- [X] T040 [US4] **(manual)** Run `scripts/soak.ts --hours 4 --restarts 3` on a Linux host and commit the result summary into `docs/release-evidence.md`
 - [ ] T041 [US4] **(manual)** Run the two-machine journey from `docs/release-evidence.md` with two owner-authenticated harnesses and fill in its results table (SC-006)
-- [ ] T042 [US4] **(manual)** Run `scripts/package-node.ts`, record the binary-versus-install decision with its numbers in `docs/release-evidence.md`, and update the README Memory section with the soak figures
+- [X] T042 [US4] **(manual)** Run `scripts/package-node.ts`, record the binary-versus-install decision with its numbers in `docs/release-evidence.md`, and update the README Memory section with the soak figures
 
 **Checkpoint**: #79's and #81's evidence items exist.
 
