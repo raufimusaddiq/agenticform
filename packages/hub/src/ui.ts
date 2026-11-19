@@ -15,6 +15,8 @@ const assets = new Map<string, Asset>([
   ["/", load("index.html", "text/html; charset=utf-8")],
   ["/ui/app.js", load("app.js", "text/javascript; charset=utf-8")],
   ["/ui/app.css", load("app.css", "text/css; charset=utf-8")],
+  ["/ui/favicon.svg", load("favicon.svg", "image/svg+xml")],
+  ["/favicon.ico", load("favicon.svg", "image/svg+xml")],
 ])
 
 /**
