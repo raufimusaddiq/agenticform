@@ -57,9 +57,7 @@ bun packages/node/examples/end-to-end.ts
 
 The last command runs a real node against a fake hub and a fake agent: it enrolls, heartbeats, leases one `run.start`, streams events and completes. It needs no harness, credentials or database, and writes only to a temporary state directory.
 
-## Configuration
-
-Every environment variable below is read by at least one package. Empty defaults mean the feature is off until set. Secrets are marked; never put a real value in a file that is committed.
+## Remote runs
 
 The hub also serves a small operator UI at `/` from the same origin. It asks for the admin token in the browser, keeps it in `sessionStorage`, and sends it only in the `Authorization` header; the token never appears in a URL, the page, or a log.
 
@@ -67,11 +65,52 @@ The CLI (`af`) and the MCP server (`agenticform-mcp`) are thin clients of the sa
 
 ```bash
 af nodes
+af token issue ci-agent
 af run start --key job-1 --harness codex --prompt "Fix the failing tests"
 af run get <runId>
 af run events <runId> --follow
 af run cancel <runId>
+af run permissions <runId>
+af run answer <runId> <requestId> allow
 ```
+
+### Caller tokens
+
+Calling agents, scripts, and MCP clients do not use the admin token. The admin issues scoped caller tokens (`runs` scope) using `af token issue <name>` (or `POST /v1/tokens`). Callers set `AGENTICFORM_TOKEN` with the issued `afc_<id>_<secret>` string:
+
+```bash
+# As admin: manage caller tokens
+af token issue ci-agent
+af token list
+af token revoke <tokenId>
+```
+
+A `runs` token can submit runs, inspect runs, stream events via SSE, cancel runs, list nodes, and view pending permissions. Administrative actions (node management, issuing/revoking tokens, answering permissions, recovering runs) require the admin token; calls with a `runs` token return `403 forbidden`. When a token is revoked, authentication fails on the next request, and active SSE event streams close within 30 s.
+
+### Remote permission answers
+
+When a sandboxed harness requests permission before taking an action, the node reports the request and waits for an answer. Deny on silence remains enforced by the runtime's 300 s timeout. The owner can inspect pending requests and answer them remotely via the CLI, MCP, or the operator UI:
+
+```bash
+af run permissions <runId>
+af run answer <runId> <requestId> allow   # or deny
+```
+
+Only the admin token can answer permission requests; calling agents holding a caller token can view pending requests but cannot answer (`403 forbidden`).
+
+### Run lineage and depth limits
+
+Runs can form parent-child lineages by passing `--parent <runId>` when starting a run (`parentRunId` on `POST /v1/runs` or MCP `start_run`). The hub tracks execution depth (`depth = parent.depth + 1`, with root runs at `depth: 0`).
+
+```bash
+af run start --key subtask-1 --harness codex --prompt "Investigate failure" --parent <parentRunId>
+```
+
+To prevent runaway recursive agent cascades, `AGENTICFORM_RUN_MAX_DEPTH` (default `3`) limits the maximum tree depth. Submissions past this limit fail with `422 depth_exceeded` without inserting a row. An invalid parent ID returns `404 parent_not_found`.
+
+## Configuration
+
+Every environment variable below is read by at least one package. Empty defaults mean the feature is off until set. Secrets are marked; never put a real value in a file that is committed.
 
 | Variable | Package | Default | Meaning |
 |---|---|---|---|
@@ -149,11 +188,14 @@ startup. A probe runs at most one at a time and never blocks a heartbeat.
 
 - [Architecture](docs/architecture.md)
 - [Supported harnesses](docs/harnesses.md)
+- [Release evidence](docs/release-evidence.md)
 - [Constitution](.specify/memory/constitution.md)
 - [Node/hub invariants](docs/node-hub-invariants.md)
 - [Runtime spec](specs/001-runtime-foundation/spec.md)
 - [Node and hub spec](specs/002-node-hub/spec.md)
 - [Harness isolation spec](specs/003-harness-isolation/spec.md)
+- Soak test runner: [`scripts/soak.ts`](scripts/soak.ts)
+- Node packaging test: [`scripts/package-node.ts`](scripts/package-node.ts)
 
 ## Development
 

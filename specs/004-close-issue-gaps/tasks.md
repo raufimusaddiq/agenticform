@@ -202,9 +202,9 @@ include manual work on Linux hosts, marked **(manual)**.
 
 ## Phase 8: Polish
 
-- [ ] T047 [P] Update `docs/architecture.md` and `README.md` for caller tokens, permission answers and lineage; remove any text that says every caller uses the admin token
-- [ ] T048 [P] Review every new error code against `contracts/http-api.md` §2–4 and remove any that is unused
-- [ ] T049 Confirm that `bun run typecheck` and `bun test packages` pass on Linux with `bwrap` present and absent, and that the protocol version is still 1
+- [X] T047 [P] Update `docs/architecture.md` and `README.md` for caller tokens, permission answers and lineage; remove any text that says every caller uses the admin token
+- [X] T048 [P] Review every new error code against `contracts/http-api.md` §2–4 and remove any that is unused
+- [X] T049 Confirm that `bun run typecheck` and `bun test packages` pass on Linux with `bwrap` present and absent, and that the protocol version is still 1
 
 ---
 
