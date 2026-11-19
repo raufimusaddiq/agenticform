@@ -152,7 +152,7 @@ describe("isolation argv", () => {
     // An unknown harness gets the workspace bind and no state bind. The
     // workspace is bound twice: the initial mount and the re-bind after the
     // entry-point binds.
-    const args = sandboxArgs(profileFor("nope"), "/tmp/ws", "/tmp/home", {})
+    const args = sandboxArgs(profileFor("nope"), "/tmp/ws", "/tmp/home", {}, { resolvConf: "/nonexistent" })
     const system = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/etc", "/run"]
     const binds = args.flatMap((arg, index) => {
       const source = args[index + 1]
@@ -909,5 +909,54 @@ describe.skipIf(!hasBwrap && !process.env.CI)("isolation: real bwrap", () => {
         else process.env[name] = saved[name]
       }
     }
+  })
+})
+
+describe("isolation: resolv.conf symlink", () => {
+  const link = (target: string): string => {
+    const dir = temp("af-resolv-")
+    const path = join(dir, "resolv.conf")
+    symlinkSync(target, path)
+    return path
+  }
+  const hasRoBind = (args: string[], source: string, dest: string): boolean =>
+    args.some((arg, i) => arg === "--ro-bind" && args[i + 1] === source && args[i + 2] === dest)
+
+  test("a symlink to a regular file outside the system paths is bound read-only at the link target", () => {
+    const real = join(temp("af-resolv-real-"), "resolv.conf")
+    writeFileSync(real, "nameserver 10.0.0.1\n")
+    const args = sandboxArgs(profileFor("fake"), temp("af-ws-"), "/nonexistent", {}, { resolvConf: link(real) })
+    expect(hasRoBind(args, real, real)).toBe(true)
+  })
+
+  test("a symlink to a directory or a missing file binds nothing", () => {
+    const dirTarget = temp("af-resolv-dir-")
+    for (const target of [dirTarget, join(dirTarget, "absent")]) {
+      const args = sandboxArgs(profileFor("fake"), temp("af-ws-"), "/nonexistent", {}, { resolvConf: link(target) })
+      expect(args.some((arg) => arg === target)).toBe(false)
+    }
+  })
+
+  test("a symlink into an already bound system path adds no bind", () => {
+    const args = sandboxArgs(profileFor("fake"), temp("af-ws-"), "/nonexistent", {}, { resolvConf: link("/run/x.conf") })
+    expect(args.some((arg) => arg === "/run/x.conf")).toBe(false)
+  })
+
+  test("a regular file is not rebound", () => {
+    const file = join(temp("af-resolv-"), "resolv.conf")
+    writeFileSync(file, "nameserver 10.0.0.1\n")
+    const args = sandboxArgs(profileFor("fake"), temp("af-ws-"), "/nonexistent", {}, { resolvConf: file })
+    expect(args.some((arg) => arg === file)).toBe(false)
+  })
+
+  test.skipIf(!hasBwrap)("real bwrap: the target is readable and read-only inside the sandbox", () => {
+    const real = join(temp("af-resolv-real-"), "resolv.conf")
+    writeFileSync(real, "nameserver 10.0.0.1\n")
+    const args = sandboxArgs(profileFor("fake"), temp("af-ws-"), "/nonexistent", {}, { resolvConf: link(real) })
+    const read = Bun.spawnSync(["bwrap", ...args, "--", "cat", real])
+    expect(read.exitCode).toBe(0)
+    expect(read.stdout.toString()).toBe("nameserver 10.0.0.1\n")
+    const write = Bun.spawnSync(["bwrap", ...args, "--", "sh", "-c", `echo x >> ${real}`], { stderr: "ignore" })
+    expect(write.exitCode).not.toBe(0)
   })
 })

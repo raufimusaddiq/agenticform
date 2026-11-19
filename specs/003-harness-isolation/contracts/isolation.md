@@ -41,6 +41,7 @@ bwrap
   --dev /dev
   --tmpfs /tmp
   --tmpfs /home/agent
+  --dir <parents>; --ro-bind <resolv-target> <resolv-target>   # only if /etc/resolv.conf is a symlink out of the system paths
   (--bind | --ro-bind) <workspace> <workspace>
   (--bind | --ro-bind) <state-source> <sandbox-home>/<relative> ...
   --ro-bind <entry-dir> <entry-dir> ...          # safe entry dir, after the tmpfs
@@ -56,6 +57,18 @@ Rules:
   pseudo-filesystems, private tmpfs, workspace, state paths, entry-point binds,
   root remount, `--`, command.
 - `--unshare-net` MUST NOT appear.
+- DNS: the namespace is shared, but `/etc/resolv.conf` may be a symlink to a path
+  outside the bound system paths (WSL: `/mnt/wsl/resolv.conf`), which dangles
+  inside the sandbox and leaves model calls without DNS. The node binds the
+  link target read-only at the path the link names, after the private tmpfs, if
+  and only if the resolved target is a regular file and not already under a
+  system path. A directory, a missing target or a symlink into `/run` adds
+  nothing. No other mount is widened.
+- A `bunx` harness is never run through `bunx` in the sandbox. The node resolves
+  the pinned package in the local Bun cache (`~/.bun/install/cache/.bunx-<uid>/`)
+  and spawns `bun <cached bin>`; the cache `node_modules` dir is the entry dir
+  bind (read-only), so no registry lookup or install can happen. An uncached
+  version is `missing`/`version_not_cached` and starts no child.
 - `--unshare-cgroup-try` MUST be used, so a kernel without cgroup namespaces does
   not fail the sandbox.
 - The workspace and state paths MUST be absolute and resolved before binding.
