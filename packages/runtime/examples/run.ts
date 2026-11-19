@@ -12,6 +12,7 @@ const run = createRuntime().run({
   harness,
   cwd: resolve(directory),
   prompt,
+  permissionPolicy: "ask",
   onPermission: (request) => {
     console.error(`\ndenied: ${request.title ?? request.toolCallId}`)
     return "deny"

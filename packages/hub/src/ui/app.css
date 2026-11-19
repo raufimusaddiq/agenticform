@@ -149,13 +149,13 @@ code { font-family: var(--mono); color: var(--ink); background: var(--sunk); pad
 .theme-icon-dark, .theme-icon-light { display: none !important; }
 .btn-icon::after { content: "THEME"; font-size: 0.75rem; letter-spacing: 0.1em; }
 
-input, textarea {
+input, textarea, select {
   font: inherit; color: var(--ink); background: var(--sunk);
   border: 1px solid var(--line); border-radius: 0;
   padding: 0.5rem 0.65rem; width: 100%;
 }
 input::placeholder, textarea::placeholder { color: var(--ink-3); }
-input:focus-visible, textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
 textarea { resize: vertical; min-height: 6rem; }
 .input-readonly { color: var(--ink-3); }
 label { display: block; font-size: 0.78rem; color: var(--ink-2); margin-bottom: 0.3rem; letter-spacing: 0.04em; }

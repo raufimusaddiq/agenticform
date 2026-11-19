@@ -40,6 +40,11 @@ const TOOLS = [
         labels: { type: "object", additionalProperties: { type: "string" } },
         gitBacked: { type: "boolean" },
         parentRunId: { type: "string" },
+        permissionPolicy: {
+          type: "string",
+          enum: ["allow", "ask", "deny"],
+          description: "Default allow: the sandbox is the boundary. ask waits for an owner answer; deny refuses all.",
+        },
       },
       required: ["idempotencyKey", "harness", "prompt"],
       additionalProperties: false,
@@ -123,7 +128,7 @@ function requireString(args: Record<string, unknown>, key: string): string {
 function startRunRequest(args: Record<string, unknown>): RunRequest {
   const allowed = new Set([
     "idempotencyKey", "harness", "prompt", "cwd", "requires", "mcpServers", "nodeId", "labels", "gitBacked",
-    "parentRunId",
+    "parentRunId", "permissionPolicy",
   ])
   for (const key of Object.keys(args)) {
     if (!allowed.has(key)) throw new Error(`unknown start_run argument: ${key}`)
@@ -169,6 +174,12 @@ function startRunRequest(args: Record<string, unknown>): RunRequest {
   if (args.parentRunId !== undefined) {
     if (typeof args.parentRunId !== "string") throw new Error("parentRunId must be a string")
     request.parentRunId = args.parentRunId
+  }
+  if (args.permissionPolicy !== undefined) {
+    if (args.permissionPolicy !== "allow" && args.permissionPolicy !== "ask" && args.permissionPolicy !== "deny") {
+      throw new Error("permissionPolicy must be allow, ask or deny")
+    }
+    request.permissionPolicy = args.permissionPolicy
   }
   return request
 }

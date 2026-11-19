@@ -453,6 +453,8 @@ async function main(): Promise<number> {
         prompt,
         cwd: work,
         nodeId: enrolled.nodeId,
+        // The soak measures the remote-answer path, which only runs with policy ask.
+        permissionPolicy: "ask",
       })
       if (response.status !== 201 && response.status !== 200) {
         throw new Error(`submit failed: ${response.status} ${await response.text()}`)

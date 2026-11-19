@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite"
-import type { PermissionRequestView, PermissionStatus } from "@agenticform/protocol"
+import type { PermissionPolicy, PermissionRequestView, PermissionStatus } from "@agenticform/protocol"
 import { PERMISSION_TIMEOUT_MS } from "@agenticform/protocol"
 import { enqueueCommand } from "./commands.ts"
 import { fail } from "./errors.ts"
@@ -23,6 +23,7 @@ function view(row: PermissionRequestRow): PermissionRequestView {
     options: OPTIONS,
     status: row.status as PermissionStatus,
     decision: row.decision === "allow" || row.decision === "deny" ? row.decision : null,
+    by: row.decided_by === "policy" || row.decided_by === "admin" ? row.decided_by : null,
     requestedAt: new Date(row.requested_at).toISOString(),
     expiresAt: new Date(row.expires_at).toISOString(),
   }
@@ -65,6 +66,12 @@ export function boundRequestedData(data: unknown): unknown {
   }
 }
 
+/** The run's permission policy; a request stored before the field existed means "allow". */
+export function policyOf(run: Pick<RunRow, "request_json">): PermissionPolicy {
+  const policy = (JSON.parse(run.request_json) as { permissionPolicy?: unknown }).permissionPolicy
+  return policy === "ask" || policy === "deny" ? policy : "allow"
+}
+
 /**
  * Record a `permission.requested` event as `pending`. The expiry is the
  * runtime's own deny clock, so the hub refuses a late answer before the
@@ -86,6 +93,18 @@ export function recordRequested(
   if (toolCallId.length > TOOL_CALL_ID_MAX_LENGTH) return
   const title = bounded(request.title, PERMISSION_TITLE_MAX_LENGTH)
   const kind = bounded(request.kind, PERMISSION_KIND_MAX_LENGTH)
+  const run = db.query<RunRow, [string]>("SELECT * FROM runs WHERE id = ?").get(runId)
+  const policy = run ? policyOf(run) : "ask"
+  if (policy !== "ask") {
+    // The policy answers at once, so nothing waits for an owner: keep the history only.
+    db.query(
+      `INSERT INTO permission_requests
+         (run_id, generation, tool_call_id, title, kind, status, decision, requested_at, expires_at, decided_at, decided_by)
+       VALUES (?, ?, ?, ?, ?, 'resolved', ?, ?, ?, ?, 'policy')
+       ON CONFLICT DO NOTHING`,
+    ).run(runId, generation, toolCallId, title, kind, policy, now, now + PERMISSION_TIMEOUT_MS, now)
+    return
+  }
   db.query(
     `INSERT INTO permission_requests
        (run_id, generation, tool_call_id, title, kind, status, decision, requested_at, expires_at, decided_at)
@@ -109,8 +128,17 @@ export function recordResolved(
   const body = data as { toolCallId?: unknown; decision?: unknown } | null
   if (typeof body?.toolCallId !== "string" || !body.toolCallId) return
   const row = get(db, runId, generation, body.toolCallId)
-  if (!row || TERMINAL.has(row.status as PermissionStatus)) return
   const decision = body.decision === "allow" || body.decision === "deny" ? body.decision : null
+  if (row?.decided_by === "policy") {
+    // The driver may deny an allow when the harness offered no one-time grant: the event is the truth.
+    if (decision) {
+      db.query(
+        "UPDATE permission_requests SET decision = ? WHERE run_id = ? AND generation = ? AND tool_call_id = ?",
+      ).run(decision, runId, generation, body.toolCallId)
+    }
+    return
+  }
+  if (!row || TERMINAL.has(row.status as PermissionStatus)) return
   if (row.status === "answered") {
     db.query(
       "UPDATE permission_requests SET status = 'resolved', decision = COALESCE(?, decision), decided_at = ? WHERE run_id = ? AND generation = ? AND tool_call_id = ? AND status = 'answered'",
@@ -165,6 +193,9 @@ export function answerPermission(
   if (decision !== "allow" && decision !== "deny") fail("invalid_input", "decision must be allow or deny")
   const run = db.query<RunRow, [string]>("SELECT * FROM runs WHERE id = ?").get(runId)
   if (!run) fail("not_found", "run not found")
+  if (policyOf(run) !== "ask") {
+    fail("permission_resolved", `the run's permission policy is ${policyOf(run)}; only policy ask takes remote answers`)
+  }
   if (!nodeSupportsRemote(db, run)) {
     fail("permission_unsupported", "the run's node does not support remote permission answers")
   }
@@ -176,7 +207,7 @@ export function answerPermission(
   const write = db.transaction((): PermissionRequestView => {
     const updated = db
       .query(
-        "UPDATE permission_requests SET status = 'answered', decision = ?, decided_at = ? WHERE run_id = ? AND generation = ? AND tool_call_id = ? AND status = 'pending' AND expires_at > ?",
+        "UPDATE permission_requests SET status = 'answered', decision = ?, decided_at = ?, decided_by = 'admin' WHERE run_id = ? AND generation = ? AND tool_call_id = ? AND status = 'pending' AND expires_at > ?",
       )
       .run(decision, now, runId, run.generation, requestId, now)
     if (updated.changes !== 1) {

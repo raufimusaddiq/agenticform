@@ -14,6 +14,7 @@ const USAGE = `usage: af <command>
   af run start --harness <h> --prompt <text> --key <idempotency-key>
                [--cwd <dir>] [--node <id>] [--requires a,b] [--label k=v]...
                [--git-backed[=true|false]] [--parent <runId>]
+               [--permissions allow|ask|deny]   (default allow; the sandbox is the boundary)
   af run get <runId>
   af run events <runId> [--after <seq>] [--follow]
   af run cancel <runId>
@@ -110,7 +111,7 @@ async function main(argv: string[]): Promise<void> {
 
   if (group === "run" && action === "start") {
     const rest = argv.slice(2)
-    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label", "git-backed", "parent"])
+    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label", "git-backed", "parent", "permissions"])
     const harness = flag(rest, "harness")
     const prompt = flag(rest, "prompt")
     const idempotencyKey = flag(rest, "key")
@@ -120,6 +121,10 @@ async function main(argv: string[]): Promise<void> {
     const node = flag(rest, "node")
     const parent = flag(rest, "parent")
     const labels = parseLabels(flags(rest, "label"))
+    const permissions = flag(rest, "permissions")
+    if (permissions !== undefined && permissions !== "allow" && permissions !== "ask" && permissions !== "deny") {
+      throw new Error("--permissions must be allow, ask or deny")
+    }
     const gitBackedFlag = rest.find((arg) => arg === "--git-backed" || arg.startsWith("--git-backed="))
     let gitBacked: boolean | undefined
     if (gitBackedFlag !== undefined) {
@@ -147,6 +152,7 @@ async function main(argv: string[]): Promise<void> {
       ...(Object.keys(labels).length ? { labels } : {}),
       ...(gitBacked === undefined ? {} : { gitBacked }),
       ...(parent === undefined ? {} : { parentRunId: parent }),
+      ...(permissions === undefined ? {} : { permissionPolicy: permissions }),
     }
     return print(await client().createRun(request))
   }

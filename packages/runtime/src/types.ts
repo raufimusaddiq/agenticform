@@ -78,6 +78,13 @@ export class RuntimeError extends Error {
   }
 }
 
+/**
+ * How a run answers harness permission requests. The bare runtime has no sandbox, so its default is "ask".
+ * The node runs every harness in a sandbox and passes "allow" unless the run opted out.
+ */
+export type PermissionPolicy = "allow" | "ask" | "deny"
+export const permissionPolicies: readonly PermissionPolicy[] = ["allow", "ask", "deny"]
+
 export interface RunInput {
   harness: string | HarnessDefinition
   cwd: string
@@ -85,13 +92,16 @@ export interface RunInput {
   requires?: readonly Capability[]
   mcpServers?: readonly McpServer[]
   env?: Readonly<Record<string, string>>
+  /** Default "ask": onPermission, then deny at the timeout, or deny with no handler. "allow" allows every request without calling onPermission; "deny" refuses all. */
+  permissionPolicy?: PermissionPolicy
+  /** Only used under policy "ask"; with no handler the request is denied. */
   onPermission?: PermissionHandler
   signal?: AbortSignal
   /** Limit for spawn, handshake and session creation. Default 60s. */
   handshakeTimeoutMs?: number
   /** How long a cancelled agent may keep running before it is stopped. Default 10s. */
   cancelGraceMs?: number
-  /** An unanswered permission request is denied after this long. Default 300s. */
+  /** Under policy "ask", an unanswered permission request is denied after this long. Default 300s. */
   permissionTimeoutMs?: number
 }
 

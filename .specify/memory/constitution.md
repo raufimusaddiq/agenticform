@@ -1,4 +1,7 @@
-<!-- Version 1.0.0: first ratified constitution for the execution-fabric direction. -->
+<!--
+Sync note, version 2.0.0 (2026-11-19): amends principle IV. Permission requests follow the run's permission policy, which defaults to allow for hub-placed runs executed in the node sandbox, and to ask for the sandbox-less standalone runtime library. The sandbox (writes only inside the workspace and declared state dirs, private /tmp and home, cleared env) is the safety boundary, as a rig worktree is for rig's own agents. A run may opt out with `ask` (deny at timeout) or `deny`. Fail closed still holds when the sandbox is unavailable, for unknown capabilities, ambiguous replays, fencing, nonces and credentials. Harness-native auto or bypass permission modes, such as claude-agent-acp's auto mode from 0.101, are consistent with the `allow` default, because the sandbox is the boundary. Specs 001 (FR-008, US3, research) and 004 (remote answers apply only to policy `ask`), docs/architecture.md and README are updated in the same PR. MAJOR bump: a NON-NEGOTIABLE principle is weakened.
+Version 1.0.0: first ratified constitution for the execution-fabric direction.
+-->
 # Agenticform Constitution
 
 ## Purpose
@@ -21,7 +24,7 @@ ACP is the default integration, and one API covers every harness. Harness differ
 
 ### IV. Fail Closed (NON-NEGOTIABLE)
 
-Unanswered permission requests are denied. Unknown capabilities count as absent. Ambiguous side effects are never replayed automatically. Remote execution keeps outbound-only nodes, fenced runtime identity, single-use nonces and idempotency. Credentials never enter events, logs or the hub.
+Permission requests follow the run's permission policy. A run placed through the hub and executed in the node sandbox defaults to `allow`: the sandbox is the safety boundary, not a per-request prompt. The standalone runtime library has no sandbox, so it defaults to `ask`. A run with policy `ask` denies an unanswered request at its timeout (and with no handler), and policy `deny` refuses every request. Without a working sandbox there is no node run. Unknown capabilities count as absent. Ambiguous side effects are never replayed automatically. Remote execution keeps outbound-only nodes, fenced runtime identity, single-use nonces and idempotency. Credentials never enter events, logs or the hub.
 
 ### V. Bring Your Own Harness
 
@@ -51,4 +54,4 @@ Prefer deleting to porting. Add a feature only for a present need. No speculativ
 
 This constitution overrides other project guidance. Amendments require a PR explaining the reason and any migration. Versions follow semantic rules: MAJOR for removed or redefined principles, MINOR for additions, PATCH for wording.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-05 | **Last Amended**: 2026-11-05
+**Version**: 2.0.0 | **Ratified**: 2026-11-05 | **Last Amended**: 2026-11-19

@@ -6,6 +6,7 @@ import {
   type Capability,
   type McpServer,
   type PermissionDecision,
+  type PermissionPolicy,
   type PermissionRequest,
   type Run,
   type RunResult,
@@ -519,7 +520,14 @@ export class Executor {
       prompt: payload.prompt,
       ...(Array.isArray(payload.requires) ? { requires: payload.requires as Capability[] } : {}),
       ...(Array.isArray(payload.mcpServers) ? { mcpServers: payload.mcpServers as McpServer[] } : {}),
-      onPermission: (request) => this.waitForPermission(command.runId, command.generation, request),
+      // The run is sandboxed, so the node's default is allow, also for a run.start from an older hub
+      // that sent no policy. The policy is always passed explicitly: the bare runtime defaults to ask.
+      // Only an "ask" run waits for the hub. An unknown value reaches the runtime unchanged, which
+      // fails the run with invalid_input before spawn.
+      permissionPolicy: (payload.permissionPolicy ?? "allow") as PermissionPolicy,
+      ...(payload.permissionPolicy === "ask"
+        ? { onPermission: (request: PermissionRequest) => this.waitForPermission(command.runId, command.generation, request) }
+        : {}),
       permissionTimeoutMs: this.permissionTimeoutMs,
       signal: context.signal,
     })

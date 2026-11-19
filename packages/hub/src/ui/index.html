@@ -133,6 +133,14 @@
                 <label for="run-prompt">Prompt</label>
                 <textarea id="run-prompt" name="prompt" rows="4" placeholder="Enter instructions, requirements or goals for the agent..." required></textarea>
               </div>
+              <div class="form-group">
+                <label for="run-permissions">Permissions</label>
+                <select id="run-permissions" name="permissionPolicy">
+                  <option value="allow" selected>Allow (default): the sandbox is the boundary</option>
+                  <option value="ask">Ask: wait for an owner answer, deny after 5 minutes</option>
+                  <option value="deny">Deny: refuse every request</option>
+                </select>
+              </div>
               <details class="advanced-disclosure">
                 <summary>Advanced Options (Requires, Node, Labels)</summary>
                 <div class="advanced-body">

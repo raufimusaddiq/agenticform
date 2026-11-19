@@ -205,6 +205,9 @@ describe("MCP boundary validation", () => {
       expect(
         toolError(await client.call("start_run", { idempotencyKey: "k", harness: "codex", prompt: "p", nope: 1 })),
       ).toContain("unknown start_run argument: nope")
+      expect(
+        toolError(await client.call("start_run", { idempotencyKey: "k", harness: "codex", prompt: "p", permissionPolicy: "yolo" })),
+      ).toContain("permissionPolicy must be allow, ask or deny")
     } finally {
       client.close()
     }
@@ -217,6 +220,7 @@ describe("MCP boundary validation", () => {
       const tool = listed.result.tools.find((entry: { name: string }) => entry.name === "start_run")
       expect(tool.inputSchema.properties.mcpServers.type).toBe("array")
       expect(tool.inputSchema.properties.gitBacked.type).toBe("boolean")
+      expect(tool.inputSchema.properties.permissionPolicy.enum).toEqual(["allow", "ask", "deny"])
     } finally {
       client.close()
     }

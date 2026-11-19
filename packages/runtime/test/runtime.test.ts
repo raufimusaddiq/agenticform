@@ -144,6 +144,7 @@ describe("named failures", () => {
 describe("permissions", () => {
   test("a throwing handler denies", async () => {
     const result = await run("permission", {
+      permissionPolicy: "ask",
       onPermission: () => {
         throw new Error("boom")
       },
@@ -153,6 +154,7 @@ describe("permissions", () => {
 
   test("an unanswered request is denied after the timeout", async () => {
     const result = await run("permission", {
+      permissionPolicy: "ask",
       onPermission: () => new Promise(() => {}),
       permissionTimeoutMs: 50,
     }).result()
@@ -160,14 +162,54 @@ describe("permissions", () => {
   })
 
   test("allow never selects a persistent grant", async () => {
-    const result = await run("permission-always-only", { onPermission: () => "allow" }).result()
+    const result = await run("permission-always-only", { permissionPolicy: "ask", onPermission: () => "allow" }).result()
     expect(result.text).toBe("no")
   })
 
   test("decisions appear in events", async () => {
-    const events = await collect(run("permission", { onPermission: () => "allow" }).events())
+    const events = await collect(run("permission", { permissionPolicy: "ask", onPermission: () => "allow" }).events())
     const resolved = events.find((event) => event.type === "permission.resolved")
     expect(resolved?.type === "permission.resolved" && resolved.decision).toBe("allow")
+  })
+
+  test("the default policy is ask: no handler denies, a handler decides", async () => {
+    expect((await run("permission").result()).text).toBe("no")
+    expect((await run("permission", { onPermission: () => "allow" }).result()).text).toBe("once")
+    const timedOut = await run("permission", { onPermission: () => new Promise(() => {}), permissionTimeoutMs: 50 }).result()
+    expect(timedOut.text).toBe("no")
+  })
+
+  test("an explicit allow answers at once with no handler and logs both events", async () => {
+    const started = Date.now()
+    const events = await collect(run("permission", { permissionPolicy: "allow" }).events())
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(events.some((event) => event.type === "permission.requested")).toBe(true)
+    const resolved = events.find((event) => event.type === "permission.resolved")
+    expect(resolved?.type === "permission.resolved" && resolved.decision).toBe("allow")
+    const text = events.filter((event) => event.type === "message.delta").map((event) => (event.type === "message.delta" ? event.text : "")).join("")
+    expect(text).toBe("once")
+  })
+
+  test("allow does not call the handler", async () => {
+    let calls = 0
+    const result = await run("permission", { permissionPolicy: "allow", onPermission: () => (calls++, "deny") }).result()
+    expect(result.text).toBe("once")
+    expect(calls).toBe(0)
+  })
+
+  test("ask with no handler denies", async () => {
+    expect((await run("permission", { permissionPolicy: "ask" }).result()).text).toBe("no")
+  })
+
+  test("deny refuses at once, even with a handler", async () => {
+    const result = await run("permission", { permissionPolicy: "deny", onPermission: () => "allow" }).result()
+    expect(result.text).toBe("no")
+  })
+
+  test("an unknown policy fails with invalid_input before spawn", async () => {
+    const result = await run("permission", { permissionPolicy: "yolo" as never }).result()
+    expect(result.status).toBe("failed")
+    expect(result.error?.code).toBe("invalid_input")
   })
 })
 

@@ -483,6 +483,9 @@ async function loadPermissions(runId) {
           el("span", { className: "mono-small" }, permission.requestId),
           permission.kind ? el("span", { className: "tab-pill pill-gap" }, permission.kind) : null,
           el("span", { className: `badge badge-${permission.status} pill-gap` }, permission.status),
+          permission.by === "policy"
+            ? el("span", { className: "tab-pill pill-gap" }, `policy: ${permission.decision ?? "?"}`)
+            : null,
         ]),
       ])
 
@@ -630,6 +633,8 @@ async function createRun(form) {
     payload.requires = requiresRaw.split(",").map((s) => s.trim()).filter(Boolean)
   }
   if (nodeId) payload.nodeId = nodeId.trim()
+  const permissionPolicy = data.get("permissionPolicy")
+  if (permissionPolicy) payload.permissionPolicy = permissionPolicy
 
   try {
     const run = await api("/v1/runs", {

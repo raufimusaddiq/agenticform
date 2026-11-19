@@ -9,6 +9,7 @@ const run = createRuntime().run({
   harness: "codex",
   cwd: "/absolute/path/to/repo",
   prompt: "Fix the failing tests",
+  permissionPolicy: "ask", // the default for the bare runtime, which has no sandbox
   onPermission: () => "deny",
 })
 
@@ -19,7 +20,7 @@ for await (const event of run.events()) {
 const result = await run.result()
 ```
 
-Changing `harness` is the only edit needed to use another agent. When a harness cannot meet a run's stated requirements, the run fails with a named error rather than degrading silently. Permission requests are denied unless the caller allows them.
+Changing `harness` is the only edit needed to use another agent. When a harness cannot meet a run's stated requirements, the run fails with a named error rather than degrading silently. Permission requests follow the run's `permissionPolicy`. This library has no sandbox, so it defaults to `ask`: `onPermission` decides and silence or no handler denies. `allow` and `deny` are explicit opt-ins. Runs placed through the hub and executed by a node default to `allow`, because the node's sandbox is the boundary (harness-native auto or bypass modes, such as claude-agent-acp's auto mode, are consistent with that).
 
 ## Architecture
 
@@ -89,7 +90,7 @@ A `runs` token can submit runs, inspect runs, stream events via SSE, cancel runs
 
 ### Remote permission answers
 
-When a sandboxed harness requests permission before taking an action, the node reports the request and waits for an answer. Deny on silence remains enforced by the runtime's 300 s timeout. The owner can inspect pending requests and answer them remotely via the CLI, MCP, or the operator UI:
+By default a hub run allows permission requests, since the node's sandbox is the boundary. A run started with `--permissions ask` (CLI), `permissionPolicy: "ask"` (API, MCP) or the UI's Permissions selector makes the node report each request and wait for an answer; remote answers apply only to those runs. Deny on silence remains enforced by the runtime's 300 s timeout. `--permissions deny` refuses every request. The owner can inspect pending requests and answer them remotely via the CLI, MCP, or the operator UI:
 
 ```bash
 af run permissions <runId>
