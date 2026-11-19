@@ -141,6 +141,39 @@ describe("remote permission answers (T021)", () => {
     expect((await running).result).toMatchObject({ text: "deny" })
   })
 
+  for (const [label, policy, text] of [
+    ["explicit allow", "allow", "allow"],
+    ["an absent policy", undefined, "allow"],
+    ["deny", "deny", "deny"],
+  ] as const) {
+    test(`${label} registers no waiter and completes without a hub wait`, async () => {
+      const node = executor()
+      let waiters = -1
+      const events: RunEventInput[] = []
+      const sink = {
+        emit: (event: RunEventInput) => {
+          events.push(event)
+          if (event.type === "permission.requested") {
+            waiters = (node as unknown as { permissionWaiters: Map<string, unknown> }).permissionWaiters.size
+          }
+        },
+        signal: new AbortController().signal,
+      }
+      const started = Date.now()
+      const outcome = await node.execute(command({ payload: { permissionPolicy: policy } as never }), sink)
+      // The default wait clock is 300 s, so finishing quickly proves nothing waited for the hub.
+      expect(Date.now() - started).toBeLessThan(20_000)
+      expect(outcome.result).toMatchObject({ status: "completed", text })
+      expect(waiters).toBe(0)
+      expect((node as unknown as { permissionWaiters: Map<string, unknown> }).permissionWaiters.size).toBe(0)
+      expect(events.some((event) => event.type === "permission.requested")).toBe(true)
+      expect(await node.execute(answerCommand("allow"), context([]))).toEqual({
+        status: "succeeded",
+        result: { applied: false },
+      })
+    })
+  }
+
   test("no answer is denied at the runtime's timeout", async () => {
     const events: RunEventInput[] = []
     const node = executor(50)

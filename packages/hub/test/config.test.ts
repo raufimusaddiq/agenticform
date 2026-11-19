@@ -7,7 +7,8 @@ import { createHub, openDatabase } from "../src/index.ts"
 import { loadConfig, validateConfig, type HubConfig } from "../src/config.ts"
 import { toNodeView } from "../src/nodes.ts"
 import { migrate, SCHEMA, type NodeRow, type RunRow } from "../src/schema.ts"
-import { api, startHub, testConfig } from "./helpers.ts"
+import { recordRequested } from "../src/permissions.ts"
+import { api, createRun, enroll, heartbeat, startHub, testConfig } from "./helpers.ts"
 
 const base = (patch: Partial<HubConfig>): HubConfig => ({ ...testConfig(), port: 8787, ...patch })
 
@@ -143,6 +144,38 @@ describe("hub config", () => {
     db.exec("PRAGMA user_version = 8")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)
+  })
+
+  test("a version-6 database upgrades to 7 and keeps a pending permission answerable", async () => {
+    const stateFile = join(mkdtempSync(join(tmpdir(), "af-db-")), "hub.sqlite")
+    const first = startHub({ stateFile })
+    const node = await enroll(first)
+    await heartbeat(first, node, { capabilities: ["permissions.remote"] })
+    const created = await createRun(first, { nodeId: node.nodeId, permissionPolicy: "ask" })
+    const runId = created.body.runId as string
+    recordRequested(first.db, runId, 1, { request: { toolCallId: "old", title: "Write", kind: "edit" } })
+    // Turn the file into what a v6 hub left behind: no decided_by column, a pending row.
+    first.db.exec("ALTER TABLE permission_requests DROP COLUMN decided_by")
+    first.db.exec("PRAGMA user_version = 6")
+    first.stop()
+    const raw = new Database(stateFile)
+    expect(raw.query("SELECT COUNT(*) AS n FROM pragma_table_info('permission_requests') WHERE name = 'decided_by'").get()).toEqual({ n: 0 })
+    raw.close()
+
+    const upgraded = startHub({ stateFile })
+    try {
+      expect(upgraded.db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 })
+      expect(upgraded.db.query("SELECT COUNT(*) AS n FROM pragma_table_info('permission_requests') WHERE name = 'decided_by'").get()).toEqual({ n: 1 })
+      expect(upgraded.db.query("SELECT status, decided_by FROM permission_requests WHERE tool_call_id = 'old'").get()).toEqual({ status: "pending", decided_by: null })
+      const listed = await api(upgraded, "GET", `/v1/runs/${runId}/permissions`)
+      expect(listed.body.permissions[0]).toMatchObject({ requestId: "old", status: "pending", by: null })
+      const answered = await api(upgraded, "POST", `/v1/runs/${runId}/permissions/old`, { decision: "allow" })
+      expect(answered.status).toBe(200)
+      expect(answered.body).toMatchObject({ status: "answered", decision: "allow", by: "admin" })
+      expect(upgraded.db.query("SELECT decided_by FROM permission_requests WHERE tool_call_id = 'old'").get()).toEqual({ decided_by: "admin" })
+    } finally {
+      upgraded.stop()
+    }
   })
 
   test("the advertised URL uses AGENTICFORM_HUB_URL", () => {
