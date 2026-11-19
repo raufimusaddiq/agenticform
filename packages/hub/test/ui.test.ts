@@ -28,6 +28,9 @@ describe("ui assets", () => {
     expect(js).toContain("authorization")
     // EventSource cannot carry a bearer header, so the UI must not use it.
     expect(js).not.toContain("new EventSource")
+    // Pending permissions are answered from the run view (T030).
+    expect(html).toContain('id="permissions"')
+    expect(js).toContain("answerPermission")
 
     const css = await get("/ui/app.css")
     expect(css.status).toBe(200)
@@ -109,5 +112,43 @@ describe("browser journey", () => {
     const cancelled = await fetch(`${hub.url}/v1/runs/${second.body.runId}/cancel`, { method: "POST", headers: auth })
     expect(cancelled.status).toBe(200)
     expect(((await cancelled.json()) as any).status).toBe("cancelled")
+  })
+
+  test("the run view lists a pending permission and answers it", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node, { capabilities: ["permissions.remote"] })
+    const auth = { authorization: `Bearer ${hub.config.adminToken}` }
+    const created = await createRun(hub)
+    const runId = created.body.runId as string
+    const command = (await nextCommand(hub, node)).body
+
+    const appended = await signedFetch(hub, node, "POST", `/v1/node/commands/${command.commandId}/events`, {
+      leaseId: command.leaseId,
+      events: [
+        {
+          key: "c1:1",
+          type: "permission.requested",
+          at: new Date().toISOString(),
+          data: {
+            type: "permission.requested",
+            turnId: "t1",
+            request: { toolCallId: "call_7", title: "Write file", kind: "edit" },
+          },
+        },
+      ],
+    })
+    expect(appended.status).toBe(200)
+
+    const listed = (await (await fetch(`${hub.url}/v1/runs/${runId}/permissions`, { headers: auth })).json()) as any
+    expect(listed.permissions[0]).toMatchObject({ requestId: "call_7", status: "pending" })
+
+    const answered = await fetch(`${hub.url}/v1/runs/${runId}/permissions/call_7`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ decision: "allow" }),
+    })
+    expect(answered.status).toBe(200)
+    expect(((await answered.json()) as any).status).toBe("answered")
   })
 })

@@ -18,6 +18,7 @@ import {
 import type { HubConfig } from "./config.ts"
 import { fail } from "./errors.ts"
 import { insertEvent, hubEventKey } from "./events.ts"
+import { cancelPending } from "./permissions.ts"
 import type { NodeRow, RunRow } from "./schema.ts"
 
 const ACTIVE_RUN = new Set(["queued", "leased", "running"])
@@ -259,6 +260,7 @@ function disconnectRuns(db: Database, nodeId: string, reason: string, now: numbe
       run.id,
       run.generation,
     )
+    cancelPending(db, run.id, now)
     db.query("UPDATE nodes SET capacity_in_use = MAX(capacity_in_use - 1, 0) WHERE id = ?").run(nodeId)
     insertEvent(db, run.id, {
       key: pendingCancel ? hubEventKey("finished", generation) : hubEventKey("disconnected", generation),

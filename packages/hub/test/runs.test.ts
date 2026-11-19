@@ -141,11 +141,118 @@ describe("idempotency key", () => {
     hub = startHub()
     const node = await enroll(hub)
     await heartbeat(hub, node)
-    for (const patch of [{ labels: { a: 1 } }, { mcpServers: "x" }, { gitBacked: "yes" }, { requires: [1] }]) {
+    for (const patch of [
+      { labels: { a: 1 } },
+      { mcpServers: "x" },
+      { gitBacked: "yes" },
+      { requires: [1] },
+      { parentRunId: 1 },
+    ]) {
       const response = await createRun(hub, patch)
       expect(response.status).toBe(400)
       expect(response.body.error.code).toBe("invalid_input")
     }
+  })
+})
+
+describe("run lineage", () => {
+  const roomy = async (overrides: Parameters<typeof startHub>[0] = {}) => {
+    hub = startHub(overrides)
+    const node = await enroll(hub)
+    await heartbeat(hub, node, { capacity: { slots: 10, inUse: 0 } })
+    return node
+  }
+
+  test("a root run has depth 0 and a child has parent.depth + 1", async () => {
+    await roomy()
+    const root = await createRun(hub as Hub)
+    expect(root.status).toBe(201)
+    expect(root.body.parentRunId).toBeNull()
+    expect(root.body.depth).toBe(0)
+
+    const child = await createRun(hub as Hub, { parentRunId: root.body.runId })
+    expect(child.status).toBe(201)
+    expect(child.body.parentRunId).toBe(root.body.runId)
+    expect(child.body.depth).toBe(1)
+
+    const grandchild = await createRun(hub as Hub, { parentRunId: child.body.runId })
+    expect(grandchild.body.depth).toBe(2)
+
+    const read = await api(hub as Hub, "GET", `/v1/runs/${child.body.runId}`)
+    expect(read.body.depth).toBe(1)
+    expect(read.body.parentRunId).toBe(root.body.runId)
+  })
+
+  test("depth past the limit is 422 depth_exceeded and inserts no row", async () => {
+    await roomy()
+    let parent = (await createRun(hub as Hub)).body.runId as string
+    for (let depth = 1; depth <= 3; depth++) {
+      const child = await createRun(hub as Hub, { parentRunId: parent })
+      expect(child.status).toBe(201)
+      expect(child.body.depth).toBe(depth)
+      parent = child.body.runId
+    }
+    const before = hub?.db.query("SELECT COUNT(*) AS n FROM runs").get()
+    const tooDeep = await createRun(hub as Hub, { parentRunId: parent })
+    expect(tooDeep.status).toBe(422)
+    expect(tooDeep.body.error.code).toBe("depth_exceeded")
+    expect(hub?.db.query("SELECT COUNT(*) AS n FROM runs").get()).toEqual(before)
+  })
+
+  test("an unknown parent is 404 parent_not_found", async () => {
+    await roomy()
+    const response = await createRun(hub as Hub, { parentRunId: "no-such-run" })
+    expect(response.status).toBe(404)
+    expect(response.body.error.code).toBe("parent_not_found")
+    expect(hub?.db.query("SELECT COUNT(*) AS n FROM runs").get()).toEqual({ n: 0 })
+  })
+
+  test("an empty parent is 400 invalid_input", async () => {
+    await roomy()
+    const response = await createRun(hub as Hub, { parentRunId: "" })
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe("invalid_input")
+  })
+
+  test("a row written before parentRunId existed still matches its key", async () => {
+    await roomy()
+    const first = await createRun(hub as Hub, { idempotencyKey: "legacy-1" })
+    expect(first.status).toBe(201)
+    const row = hub?.db
+      .query<{ request_json: string }, [string]>("SELECT request_json FROM runs WHERE id = ?")
+      .get(first.body.runId)
+    const stored = JSON.parse(row?.request_json as string) as Record<string, unknown>
+    delete stored.parentRunId
+    hub?.db.query("UPDATE runs SET request_json = ? WHERE id = ?").run(JSON.stringify(stored), first.body.runId)
+
+    const retry = await createRun(hub as Hub, { idempotencyKey: "legacy-1" })
+    expect(retry.status).toBe(200)
+    expect(retry.body.runId).toBe(first.body.runId)
+  })
+
+  test("a limit of 0 refuses any child", async () => {
+    await roomy({ maxDepth: 0 })
+    const root = await createRun(hub as Hub)
+    expect(root.status).toBe(201)
+    const child = await createRun(hub as Hub, { parentRunId: root.body.runId })
+    expect(child.status).toBe(422)
+    expect(child.body.error.code).toBe("depth_exceeded")
+  })
+
+  test("the same key with the same parent returns the run; a different parent conflicts", async () => {
+    await roomy()
+    const one = (await createRun(hub as Hub)).body.runId as string
+    const two = (await createRun(hub as Hub)).body.runId as string
+
+    const first = await createRun(hub as Hub, { idempotencyKey: "child-1", parentRunId: one })
+    expect(first.status).toBe(201)
+    const again = await createRun(hub as Hub, { idempotencyKey: "child-1", parentRunId: one })
+    expect(again.status).toBe(200)
+    expect(again.body.runId).toBe(first.body.runId)
+
+    const conflict = await createRun(hub as Hub, { idempotencyKey: "child-1", parentRunId: two })
+    expect(conflict.status).toBe(409)
+    expect(conflict.body.error.code).toBe("idempotency_conflict")
   })
 })
 

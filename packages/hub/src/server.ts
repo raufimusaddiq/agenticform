@@ -15,9 +15,11 @@ import { HubError, fail } from "./errors.ts"
 import { appendEvents, listEvents } from "./events.ts"
 import { heartbeat, listNodes, setNodeStatus, sweepHealth } from "./nodes.ts"
 import { cleanupNonces } from "./nonces.ts"
+import { answerPermission, listPermissions } from "./permissions.ts"
 import { cancelRun, createRun, getRun, recoverRun, runView } from "./runs.ts"
 import { openDatabase } from "./schema.ts"
 import { authenticateMachine } from "./signatures.ts"
+import { authenticateToken, issueToken, listTokens, revokeToken, type Principal } from "./tokens.ts"
 import { uiAsset } from "./ui.ts"
 import { validateConfig } from "./config.ts"
 
@@ -97,7 +99,12 @@ function requireBody(body: unknown): Record<string, unknown> {
   return body as Record<string, unknown>
 }
 
-const COMMAND_TYPES = new Set<CommandType>(["run.start", "run.cancel", "run.inspect"])
+const COMMAND_TYPES = new Set<CommandType>([
+  "run.start",
+  "run.cancel",
+  "run.inspect",
+  "permission.answer",
+])
 
 /** Optional `types` filter so a full node can still lease cancels and inspects. */
 function parseCommandTypes(value: string | null): CommandType[] | undefined {
@@ -113,15 +120,38 @@ function parseCommandTypes(value: string | null): CommandType[] | undefined {
   return types as CommandType[]
 }
 
-/** Constant-time bearer compare with no anonymous fallback (N8.1). */
-function authenticateBearer(config: HubConfig, headers: Headers): void {
+/**
+ * Caller routes a `runs` token may use (plan.md §"Principal and route guard").
+ * Every other route is admin-only, so a route added later is closed by default.
+ */
+const RUNS_ROUTES: readonly { method: string; pattern: RegExp }[] = [
+  { method: "POST", pattern: /^\/v1\/runs$/ },
+  { method: "GET", pattern: /^\/v1\/runs\/[^/]+$/ },
+  { method: "GET", pattern: /^\/v1\/runs\/[^/]+\/events$/ },
+  { method: "POST", pattern: /^\/v1\/runs\/[^/]+\/cancel$/ },
+  { method: "GET", pattern: /^\/v1\/runs\/[^/]+\/permissions$/ },
+  { method: "GET", pattern: /^\/v1\/nodes$/ },
+]
+
+function runsMayUse(method: string, path: string): boolean {
+  return RUNS_ROUTES.some((route) => route.method === method && route.pattern.test(path))
+}
+
+/**
+ * Admin token first, unchanged compare; then a caller token. No anonymous
+ * fallback (N8.1, R1).
+ */
+function authenticate(config: HubConfig, db: Database, headers: Headers): Principal {
   if (config.adminToken.length < 32) fail("unauthorized", "unauthorized")
   const header = headers.get("authorization") ?? ""
   const match = /^Bearer\s+(.+)$/i.exec(header)
   const token = match?.[1] ?? ""
   const given = createHash("sha256").update(token).digest()
   const expected = createHash("sha256").update(config.adminToken).digest()
-  if (!timingSafeEqual(given, expected)) fail("unauthorized", "unauthorized")
+  if (timingSafeEqual(given, expected)) return { kind: "admin" }
+  const principal = authenticateToken(db, token)
+  if (!principal) fail("unauthorized", "unauthorized")
+  return principal
 }
 
 export function createHub(config: HubConfig): Hub {
@@ -149,10 +179,24 @@ export function createHub(config: HubConfig): Hub {
 
       if (path.startsWith("/v1/node/")) return await machine(request, url)
 
-      authenticateBearer(config, request.headers)
+      const principal = authenticate(config, db, request.headers)
+      if (principal.kind === "runs" && !runsMayUse(request.method, path)) {
+        fail("forbidden", "this route requires the admin token")
+      }
 
       if (request.method === "POST" && path === "/v1/enrollment-tokens") {
         return json(createEnrollmentToken(db, config), 201)
+      }
+      if (request.method === "POST" && path === "/v1/tokens") {
+        const body = await readJson<{ name?: unknown; scope?: unknown }>(request, config.maxBodyBytes)
+        return json(issueToken(db, body.name, body.scope), 201)
+      }
+      if (request.method === "GET" && path === "/v1/tokens") {
+        return json({ tokens: listTokens(db) })
+      }
+      const tokenRevoke = /^\/v1\/tokens\/([^/]+)\/revoke$/.exec(path)
+      if (request.method === "POST" && tokenRevoke) {
+        return json(revokeToken(db, tokenRevoke[1] as string))
       }
       if (request.method === "GET" && path === "/v1/nodes") {
         return json({ nodes: listNodes(db) })
@@ -163,7 +207,7 @@ export function createHub(config: HubConfig): Hub {
         return json(setNodeStatus(db, nodeId as string, action === "disable" ? "disabled" : "revoked"))
       }
       if (request.method === "POST" && path === "/v1/runs") {
-        const result = createRun(db, await readJson<RunRequest>(request, config.maxBodyBytes))
+        const result = createRun(db, await readJson<RunRequest>(request, config.maxBodyBytes), config)
         return json(runView(db, result.run), result.created ? 201 : 200)
       }
       const runAction = /^\/v1\/runs\/([^/]+)(?:\/(events|cancel|recover))?$/.exec(path)
@@ -177,7 +221,15 @@ export function createHub(config: HubConfig): Hub {
           getRun(db, runId)
           const after = Number(url.searchParams.get("after") ?? request.headers.get("last-event-id") ?? 0)
           if (url.searchParams.get("stream") === "sse") {
-            return sse(db, runId, Number.isFinite(after) ? after : 0, request.signal)
+            const headers = request.headers
+            return sse(db, runId, Number.isFinite(after) ? after : 0, request.signal, () => {
+              try {
+                authenticate(config, db, headers)
+                return true
+              } catch {
+                return false
+              }
+            })
           }
           const events = listEvents(db, runId, Number.isFinite(after) ? after : 0)
           return json({ events, lastSeq: events.at(-1)?.seq ?? after })
@@ -188,6 +240,18 @@ export function createHub(config: HubConfig): Hub {
         }
         if (request.method === "POST" && action === "recover") {
           return json(runView(db, recoverRun(db, config, runId)))
+        }
+      }
+      const permissionAction = /^\/v1\/runs\/([^/]+)\/permissions(?:\/([^/]+))?$/.exec(path)
+      if (permissionAction) {
+        const runId = permissionAction[1] as string
+        const requestId = permissionAction[2]
+        if (request.method === "GET" && requestId === undefined) {
+          return json({ permissions: listPermissions(db, runId) })
+        }
+        if (request.method === "POST" && requestId !== undefined) {
+          const body = await readJson<{ decision?: unknown }>(request, config.maxBodyBytes)
+          return json(answerPermission(db, runId, decodeURIComponent(requestId), body.decision))
         }
       }
       fail("not_found", "route not found")
@@ -258,12 +322,18 @@ export function createHub(config: HubConfig): Hub {
 }
 
 /** SSE replay from `after`, ending after the terminal event (FR-020). */
-function sse(db: Database, runId: string, after: number, signal: AbortSignal): Response {
+function sse(
+  db: Database,
+  runId: string,
+  after: number,
+  signal: AbortSignal,
+  authorized: () => boolean,
+): Response {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
       let cursor = after
-      let idle = 0
+      let lastCheck = Date.now()
       const close = () => {
         try {
           controller.close()
@@ -274,6 +344,18 @@ function sse(db: Database, runId: string, after: number, signal: AbortSignal): R
       try {
         controller.enqueue(encoder.encode(": connected\n\n"))
         while (!signal.aborted) {
+          // Wall-clock, not idle ticks: a run that keeps emitting events must
+          // still lose its stream within 30 s of revocation (R3, FR-003).
+          if (Date.now() - lastCheck >= 5_000) {
+            lastCheck = Date.now()
+            if (!authorized()) {
+              controller.enqueue(
+                encoder.encode(`event: error\ndata: ${JSON.stringify({ code: "unauthorized" })}\n\n`),
+              )
+              return close()
+            }
+            controller.enqueue(encoder.encode(": keepalive\n\n"))
+          }
           const events = listEvents(db, runId, cursor)
           for (const event of events) {
             if (signal.aborted) return close()
@@ -285,9 +367,6 @@ function sse(db: Database, runId: string, after: number, signal: AbortSignal): R
           if (["completed", "failed", "cancelled"].includes(run.status) && events.length === 0) {
             return close()
           }
-          if (events.length > 0) idle = 0
-          idle += 1
-          if (idle % 20 === 0) controller.enqueue(encoder.encode(": keepalive\n\n"))
           await Bun.sleep(250)
         }
         close()

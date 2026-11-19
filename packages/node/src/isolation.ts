@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
-import { dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 import type { HarnessDefinition } from "@agenticform/runtime"
 
 /**
@@ -57,7 +57,12 @@ export class IsolationError extends Error {
 
 /** The in-sandbox path a state entry is bound at (contracts/isolation.md §2). */
 const sandboxDest = (path: string): string =>
-  path.startsWith("~/") ? join(SANDBOX_HOME, path.slice(1)) : path
+  // POSIX join: the sandbox path is always `/home/agent/...`, even on a host
+  // whose `path.join` would use backslashes.
+  path.startsWith("~/") ? posix.join(SANDBOX_HOME, path.slice(1)) : path
+
+/** A host-relative path as a POSIX relative path: in-sandbox paths are POSIX. */
+const posixRelative = (from: string, to: string): string => relative(from, to).replaceAll(sep, "/")
 
 /**
  * A profile `env` value is a fixed literal, never run input (FR-009a, FR-009c).
@@ -68,7 +73,7 @@ const sandboxDest = (path: string): string =>
 export function validateProfile(harness: string, entry: TableEntry | undefined): void {
   const writable = new Set((entry?.rw ?? []).map(sandboxDest))
   for (const [name, value] of Object.entries(entry?.env ?? {})) {
-    if (!isAbsolute(value)) {
+    if (!posix.isAbsolute(value)) {
       throw new Error(`profile ${harness}: env ${name} must be an absolute path: ${value}`)
     }
     if (!writable.has(value)) {
@@ -195,7 +200,7 @@ export function entryBinds(
     const fromHome = item.path.startsWith("~/")
     return {
       source: fromHome ? join(home, item.path.slice(1)) : item.path,
-      dest: fromHome ? join(SANDBOX_HOME, item.path.slice(1)) : item.path,
+      dest: fromHome ? posix.join(SANDBOX_HOME, item.path.slice(1)) : item.path,
     }
   })
   const stateSources = stateBinds.map((bind) => bind.source)
@@ -205,12 +210,12 @@ export function entryBinds(
   const commandReal = entry.command ? realpathOr(entry.command) : ""
   // (1) The real file is inside a declared state dir: use the state bind.
   const state = commandReal ? stateBinds.find((bind) => isUnder(commandReal, bind.source)) : undefined
-  const command = state ? join(state.dest, relative(state.source, commandReal)) : entry.command
+  const command = state ? posix.join(state.dest, posixRelative(state.source, commandReal)) : entry.command
 
   const dirBinds: string[] = []
   const fileBinds: string[] = []
   const pathDirs: string[] = []
-  if (state) pathDirs.push(dirname(command))
+  if (state) pathDirs.push(posix.dirname(command))
   for (const dir of [...new Set(entry.dirs)]) {
     if (!isAbsolute(dir) || !existsSync(dir)) continue
     const resolved = realpathOr(dir)
@@ -218,7 +223,7 @@ export function entryBinds(
     if (isUnder(resolved, workspaceRoot)) continue
     const inside = stateBinds.find((bind) => isUnder(resolved, bind.source))
     if (inside) {
-      pathDirs.push(join(inside.dest, relative(inside.source, resolved)))
+      pathDirs.push(posix.join(inside.dest, posixRelative(inside.source, resolved)))
       continue
     }
     const underHome = isUnder(resolved, homeRoot)
@@ -297,13 +302,13 @@ function assertStateDirUsable(path: string): void {
 
 /** `--dir` for each ancestor the sandbox root does not already provide. */
 function dirArgs(dest: string, root: string): string[] {
-  const rel = relative(root, dest)
-  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return []
+  const rel = posix.relative(root, dest)
+  if (rel === "" || rel.startsWith("..") || posix.isAbsolute(rel)) return []
   const args: string[] = []
   let current = root
   for (const part of rel.split("/").slice(0, -1)) {
     if (!part) continue
-    current = current === "/" ? `/${part}` : join(current, part)
+    current = current === "/" ? `/${part}` : posix.join(current, part)
     if (SYSTEM_PATHS.some((system) => isUnder(current, system))) continue
     args.push("--dir", current)
   }
@@ -341,7 +346,7 @@ export function sandboxArgs(
     return {
       fromHome,
       source: fromHome ? join(home, entry.path.slice(1)) : entry.path,
-      dest: fromHome ? join(SANDBOX_HOME, entry.path.slice(1)) : entry.path,
+      dest: fromHome ? posix.join(SANDBOX_HOME, entry.path.slice(1)) : entry.path,
       mode: entry.mode,
     }
   })

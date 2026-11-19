@@ -19,6 +19,12 @@ export type ErrorCode =
   | "no_eligible_node"
   | "recovery_precondition_failed"
   | "workspace_missing"
+  | "name_taken"
+  | "permission_resolved"
+  | "permission_expired"
+  | "permission_unsupported"
+  | "parent_not_found"
+  | "depth_exceeded"
   | "internal"
 
 export interface ApiErrorBody {
@@ -133,7 +139,7 @@ export interface HeartbeatResponse {
   commandsPollMs: number
 }
 
-export type CommandType = "run.start" | "run.cancel" | "run.inspect"
+export type CommandType = "run.start" | "run.cancel" | "run.inspect" | "permission.answer"
 
 export interface CommandPayload {
   fingerprint: string
@@ -143,6 +149,8 @@ export interface CommandPayload {
   prompt?: string
   requires?: string[]
   mcpServers?: unknown[]
+  toolCallId?: string
+  decision?: "allow" | "deny"
   [key: string]: unknown
 }
 
@@ -193,6 +201,8 @@ export interface RunRequest {
   labels?: Record<string, string>
   /** Recovery needs a GIT-backed workspace. Defaults to true. */
   gitBacked?: boolean
+  /** The run that started this one. Depth is parent.depth + 1. */
+  parentRunId?: string
 }
 
 export type RunStatus =
@@ -213,10 +223,47 @@ export interface RunView {
   result?: unknown
   error?: { code: string; message: string } | null
   lastSeq?: number
+  parentRunId: string | null
+  depth: number
 }
 
-export interface RunEventWire {
-  seq: number
+/** A caller token as listed. The secret is never part of a view (FR-004). */
+export interface CallerTokenView {
+  id: string
+  name: string
+  scope: string
+  createdAt: string
+  lastUsedAt: string | null
+  revokedAt: string | null
+}
+
+/** The issue response: the only place the token itself appears. */
+export interface IssuedCallerToken extends CallerTokenView {
+  token: string
+}
+
+/**
+ * The runtime's deny-on-silence clock, shared so the hub's `expires_at` and the
+ * node's `permissionTimeoutMs` cannot drift (contracts/http-api.md §3).
+ */
+export const PERMISSION_TIMEOUT_MS = 300_000
+
+export type PermissionStatus = "pending" | "answered" | "resolved" | "timed_out" | "cancelled"
+
+/** A permission request as listed. `requestId` is the ACP `toolCallId`. */
+export interface PermissionRequestView {
+  requestId: string
+  generation: number
+  title: string | null
+  kind: string | null
+  options: ("allow" | "deny")[]
+  status: PermissionStatus
+  decision: "allow" | "deny" | null
+  requestedAt: string
+  expiresAt: string
+}
+
+export interface RunEventWire {  seq: number
   key: string
   type: string
   at: string

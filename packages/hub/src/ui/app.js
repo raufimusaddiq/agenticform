@@ -77,12 +77,54 @@ function appendEvent(event) {
   const item = document.createElement("li")
   item.textContent = `${event.seq} ${event.at} ${event.type} ${JSON.stringify(event.data)}`
   $("events").append(item)
+  // A permission event changes the pending list, so refresh it.
+  if (event.type.startsWith("permission.") && state.runId) loadPermissions(state.runId)
+}
+
+// Pending requests with Allow and Deny. The bearer token stays in the header.
+async function loadPermissions(runId) {
+  try {
+    const { permissions } = await api(`/v1/runs/${encodeURIComponent(runId)}/permissions`)
+    const list = $("permissions")
+    list.replaceChildren()
+    for (const permission of permissions) {
+      const item = document.createElement("li")
+      item.textContent = `${permission.requestId} ${permission.status} ${permission.title ?? ""}`
+      if (permission.status === "pending") {
+        for (const decision of ["allow", "deny"]) {
+          const button = document.createElement("button")
+          button.type = "button"
+          button.textContent = decision === "allow" ? "Allow" : "Deny"
+          button.addEventListener("click", () => answerPermission(permission.requestId, decision))
+          item.append(button)
+        }
+      }
+      list.append(item)
+    }
+  } catch (error) {
+    setError(error.message)
+  }
+}
+
+async function answerPermission(requestId, decision) {
+  if (!state.runId) return
+  setError("")
+  try {
+    await api(
+      `/v1/runs/${encodeURIComponent(state.runId)}/permissions/${encodeURIComponent(requestId)}`,
+      { method: "POST", body: JSON.stringify({ decision }) },
+    )
+    await loadPermissions(state.runId)
+  } catch (error) {
+    setError(error.message)
+  }
 }
 
 async function openRun(runId) {
   state.runId = runId
   state.stream?.abort()
   $("events").replaceChildren()
+  $("permissions").replaceChildren()
   show("run")
   setError("")
   try {
@@ -91,6 +133,7 @@ async function openRun(runId) {
     setError(error.message)
     return
   }
+  loadPermissions(runId)
   streamEvents(runId)
 }
 

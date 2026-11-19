@@ -15,6 +15,7 @@ export interface HubConfig {
   pollMs: number
   recoveryGraceMs: number
   maxBodyBytes: number
+  maxDepth: number
 }
 
 const seconds = (value: string | undefined, fallback: number): number =>
@@ -40,6 +41,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     pollMs: millis(env.AGENTICFORM_POLL_MS, 1_500),
     recoveryGraceMs: seconds(env.AGENTICFORM_RECOVERY_GRACE_SECONDS, 120_000),
     maxBodyBytes: millis(env.AGENTICFORM_MAX_BODY_BYTES, 1_048_576),
+    maxDepth: millis(env.AGENTICFORM_RUN_MAX_DEPTH, 3),
   }
   validateConfig(config)
   return config
@@ -69,6 +71,9 @@ export function validateConfig(config: HubConfig): void {
   }
   if (!Number.isInteger(config.port) || config.port < 0 || config.port > 65_535) {
     throw new Error("AGENTICFORM_HUB_PORT must be an integer between 0 and 65535")
+  }
+  if (!Number.isInteger(config.maxDepth) || config.maxDepth < 0) {
+    throw new Error("AGENTICFORM_RUN_MAX_DEPTH must be a non-negative integer")
   }
   if (config.nonceTtlMs < 2 * config.clockSkewMs + 60_000) {
     throw new Error(

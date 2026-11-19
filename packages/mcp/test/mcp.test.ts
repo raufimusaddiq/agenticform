@@ -112,13 +112,23 @@ const server = Bun.serve({
         createdAt: new Date().toISOString(),
       })
     }
+    if (url.pathname === "/v1/runs" && request.method === "POST") {
+      return Response.json({
+        runId: "r1",
+        status: "queued",
+        nodeId: null,
+        generation: 1,
+        createdAt: new Date().toISOString(),
+        auth: request.headers.get("authorization"),
+      })
+    }
     return new Response("not found", { status: 404 })
   },
 })
 
 afterAll(() => server.stop(true))
 
-function mcp(): {
+function mcp(overrides: Record<string, string> = {}): {
   call: (name: string, args: unknown) => Promise<any>
   request: (method: string, params?: unknown) => Promise<any>
   send: (method: string, params?: unknown) => { id: number; response: Promise<any> }
@@ -130,6 +140,7 @@ function mcp(): {
       ...process.env,
       AGENTICFORM_HUB_URL: server.url.origin,
       AGENTICFORM_ADMIN_TOKEN: "test-token",
+      ...overrides,
     },
     stdio: ["pipe", "pipe", "inherit"],
   })
@@ -230,6 +241,22 @@ describe("MCP boundary validation", () => {
       client.close()
     }
   })
+
+  test("permission tools are advertised and validated", async () => {
+    const client = mcp()
+    try {
+      const listed = await client.request("tools/list")
+      const names = listed.result.tools.map((entry: { name: string }) => entry.name)
+      expect(names).toContain("list_permissions")
+      expect(names).toContain("answer_permission")
+      expect(toolError(await client.call("list_permissions", {}))).toContain("runId is required")
+      expect(
+        toolError(await client.call("answer_permission", { runId: "r1", requestId: "call_7", decision: "maybe" })),
+      ).toContain("decision must be allow or deny")
+    } finally {
+      client.close()
+    }
+  })
 })
 
 describe("MCP list_events follow is bounded", () => {
@@ -301,8 +328,24 @@ describe("MCP follow concurrency", () => {
   })
 })
 
-describe("MCP initialize negotiation", () => {
-  test("echoes a supported version and falls back to the latest otherwise", async () => {
+describe("MCP caller token", () => {
+  test("uses AGENTICFORM_TOKEN when the admin token is unset", async () => {
+    const client = mcp({ AGENTICFORM_ADMIN_TOKEN: "", AGENTICFORM_TOKEN: "afc_abcdefghijkl_secret" })
+    try {
+      const response = await client.call("start_run", {
+        idempotencyKey: "k",
+        harness: "codex",
+        prompt: "p",
+      })
+      const run = JSON.parse(response.result.content[0].text)
+      expect(run.auth).toBe("Bearer afc_abcdefghijkl_secret")
+    } finally {
+      client.close()
+    }
+  })
+})
+
+describe("MCP initialize negotiation", () => {  test("echoes a supported version and falls back to the latest otherwise", async () => {
     const client = mcp()
     try {
       const supported = await client.request("initialize", { protocolVersion: "2024-11-05" })

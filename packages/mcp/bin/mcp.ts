@@ -5,6 +5,7 @@ import {
   FOLLOW_STOP_STATUSES,
   HubApiError,
   HubClient,
+  envToken,
   normalizeAfter,
   reconnectDelay,
 } from "@agenticform/client"
@@ -38,6 +39,7 @@ const TOOLS = [
         nodeId: { type: "string" },
         labels: { type: "object", additionalProperties: { type: "string" } },
         gitBacked: { type: "boolean" },
+        parentRunId: { type: "string" },
       },
       required: ["idempotencyKey", "harness", "prompt"],
       additionalProperties: false,
@@ -77,13 +79,37 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "list_permissions",
+    description: "List a run's permission requests and their status.",
+    inputSchema: {
+      type: "object",
+      properties: { runId: { type: "string" } },
+      required: ["runId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "answer_permission",
+    description: "Allow or deny a pending permission request. Owner only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string" },
+        requestId: { type: "string" },
+        decision: { type: "string", enum: ["allow", "deny"] },
+      },
+      required: ["runId", "requestId", "decision"],
+      additionalProperties: false,
+    },
+  },
 ] as const
 
 function client(): HubClient {
   const url = process.env.AGENTICFORM_HUB_URL
-  const token = process.env.AGENTICFORM_ADMIN_TOKEN
+  const token = envToken()
   if (!url) throw new Error("AGENTICFORM_HUB_URL is required")
-  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN is required")
+  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN is required")
   return new HubClient({ url, token })
 }
 
@@ -97,6 +123,7 @@ function requireString(args: Record<string, unknown>, key: string): string {
 function startRunRequest(args: Record<string, unknown>): RunRequest {
   const allowed = new Set([
     "idempotencyKey", "harness", "prompt", "cwd", "requires", "mcpServers", "nodeId", "labels", "gitBacked",
+    "parentRunId",
   ])
   for (const key of Object.keys(args)) {
     if (!allowed.has(key)) throw new Error(`unknown start_run argument: ${key}`)
@@ -138,6 +165,10 @@ function startRunRequest(args: Record<string, unknown>): RunRequest {
   if (args.gitBacked !== undefined) {
     if (typeof args.gitBacked !== "boolean") throw new Error("gitBacked must be a boolean")
     request.gitBacked = args.gitBacked
+  }
+  if (args.parentRunId !== undefined) {
+    if (typeof args.parentRunId !== "string") throw new Error("parentRunId must be a string")
+    request.parentRunId = args.parentRunId
   }
   return request
 }
@@ -225,6 +256,17 @@ async function call(name: string, args: Record<string, unknown>, requestId: unkn
       return hub.getRun(requireString(args, "runId"))
     case "cancel_run":
       return hub.cancelRun(requireString(args, "runId"))
+    case "list_permissions":
+      return hub.listPermissions(requireString(args, "runId"))
+    case "answer_permission": {
+      const decision = args.decision
+      if (decision !== "allow" && decision !== "deny") throw new Error("decision must be allow or deny")
+      return hub.answerPermission(
+        requireString(args, "runId"),
+        requireString(args, "requestId"),
+        decision,
+      )
+    }
     case "list_events": {
       const runId = requireString(args, "runId")
       const after = normalizeAfter(args.after ?? 0)

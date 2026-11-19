@@ -4,6 +4,7 @@ import {
   FOLLOW_STOP_STATUSES,
   HubApiError,
   HubClient,
+  envToken,
   normalizeAfter,
   reconnectDelay,
 } from "@agenticform/client"
@@ -12,20 +13,25 @@ const USAGE = `usage: af <command>
   af nodes
   af run start --harness <h> --prompt <text> --key <idempotency-key>
                [--cwd <dir>] [--node <id>] [--requires a,b] [--label k=v]...
-               [--git-backed[=true|false]]
+               [--git-backed[=true|false]] [--parent <runId>]
   af run get <runId>
   af run events <runId> [--after <seq>] [--follow]
   af run cancel <runId>
+  af run permissions <runId>
+  af run answer <runId> <requestId> allow|deny
+  af token issue <name>
+  af token list
+  af token revoke <id>
 
 Flags also accept --flag=value. Use that form when a value starts with "--".
 
-Environment: AGENTICFORM_HUB_URL, AGENTICFORM_ADMIN_TOKEN`
+Environment: AGENTICFORM_HUB_URL, AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN`
 
 function client(): HubClient {
   const url = process.env.AGENTICFORM_HUB_URL
-  const token = process.env.AGENTICFORM_ADMIN_TOKEN
+  const token = envToken()
   if (!url) throw new Error("AGENTICFORM_HUB_URL is required")
-  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN is required")
+  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN is required")
   return new HubClient({ url, token })
 }
 
@@ -88,9 +94,23 @@ async function main(argv: string[]): Promise<void> {
     return print(await client().listNodes())
   }
 
+  if (group === "token") {
+    rejectUnknownFlags(argv.slice(1), [])
+    if (action === "issue") {
+      if (!id) throw new Error("af token issue <name>")
+      return print(await client().issueToken(id))
+    }
+    if (action === "list") return print(await client().listTokens())
+    if (action === "revoke") {
+      if (!id) throw new Error("af token revoke <id>")
+      return print(await client().revokeToken(id))
+    }
+    throw new Error(USAGE)
+  }
+
   if (group === "run" && action === "start") {
     const rest = argv.slice(2)
-    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label", "git-backed"])
+    rejectUnknownFlags(rest, ["harness", "prompt", "key", "cwd", "node", "requires", "label", "git-backed", "parent"])
     const harness = flag(rest, "harness")
     const prompt = flag(rest, "prompt")
     const idempotencyKey = flag(rest, "key")
@@ -98,6 +118,7 @@ async function main(argv: string[]): Promise<void> {
     const requires = flag(rest, "requires")
     const cwd = flag(rest, "cwd")
     const node = flag(rest, "node")
+    const parent = flag(rest, "parent")
     const labels = parseLabels(flags(rest, "label"))
     const gitBackedFlag = rest.find((arg) => arg === "--git-backed" || arg.startsWith("--git-backed="))
     let gitBacked: boolean | undefined
@@ -125,8 +146,26 @@ async function main(argv: string[]): Promise<void> {
       ...(requires === undefined ? {} : { requires: requires.split(",").filter(Boolean) }),
       ...(Object.keys(labels).length ? { labels } : {}),
       ...(gitBacked === undefined ? {} : { gitBacked }),
+      ...(parent === undefined ? {} : { parentRunId: parent }),
     }
     return print(await client().createRun(request))
+  }
+
+  if (group === "run" && action === "permissions") {
+    const rest = argv.slice(2)
+    rejectUnknownFlags(rest, [])
+    const runId = rest[0]
+    if (!runId) throw new Error("af run permissions <runId>")
+    return print(await client().listPermissions(runId))
+  }
+
+  if (group === "run" && action === "answer") {
+    const rest = argv.slice(2)
+    rejectUnknownFlags(rest, [])
+    const [runId, requestId, decision] = rest
+    if (!runId || !requestId) throw new Error("af run answer <runId> <requestId> allow|deny")
+    if (decision !== "allow" && decision !== "deny") throw new Error("decision must be allow or deny")
+    return print(await client().answerPermission(runId, requestId, decision))
   }
 
   if (group !== "run" || !action || !id || !["get", "events", "cancel"].includes(action)) {
