@@ -15,6 +15,7 @@ import { Executor } from "../src/executor.ts"
 import { HarnessProber, probeHarness, resolveHarness, type HarnessResolution, type ResolvedHarness } from "../src/harness-probe.ts"
 import { startHeartbeat } from "../src/heartbeat.ts"
 import { fingerprintOf } from "../src/state.ts"
+import { realHarness, reportRealHarness } from "./real-harness.ts"
 
 /** The Executor refuses every run without a passing self-test (FR-014). */
 const SANDBOX = { mode: "bwrap", selfTest: "pass" } as const
@@ -1079,11 +1080,12 @@ describe("heartbeat", () => {
 })
 
 describe.skipIf(!hasBwrap)("real harnesses", () => {
+  reportRealHarness(["claude", "opencode"])
   const catalog = createRuntime().harnesses()
   const claude = catalog.find((harness) => harness.id === "claude")
   const opencode = catalog.find((harness) => harness.id === "opencode")
-  const claudeReady = claude !== undefined && resolveHarness(claude).ok
-  const opencodeReady = opencode !== undefined && resolveHarness(opencode).ok
+  const claudeReady = realHarness("claude") === null
+  const opencodeReady = realHarness("opencode") === null
 
   test.skipIf(!claudeReady)("claude: one short sandboxed handshake is ready", async () => {
     const report = await probeHarness(claude as HarnessDefinition, { timeoutMs: 30_000 })

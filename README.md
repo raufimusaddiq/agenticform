@@ -142,6 +142,7 @@ Every environment variable below is read by at least one package. Empty defaults
 | `AGENTICFORM_NODE_HARNESSES` | node | empty (none) | Comma-separated harness ids the node advertises |
 | `AGENTICFORM_NODE_CAPABILITIES` | node | empty (none) | Comma-separated capability overrides for the node |
 | `AGENTICFORM_CONFORMANCE_HARNESS` | runtime | unset (suite skipped) | Opt-in: run the conformance suite against this harness; may use paid inference |
+| `AGENTICFORM_REAL_HARNESS` | tests (node) | unset (skipped) | Opt-in: set to `1` to run tests that spawn or probe a real installed harness CLI; an absent harness still skips |
 | `AGENTICFORM_CONFORMANCE_CWD` | runtime | process cwd | Working directory given to the conformance harness |
 
 ## Memory
@@ -210,6 +211,12 @@ To run the conformance suite against a real harness, which may use paid inferenc
 
 ```bash
 AGENTICFORM_CONFORMANCE_HARNESS=codex bun test packages
+```
+
+Tests that spawn a harness CLI you installed (claude, opencode) are skipped by default. To run them:
+
+```bash
+AGENTICFORM_REAL_HARNESS=1 bun test packages
 ```
 
 ## License
