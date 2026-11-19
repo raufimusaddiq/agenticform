@@ -23,7 +23,10 @@ The node probes each configured harness at startup and after its probe cache
 expires: 300 s for a non-ready result, 1 h for a `ready` one. A probe resolves
 the entry point without network access, then runs an ACP `initialize` and
 `session/new` inside the sandbox. It never installs, updates or authenticates a
-harness, and it reads no credential file.
+harness, and it reads no credential file. A `bunx` harness runs the cached package
+bin directly with `bun`, so it needs no registry lookup. If `/etc/resolv.conf` is a
+symlink to a regular file outside `/etc` and `/run` (as on WSL), the node binds that
+file read-only so the harness can resolve model hosts.
 
 Each probe creates one empty harness session, so a harness's own state directory
 (for example `~/.claude`) gains one session per harness per TTL. The probe sends

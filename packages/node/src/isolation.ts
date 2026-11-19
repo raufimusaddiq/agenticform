@@ -1,5 +1,16 @@
 import { spawnSync } from "node:child_process"
-import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs"
+import {
+  accessSync,
+  constants,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 import type { HarnessDefinition } from "@agenticform/runtime"
@@ -300,6 +311,26 @@ function assertStateDirUsable(path: string): void {
   }
 }
 
+/**
+ * `/etc` is bound read-only, but `/etc/resolv.conf` may be a symlink whose
+ * target lies outside the bound system paths (WSL: `/mnt/wsl/resolv.conf`), so
+ * the link dangles and the shared network namespace has no DNS. Bind the link's
+ * target read-only at the path the link names, if and only if the resolved
+ * target is a regular file; nothing else is widened (contracts/isolation.md §2).
+ */
+export function resolvConfBind(link: string = "/etc/resolv.conf"): { source: string; dest: string } | undefined {
+  try {
+    if (!lstatSync(link).isSymbolicLink()) return undefined
+    const dest = posix.resolve(posix.dirname(link), readlinkSync(link))
+    if (SYSTEM_PATHS.some((system) => isUnder(dest, system))) return undefined
+    const source = realpathSync(link)
+    if (!statSync(source).isFile()) return undefined
+    return { source, dest }
+  } catch {
+    return undefined
+  }
+}
+
 /** `--dir` for each ancestor the sandbox root does not already provide. */
 function dirArgs(dest: string, root: string): string[] {
   const rel = posix.relative(root, dest)
@@ -331,6 +362,7 @@ export function sandboxArgs(
     entryFiles?: readonly string[] | undefined
     entryCommand?: string | undefined
     entryBinds?: EntryBinds | undefined
+    resolvConf?: string | undefined
   } = {},
 ): string[] {
   const binds =
@@ -385,6 +417,8 @@ export function sandboxArgs(
   }
   for (const path of SYSTEM_PATHS) if (existsSync(path)) args.push("--ro-bind", path, path)
   args.push("--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", SANDBOX_HOME)
+  const resolv = resolvConfBind(options.resolvConf)
+  if (resolv) args.push(...dirArgs(resolv.dest, "/"), "--ro-bind", resolv.source, resolv.dest)
   args.push(profile.workspace === "read-only" ? "--ro-bind" : "--bind", workspace, workspace)
   for (const bind of stateBinds) {
     if (bind.mode === "ro") {

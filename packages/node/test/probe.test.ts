@@ -970,3 +970,42 @@ describe.skipIf(!hasBwrap)("real harnesses", () => {
     expect(report).toEqual({ id: "opencode", status: "ready" })
   }, 60_000)
 })
+
+describe.skipIf(!hasBwrap || typeof process.getuid !== "function")("probe: bunx harness from a fake Bun cache", () => {
+  const spec = "@scope/fake-acp@1.0.0"
+  const bunxHarness = (): HarnessDefinition => ({ id: "fake", profile: "coding", command: "bunx", args: [spec, "{}"] })
+  const makeCache = (): string => {
+    const cache = temp("af-cache-")
+    const pkg = join(cache, `.bunx-${process.getuid?.() ?? 0}`, "@scope", "fake-acp@1.0.0", "node_modules", "@scope", "fake-acp")
+    mkdirSync(pkg, { recursive: true })
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@scope/fake-acp", bin: { "fake-acp": "index.ts" } }))
+    writeFileSync(join(pkg, "index.ts"), fakeSource)
+    return cache
+  }
+  const resolveIn = (cache: string) => (d: HarnessDefinition) =>
+    // A PATH with only the bun dir: no `bunx`, no registry config, no install step.
+    resolveHarness(d, { cacheRoot: cache, path: dirname(process.execPath) })
+
+  test("starts from the cache, runs the cached bin directly and never invokes bunx", async () => {
+    const cache = makeCache()
+    const resolution = resolveIn(cache)(bunxHarness())
+    expect(resolution.ok).toBe(true)
+    if (!resolution.ok) return
+    expect(resolution.resolved.definition.command).not.toContain("bunx")
+    expect(resolution.resolved.definition.args?.[0]).toEndWith("index.ts")
+    const report = await probeHarness(bunxHarness(), { timeoutMs: 20_000, resolve: resolveIn(cache) })
+    expect(report).toEqual({ id: "fake", status: "ready" })
+    // Nothing was installed: the cache holds only what the test put there.
+    expect(Bun.spawnSync(["sh", "-c", `find ${cache} -name '*.lock' | wc -l`]).stdout.toString().trim()).toBe("0")
+  }, 30_000)
+
+  test("a package absent from the cache stays version_not_cached and starts no child", async () => {
+    let connected = 0
+    const report = await probeHarness(
+      { ...bunxHarness(), args: ["@scope/fake-acp@9.9.9"] },
+      { timeoutMs: 5_000, resolve: resolveIn(makeCache()), driver: fakeDriver(() => (connected += 1)) },
+    )
+    expect(report).toEqual({ id: "fake", status: "missing", reason: "version_not_cached" })
+    expect(connected).toBe(0)
+  })
+})
