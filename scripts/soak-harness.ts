@@ -115,6 +115,15 @@ process.stdin.on("data", (chunk: string) => {
   while ((index = buffer.indexOf("\n")) >= 0) {
     const line = buffer.slice(0, index).trim()
     buffer = buffer.slice(index + 1)
-    if (line) void handle(JSON.parse(line))
+    if (!line) continue
+    let message: { id?: unknown; method?: string; params?: Record<string, unknown>; result?: unknown }
+    try {
+      message = JSON.parse(line) as typeof message
+    } catch {
+      // A malformed line is a parse error, not a reason to stop the agent.
+      send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } })
+      continue
+    }
+    void handle(message)
   }
 })

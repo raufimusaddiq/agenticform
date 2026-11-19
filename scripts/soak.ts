@@ -219,10 +219,12 @@ async function main(): Promise<number> {
   const startedAt = new Date()
   const start = Date.now()
   const deadline = start + durationMs
-  // SC-005 compares the end with the first hour. A smoke run has no hour, so it
-  // keeps a short warm-up instead.
+  // SC-005 compares the end with the first hour, or with the midpoint of a
+  // shorter --hours run. A smoke run has no hour, so it keeps a short warm-up.
   const baselineAfterMs =
-    options.minutes === null ? 3_600_000 : Math.min(60_000, Math.max(5_000, Math.floor(durationMs / 10)))
+    options.minutes === null
+      ? Math.min(3_600_000, Math.floor(durationMs / 2))
+      : Math.min(60_000, Math.max(5_000, Math.floor(durationMs / 10)))
 
   const hub = Bun.spawn(["bun", join(root, "packages", "hub", "bin", "hub.ts")], {
     cwd: root,
@@ -575,6 +577,13 @@ async function main(): Promise<number> {
       await poller?.stop()
       await executor?.stop()
       startNode()
+      const onlineUntil = Date.now() + 30_000
+      while (!(await nodeOnline())) {
+        if (Date.now() > onlineUntil) {
+          throw new Error("the node did not come back online within 30 s after a restart")
+        }
+        await sleep(100)
+      }
       restartsDone += 1
     }
 
@@ -594,9 +603,12 @@ async function main(): Promise<number> {
     let restartIndex = 0
     let nextSample = start
     let index = 0
+    // A 4-hour run samples every minute; a short smoke samples often enough to
+    // leave at least two samples after its warm-up baseline.
+    const sampleMs = options.minutes === null ? 60_000 : Math.max(10_000, Math.floor(durationMs / 4))
 
     sample()
-    nextSample = start + 60_000
+    nextSample = start + sampleMs
     while (Date.now() < deadline) {
       if (hub.exitCode !== null) throw new Error(`the hub exited with ${hub.exitCode}`)
       if (Date.now() >= nextRestart) {
@@ -606,7 +618,7 @@ async function main(): Promise<number> {
       }
       if (Date.now() >= nextSample) {
         sample()
-        nextSample += 60_000
+        nextSample += sampleMs
       }
       const kind = KINDS[index % KINDS.length] as Kind
       const marker = `r${index}-${randomBytes(4).toString("hex")}`
@@ -634,13 +646,17 @@ async function main(): Promise<number> {
     const nonTerminal = tracked.filter((item) => !TERMINAL.has(item.status))
     const spawned = tracked.filter((item) => item.spawned).length
     const withGroups = tracked.filter((item) => item.groups.length > 0).length
-    const baseline = samples.find((item) => item.elapsedMs >= baselineAfterMs)
+    const baselineIndex = samples.findIndex((item) => item.elapsedMs >= baselineAfterMs)
+    const baseline = baselineIndex >= 0 ? samples[baselineIndex] : undefined
+    const afterBaseline = baselineIndex >= 0 ? samples.length - baselineIndex - 1 : 0
     const final = samples.at(-1) as RssSample
     const peakKb = Math.max(...samples.map((item) => item.nodeKb))
     const growthPct = baseline && baseline.nodeKb > 0 ? ((final.nodeKb - baseline.nodeKb) / baseline.nodeKb) * 100 : 0
 
     if (baseline === undefined) {
       failures.push(`baseline not reached: no sample at or after ${Math.round(baselineAfterMs / 60_000)} minutes`)
+    } else if (afterBaseline < 2) {
+      failures.push(`baseline has only ${afterBaseline} samples after it; need at least 2`)
     }
     if (tracked.length > 0 && groups.size === 0) {
       failures.push("no harness process group was recorded; the orphan scan did not run")

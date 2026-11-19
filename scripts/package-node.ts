@@ -71,7 +71,7 @@ const allowedNodeModules = (name: string): boolean =>
  */
 function allowedPath(path: string, isDirectory: boolean): boolean {
   const parts = path.split("/")
-  if (path === "package.json") return !isDirectory
+  if (path === "package.json" || path === "bun.lock") return !isDirectory
   if (path === "packages" || path === "node_modules") return isDirectory
   if (parts[0] === "packages") {
     const name = parts[1]
