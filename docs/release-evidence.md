@@ -39,9 +39,24 @@ bun run scripts/soak.ts --minutes 2 --restarts 1
 
 | Host | Date | Bun | Harness | Duration | Restarts | Peak RSS | Final RSS | Orphans | Non-terminal | Pass |
 |---|---|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |  |  |
+| WSL2 Ubuntu (Linux, bwrap 0.11.1) on the owner's dev PC | 2026-11-19 (start 14:08:32Z) | 1.4.4 | built-in fake `soak` harness | 4 h (14,401,735 ms) | 3 | node 97,836 kB; hub 57,092 kB | node 90,056 kB; hub 52,276 kB | 0 of 16,160 | 0 | yes |
 
-Attach `soak-result.json` to the issue comment; the table is the summary.
+Code: `main` at b602367 (spec 004 merged), `bun run scripts/soak.ts --hours 4 --restarts 3`.
+The raw `soak-result.json` is kept outside the repository; the figures below are
+quoted from it.
+
+- Runs: 16,160 submitted, 12,120 completed, 4,040 cancelled, 0 failed, 0 non-terminal.
+  Mix: 4,040 each of complete, cancel, permission allow (all answered through the
+  hub) and permission timeout; 0 unobserved.
+- Orphans: all 16,160 spawned runs had their process group recorded (32,320
+  groups: bwrap and harness); 0 were alive at the end.
+- Node RSS: baseline 91,188 kB at 60 min, peak 97,836 kB, final 90,056 kB, growth
+  -1.2% against the +20% limit (SC-005 met). Hub RSS peak 57,092 kB, final 52,276
+  kB. 241 samples, one per minute.
+- Harness: the fake `soak` harness only; no real harness was used (real-harness
+  runs are on demand).
+- Caveat: other test runs (`bun test packages` by workers and reviewers) ran on
+  the same WSL host during the soak. It still passed.
 
 ## 2. Two-machine journey (FR-019, SC-006)
 
@@ -221,11 +236,16 @@ measures size and cold start to the first heartbeat against a fake hub.
 
 | Variant | Contents | Size | Cold start | Decision |
 |---|---|---|---|---|
-| compiled |  |  |  |  |
-| install |  |  |  |  |
+| compiled | single binary | 104.4 MiB | 145-302 ms | not used |
+| install | `node_modules`, `package.json`, `packages`; no `bun.lock` written | 14.5 MiB | 157-338 ms | **ship** |
 
-Record the chosen variant and its numbers here, then update the README Memory
-section with the soak figures.
+Measured in T-4 on WSL Linux with `scripts/package-node.ts`.
+
+Decision (owner default, 2026-11-19): ship the node as the production install
+tree. It is about a seventh of the size and starts in the same time. The compiled
+binary is not used. Revisit if a single-file deploy becomes a need.
+
+The README Memory section carries the soak figures.
 
 ## 4. Memory record (FR-021)
 
