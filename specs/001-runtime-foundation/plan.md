@@ -12,7 +12,7 @@ Add a Bun workspace with `@agenticform/runtime`: one run API over a driver bound
 
 **Language/Version**: TypeScript on Bun 1.4.4
 
-**Primary Dependencies**: `@agentclientprotocol/sdk` 2.4.0
+**Primary Dependencies**: `@agentclientprotocol/sdk` 2.8.0
 
 **Storage**: N/A
 

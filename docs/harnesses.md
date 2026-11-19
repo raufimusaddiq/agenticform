@@ -6,8 +6,8 @@ A harness counts as **tested** only after the conformance suite passes against a
 
 | Id | Harness | Profile | Entry point | Level | Notes |
 |---|---|---|---|---|---|
-| `claude` | Claude Code | coding | `claude-agent-acp` 0.100.0 | documented | One real prompt completed on 2026-11-05 |
-| `codex` | Codex | coding | `codex-acp` 2.5.0 | documented | Handshake and `auth_required` seen on 2026-11-05; no prompt run |
+| `claude` | Claude Code | coding | `claude-agent-acp` 0.109.0 | documented | One real prompt completed on 2026-11-05 |
+| `codex` | Codex | coding | `codex-acp` 2.8.0 | documented | Handshake and `auth_required` seen on 2026-11-05; no prompt run |
 | `opencode` | OpenCode | coding | `opencode acp` | documented | Not run |
 | `omp` | Oh My Pi | coding | `omp acp` | documented | Not run; confirm the command on your version |
 | `pi` | Pi | coding | `pi-acp` 0.0.34 | documented | Not run; early third-party adapter. `pi --mode rpc` is a possible direct driver |
@@ -82,8 +82,8 @@ Tested with a temporary `HOME` holding empty state, never the real config dirs.
 
 | Harness | Gap | Auth check | Evidence |
 |---|---|---|---|
-| `claude` | yes | yes (`claude auth status`) | tested on WSL, claude-agent-acp 0.100.0 (CLI 2.1.328): `session/new` succeeds, the first prompt fails; `auth status` prints `loggedIn: false` |
-| `codex` | no | no | tested on WSL, codex-acp 2.5.0 (codex-cli 0.159.0): `session/new` fails with "Authentication required" (`-32000`) |
+| `claude` | yes | yes (`claude auth status`) | tested on WSL, claude-agent-acp 0.100.0 (CLI 2.1.328; bumped to 0.109.0, not re-run: real-harness tests paused): `session/new` succeeds, the first prompt fails; `auth status` prints `loggedIn: false` |
+| `codex` | no | no | tested on WSL, codex-acp 2.5.0 (codex-cli 0.159.0; bumped to 2.8.0, not re-run): `session/new` fails with "Authentication required" (`-32000`) |
 | `opencode` | no (built-in free models) | no | tested on WSL, opencode 1.19.6: `session/new` succeeds logged out and lists free models; a paid provider that is not configured fails at the prompt. `opencode auth list` reports providers, not a login boolean, so no check is declared |
 | `pi` | no | no | documentation only: pi-acp 0.0.34 source returns `auth_required` from `session/new` when no model is available; `pi` itself not installed |
 | `omp` | unknown | no | documentation only; not installed on WSL |
