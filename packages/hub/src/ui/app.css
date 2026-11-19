@@ -17,7 +17,7 @@
   --line-soft: #b4bbac;
   --ok: #0c6b35;
   --run: #0c4f9e;
-  --warn: #a45500;
+  --warn: #8a4600;
   --bad: #b3261e;
   --key: #101611;
   --key-ink: #e6e9e1;
@@ -185,7 +185,7 @@ label { display: block; font-size: 0.78rem; color: var(--ink-2); margin-bottom: 
 
 /* ---- layout ---- */
 .app-main { max-width: 88rem; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
-.app-nav { display: flex; gap: 0; border-bottom: 1px solid var(--line); margin-bottom: 1.25rem; overflow-x: auto; overflow-y: hidden; }
+.app-nav { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1px solid var(--line); margin-bottom: 1.25rem; }
 .nav-tab {
   font: inherit; font-weight: 700; cursor: pointer; color: var(--ink-3); background: none;
   border: 1px solid transparent; border-bottom: 0; padding: 0.55rem 1rem; display: inline-flex; gap: 0.5rem; align-items: center;
@@ -363,7 +363,6 @@ label { display: block; font-size: 0.78rem; color: var(--ink-2); margin-bottom: 
   .header-right { flex-wrap: wrap; }
   .app-main { padding: 1rem; }
   .nav-tab { padding: 0.55rem 0.7rem; }
-  .nav-tab .tab-pill { display: none; }
   .input-with-button, .form-inline-search { flex-direction: column; }
   .event-entry { grid-template-columns: 2.4rem minmax(0, 1fr); }
   .event-time { display: none; }

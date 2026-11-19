@@ -11,7 +11,11 @@ const state = {
   highestSeq: 0,
   runs: loadStoredRuns(),
   autoScroll: true,
+  dropped: 0,
 }
+
+// The log keeps the newest lines only; highestSeq still tracks the true tail so resume works.
+const MAX_EVENT_LINES = 1000
 
 function loadStoredRuns() {
   try {
@@ -429,9 +433,16 @@ function appendEvent(event) {
 
   item.append(seqSpan, timeSpan, typeBadge, dataNode)
   eventsList.append(item)
+  while (eventsList.children.length > MAX_EVENT_LINES) {
+    eventsList.firstElementChild.remove()
+    state.dropped++
+  }
 
   const countElem = $("events-count")
-  if (countElem) countElem.textContent = `${eventsList.children.length} events`
+  if (countElem) {
+    countElem.textContent = `${eventsList.children.length} events` +
+      (state.dropped > 0 ? ` (${state.dropped} older dropped, newest ${MAX_EVENT_LINES} kept)` : "")
+  }
 
   if (state.autoScroll) {
     eventsList.scrollTop = eventsList.scrollHeight
@@ -456,9 +467,7 @@ async function loadPermissions(runId) {
 
     if (permissions.length === 0) {
       list.appendChild(
-        el("li", { className: "empty-note" }, state.role === "caller"
-          ? "Permission requests are visible to the admin token only."
-          : "No permissions recorded for this run.")
+        el("li", { className: "empty-note" }, "No permission requests for this run.")
       )
       return
     }
@@ -519,7 +528,7 @@ async function answerPermission(requestId, decision) {
     await loadPermissions(state.runId)
   } catch (error) {
     if (error.status === 403 || error.code === "forbidden") {
-      setError("Permission answer rejected: Caller tokens cannot answer permissions (admin token required).")
+      setError("Answering requires the admin token")
     } else {
       setError(error.message)
     }
@@ -529,6 +538,7 @@ async function answerPermission(requestId, decision) {
 async function openRun(runId) {
   state.runId = runId
   state.highestSeq = 0
+  state.dropped = 0
   state.stream?.abort()
   $("events").replaceChildren()
   $("permissions").replaceChildren()
@@ -788,7 +798,10 @@ $("sign-out").addEventListener("click", () => {
   state.token = ""
   state.role = "unknown"
   state.stream?.abort()
+  state.runs = []
+  state.runId = null
   sessionStorage.removeItem("af.token")
+  sessionStorage.removeItem("af.recent_runs")
   connect()
 })
 
