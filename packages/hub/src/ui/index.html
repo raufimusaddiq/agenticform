@@ -3,68 +3,300 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agenticform hub</title>
+    <title>Agenticform Hub Console</title>
+    <link rel="icon" type="image/svg+xml" href="/ui/favicon.svg" />
     <link rel="stylesheet" href="/ui/app.css" />
   </head>
   <body>
-    <header>
-      <h1>Agenticform hub</h1>
-      <form id="token-form" hidden>
-        <label for="token">Admin token</label>
-        <input id="token" type="password" autocomplete="off" required />
-        <button type="submit">Connect</button>
-      </form>
-      <button id="sign-out" type="button" hidden>Sign out</button>
+    <header class="app-header">
+      <div class="brand">
+        <svg class="brand-icon" viewBox="0 0 32 32" width="24" height="24" aria-hidden="true">
+          <circle cx="10" cy="11" r="3" fill="#38bdf8"/>
+          <circle cx="22" cy="11" r="3" fill="#10b981"/>
+          <circle cx="16" cy="22" r="3.2" fill="#6366f1"/>
+          <path d="M10 11 L16 22 L22 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 3" fill="none"/>
+        </svg>
+        <div class="brand-text">
+          <span class="brand-title">Agenticform</span>
+          <span class="brand-badge">hub operator console</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div id="connection-pill" class="connection-pill disconnected">
+          <span class="status-dot"></span>
+          <span id="connection-label">Disconnected</span>
+        </div>
+        <button id="theme-toggle" class="btn btn-icon" type="button" aria-label="Toggle color theme" title="Toggle theme">
+          <span class="theme-icon-dark" aria-hidden="true">🌙</span>
+          <span class="theme-icon-light" aria-hidden="true">☀️</span>
+        </button>
+        <button id="sign-out" class="btn btn-ghost" type="button" hidden>Sign out</button>
+      </div>
     </header>
 
-    <main>
-      <nav>
-        <button type="button" data-view="machines">Machines</button>
-        <button type="button" data-view="runs">Runs</button>
+    <div id="login-modal" class="login-wrapper">
+      <div class="login-card">
+        <div class="login-header">
+          <h2>Operator Sign In</h2>
+          <p class="login-desc">Connect with an admin bearer token or a scoped caller token (<code>afc_*</code>). Tokens stay securely in <code>sessionStorage</code> and only travel in the <code>Authorization</code> header.</p>
+        </div>
+        <form id="token-form">
+          <label for="token">Bearer Token</label>
+          <div class="input-with-button">
+            <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="Enter admin or caller token..." required />
+            <button type="submit" class="btn btn-primary">Connect</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <main class="app-main">
+      <nav class="app-nav" aria-label="Console views">
+        <button type="button" data-view="machines" class="nav-tab active">
+          Machines
+          <span id="machines-count" class="tab-badge">0</span>
+        </button>
+        <button type="button" data-view="runs" class="nav-tab">
+          Runs
+          <span id="runs-count" class="tab-badge">0</span>
+        </button>
+        <button type="button" data-view="tokens" class="nav-tab">
+          Tokens
+          <span id="tokens-role-pill" class="tab-pill">Admin</span>
+        </button>
       </nav>
 
-      <p id="error" role="alert" hidden></p>
+      <div id="error" class="alert-banner" role="alert" hidden>
+        <div class="alert-content">
+          <span class="alert-icon" aria-hidden="true">⚠️</span>
+          <span id="error-message"></span>
+        </div>
+        <button id="dismiss-error" type="button" class="btn-dismiss" aria-label="Dismiss error">✕</button>
+      </div>
 
-      <section id="view-machines" hidden>
-        <h2>Machines</h2>
-        <button id="refresh-machines" type="button">Refresh</button>
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Harnesses</th>
-              <th>Capacity</th>
-              <th>Last heartbeat</th>
-            </tr>
-          </thead>
-          <tbody id="machines-body"></tbody>
-        </table>
+      <!-- MACHINES VIEW -->
+      <section id="view-machines" class="view-section" hidden>
+        <div class="section-toolbar">
+          <div>
+            <h2>Machines</h2>
+            <p class="section-desc">Enrolled nodes executing harnesses across the cluster.</p>
+          </div>
+          <div class="toolbar-actions">
+            <span id="machines-summary" class="summary-text"></span>
+            <button id="refresh-machines" class="btn btn-secondary" type="button">
+              <span class="btn-icon-label" aria-hidden="true">↻</span> Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Node</th>
+                <th scope="col">Status</th>
+                <th scope="col">Harnesses &amp; Health</th>
+                <th scope="col">Isolation</th>
+                <th scope="col">Capacity</th>
+                <th scope="col">Last Heartbeat</th>
+                <th scope="col" class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="machines-body"></tbody>
+          </table>
+        </div>
       </section>
 
-      <section id="view-runs" hidden>
-        <h2>Runs</h2>
-        <form id="run-form">
-          <label>Harness <input name="harness" value="codex" required /></label>
-          <label>Prompt <textarea name="prompt" rows="3" required></textarea></label>
-          <button type="submit">Create run</button>
-        </form>
-        <form id="open-form">
-          <label>Run id <input name="runId" required /></label>
-          <button type="submit">Open</button>
-        </form>
-        <ul id="runs-list"></ul>
+      <!-- RUNS VIEW -->
+      <section id="view-runs" class="view-section" hidden>
+        <div class="section-toolbar">
+          <div>
+            <h2>Runs</h2>
+            <p class="section-desc">Dispatch agent runs or inspect execution across nodes.</p>
+          </div>
+        </div>
+
+        <div class="runs-grid">
+          <!-- CREATE RUN PANEL -->
+          <div class="panel-card">
+            <div class="card-head">
+              <h3>Create Run</h3>
+              <span class="card-hint">Dispatches via <code>POST /v1/runs</code></span>
+            </div>
+            <form id="run-form" class="form-stack">
+              <div class="form-group">
+                <label for="run-harness">Harness</label>
+                <input id="run-harness" name="harness" value="codex" placeholder="e.g. codex, claude" required />
+              </div>
+              <div class="form-group">
+                <label for="run-prompt">Prompt</label>
+                <textarea id="run-prompt" name="prompt" rows="4" placeholder="Enter instructions, requirements or goals for the agent..." required></textarea>
+              </div>
+              <details class="advanced-disclosure">
+                <summary>Advanced Options (Requires, Node, Labels)</summary>
+                <div class="advanced-body">
+                  <div class="form-group">
+                    <label for="run-requires">Requires (comma-separated capabilities)</label>
+                    <input id="run-requires" name="requires" placeholder="e.g. permissions.remote, isolation:container" />
+                  </div>
+                  <div class="form-group">
+                    <label for="run-node-id">Pin to Node ID</label>
+                    <input id="run-node-id" name="nodeId" placeholder="Optional specific nodeId" />
+                  </div>
+                </div>
+              </details>
+              <button type="submit" class="btn btn-primary btn-block">Create run</button>
+            </form>
+          </div>
+
+          <!-- RECENT RUNS & SEARCH PANEL -->
+          <div class="panel-card">
+            <div class="card-head">
+              <h3>Open &amp; Recent Runs</h3>
+              <span class="card-hint">Session history</span>
+            </div>
+            <form id="open-form" class="form-inline-search">
+              <label for="open-run-id" class="sr-only">Run ID</label>
+              <input id="open-run-id" name="runId" placeholder="Enter or paste Run ID (UUID)..." required />
+              <button type="submit" class="btn btn-secondary">Open</button>
+            </form>
+
+            <div class="recent-runs-container">
+              <h4>Recent Runs in this Session</h4>
+              <ul id="runs-list" class="recent-runs-list"></ul>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section id="view-run" hidden>
-        <h2>Run <span id="run-id"></span></h2>
-        <p>Status: <strong id="run-status"></strong></p>
-        <p id="run-result"></p>
-        <button id="cancel-run" type="button">Cancel</button>
-        <button id="back-runs" type="button">Back</button>
-        <h3>Permissions</h3>
-        <ul id="permissions"></ul>
-        <ol id="events"></ol>
+      <!-- RUN DETAIL VIEW -->
+      <section id="view-run" class="view-section" hidden>
+        <div class="run-header-card">
+          <div class="run-header-top">
+            <button id="back-runs" class="btn btn-ghost" type="button">← Back to Runs</button>
+            <div class="run-actions">
+              <button id="resume-stream" class="btn btn-secondary" type="button">↻ Resume Stream</button>
+              <button id="cancel-run" class="btn btn-danger" type="button">Cancel Run</button>
+            </div>
+          </div>
+          <div class="run-title-row">
+            <div>
+              <h2>Run <span id="run-id" class="code-title"></span></h2>
+              <div class="run-meta-row">
+                <span class="meta-item">Status: <strong id="run-status" class="status-pill"></strong></span>
+                <span id="run-node-info" class="meta-item"></span>
+                <span id="run-gen-info" class="meta-item"></span>
+              </div>
+            </div>
+          </div>
+          <div id="run-error-card" class="result-box result-error" hidden>
+            <div class="result-head">Run Failed</div>
+            <p id="run-error-text"></p>
+          </div>
+          <div id="run-result-card" class="result-box result-success" hidden>
+            <div class="result-head">Run Result</div>
+            <pre id="run-result" class="result-code"></pre>
+          </div>
+        </div>
+
+        <!-- PERMISSION REQUESTS -->
+        <div id="permissions-section" class="permissions-card">
+          <div class="permissions-head">
+            <h3>Permissions</h3>
+            <span id="permissions-badge" class="badge">0 pending</span>
+          </div>
+          <ul id="permissions" class="permissions-list"></ul>
+        </div>
+
+        <!-- EVENTS STREAM -->
+        <div class="events-card">
+          <div class="events-head">
+            <div class="events-head-left">
+              <h3>run events</h3>
+              <span id="stream-status-pill" class="stream-pill live">
+                <span class="stream-dot"></span> LIVE
+              </span>
+              <span id="events-count" class="summary-text">0 events</span>
+            </div>
+            <div class="events-head-right">
+              <label class="checkbox-label">
+                <input id="autoscroll-toggle" type="checkbox" checked />
+                Auto-scroll
+              </label>
+              <button id="clear-events-view" class="btn btn-sm btn-ghost" type="button">Clear View</button>
+            </div>
+          </div>
+          <ol id="events" class="event-stream-log" aria-live="polite"></ol>
+        </div>
+      </section>
+
+      <!-- TOKENS VIEW -->
+      <section id="view-tokens" class="view-section" hidden>
+        <div class="section-toolbar">
+          <div>
+            <h2>Caller Tokens</h2>
+            <p class="section-desc">Issue and manage scoped bearer tokens (<code>afc_*</code>) for callers to start runs and follow events.</p>
+          </div>
+        </div>
+
+        <div id="tokens-admin-notice" class="notice-banner" hidden>
+          <span class="notice-icon" aria-hidden="true">ℹ️</span>
+          <span>You are connected with a caller token. Token management requires the hub admin bearer token.</span>
+        </div>
+
+        <div class="runs-grid">
+          <div class="panel-card">
+            <div class="card-head">
+              <h3>Issue New Caller Token</h3>
+              <span class="card-hint">Scope: <code>runs</code></span>
+            </div>
+            <form id="issue-token-form" class="form-stack">
+              <div class="form-group">
+                <label for="token-name">Token Name</label>
+                <input id="token-name" name="name" maxlength="64" placeholder="e.g. ci-pipeline, agent-team-1" required />
+              </div>
+              <div class="form-group">
+                <label for="token-scope">Scope</label>
+                <input id="token-scope" value="runs" readonly class="input-readonly" />
+              </div>
+              <button type="submit" class="btn btn-primary btn-block">Issue Token</button>
+            </form>
+
+            <div id="issued-token-panel" class="issued-secret-panel" hidden>
+              <div class="secret-head">
+                <span class="secret-title">Secret Token Issued</span>
+                <span class="secret-warning">Copy now! This will never be shown again.</span>
+              </div>
+              <div class="secret-box">
+                <code id="issued-token-secret" class="secret-text"></code>
+                <button id="copy-token-btn" class="btn btn-secondary btn-sm" type="button">Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-card table-panel">
+            <div class="card-head">
+              <h3>Active &amp; Revoked Caller Tokens</h3>
+              <button id="refresh-tokens" class="btn btn-secondary btn-sm" type="button">↻ Refresh</button>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Token ID</th>
+                    <th>Created</th>
+                    <th>Last Used</th>
+                    <th>Status</th>
+                    <th class="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="tokens-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 
