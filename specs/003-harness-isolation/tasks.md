@@ -96,3 +96,14 @@ this spec change merges.
 - [x] T053 [US2] Test: a missing dir is created `0700`; a dir with mode `000` yields `state_dir_unusable` and `harness_unavailable`, with no child and no accepted empty config (FR-009b, SC-007)
 - [x] T054 [P] Bump the profile version to `2` and update the heartbeat expectation in the tests (FR-016)
 - [x] T055 [P] Document the operator migration in `docs/harnesses.md` and the README: stop `claude`, `mv ~/.claude.json ~/.claude/.claude.json`, export `CLAUDE_CONFIG_DIR=~/.claude` (FR-009a)
+
+## Phase 9: Auth check (amendment 2026-11-19)
+
+- [x] T056 Amend FR-018, FR-019 and FR-027 and add FR-018a; add the auth-check rows to `contracts/harness-detection.md` §2.2
+- [x] T057 Declare `authCheck` as catalog data (`bin`, `args`, `loggedIn`) and add reason `auth_check_failed`; only `claude` declares one (`claude auth status`, bundled CLI)
+- [x] T058 Run the check after a successful handshake as a sandboxed child with the run's profile; read stdout only, parse strictly, bound by the timeout, fail closed (FR-018a, FR-026, FR-027)
+- [x] T059 Test: a fake status command printing true, false, garbage, a wrong type and nothing, exiting non-zero, hanging, or absent gives ready, unauthenticated, unknown, unknown, unknown, unknown, unknown, unknown
+- [x] T060 Test: status output and stderr never reach the report or heartbeat; the check sees the run's sandbox (private HOME, cleared env)
+- [x] T061 Test (skipped without the bundled CLI): real `claude` with a private HOME and an empty `.claude` is `unauthenticated`
+- [x] T062 Confirm a prompt-time `Authentication required` failure invalidates the entry and the next heartbeat reports `unauthenticated`
+- [x] T063 [P] Survey every catalog harness for a logged-out `session/new` gap; document the result and the limit in `docs/harnesses.md`

@@ -11,6 +11,15 @@ export const harnesses: Readonly<Record<string, HarnessDefinition>> = {
     command: "bunx",
     args: ["@agentclientprotocol/claude-agent-acp@0.100.0"],
     verification: "documented",
+    // claude-agent-acp completes the handshake logged out, so ask the CLI it bundles.
+    authCheck: {
+      bin: [
+        "@anthropic-ai/claude-agent-sdk-linux-x64/claude",
+        "@anthropic-ai/claude-agent-sdk-linux-arm64/claude",
+      ],
+      args: ["auth", "status"],
+      loggedIn: "loggedIn",
+    },
   },
   codex: {
     id: "codex",

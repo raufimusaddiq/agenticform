@@ -3,6 +3,19 @@ export type HarnessProfile = "coding" | "agentic"
 /** `tested` is earned only by passing the conformance suite at a recorded version. */
 export type VerificationLevel = "documented" | "tested"
 
+/**
+ * A harness-owned login check, declared as data. The node runs it as a child
+ * inside the same sandbox a run uses and keeps one boolean: the JSON field named
+ * by `loggedIn`. The node never opens a credential file itself.
+ */
+export interface AuthCheck {
+  /** Candidate executables, relative to the cached package's `node_modules` or an entry dir. */
+  bin: readonly string[]
+  args: readonly string[]
+  /** Top-level boolean field of the JSON on stdout. */
+  loggedIn: string
+}
+
 export interface HarnessDefinition {
   id: string
   profile: HarnessProfile
@@ -11,6 +24,7 @@ export interface HarnessDefinition {
   env?: Readonly<Record<string, string>>
   verification?: VerificationLevel
   notes?: string
+  authCheck?: AuthCheck
 }
 
 export type Capability =
