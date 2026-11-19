@@ -137,6 +137,25 @@ describe("idempotency key", () => {
     expect(conflict.status).toBe(409)
     expect(conflict.body.error.code).toBe("idempotency_conflict")
   })
+  test("a request stored before permissionPolicy existed matches a resubmit that omits or states the default", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node)
+    const first = await createRun(hub, { idempotencyKey: "job-old" })
+    // Rewrite the row as an older hub would have written it: no permissionPolicy field.
+    const row = hub.db.query<{ request_json: string }, [string]>("SELECT request_json FROM runs WHERE id = ?").get(first.body.runId as string)
+    const old = JSON.parse(row?.request_json as string)
+    delete old.permissionPolicy
+    hub.db.query("UPDATE runs SET request_json = ? WHERE id = ?").run(JSON.stringify(old), first.body.runId as string)
+    const same = await createRun(hub, { idempotencyKey: "job-old" })
+    expect(same.status).toBe(200)
+    expect(same.body.runId).toBe(first.body.runId)
+    const explicit = await createRun(hub, { idempotencyKey: "job-old", permissionPolicy: "allow" })
+    expect(explicit.status).toBe(200)
+    const different = await createRun(hub, { idempotencyKey: "job-old", permissionPolicy: "deny" })
+    expect(different.status).toBe(409)
+    expect(different.body.error.code).toBe("idempotency_conflict")
+  })
   test("run request field types are validated", async () => {
     hub = startHub()
     const node = await enroll(hub)
@@ -147,6 +166,8 @@ describe("idempotency key", () => {
       { gitBacked: "yes" },
       { requires: [1] },
       { parentRunId: 1 },
+      { permissionPolicy: "yolo" },
+      { permissionPolicy: 1 },
     ]) {
       const response = await createRun(hub, patch)
       expect(response.status).toBe(400)

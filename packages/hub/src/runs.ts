@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { Database } from "bun:sqlite"
 import type { RunRequest, RunStatus, RunView } from "@agenticform/protocol"
-import { SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
+import { PERMISSION_POLICIES, SUPPORTED_PROTOCOL_VERSIONS } from "@agenticform/protocol"
 import type { HubConfig } from "./config.ts"
 import { enqueueCommand } from "./commands.ts"
 import { fail } from "./errors.ts"
@@ -24,6 +24,7 @@ function normalize(request: RunRequest): string {
     labels: request.labels ?? {},
     gitBacked: request.gitBacked ?? true,
     parentRunId: request.parentRunId ?? null,
+    permissionPolicy: request.permissionPolicy ?? "allow",
   })
 }
 
@@ -60,6 +61,9 @@ function valid(request: RunRequest): void {
   }
   if (request.nodeId !== undefined && typeof request.nodeId !== "string") {
     fail("invalid_input", "nodeId must be a string")
+  }
+  if (request.permissionPolicy !== undefined && !PERMISSION_POLICIES.includes(request.permissionPolicy)) {
+    fail("invalid_input", "permissionPolicy must be allow, ask or deny")
   }
   if (request.parentRunId !== undefined) {
     if (typeof request.parentRunId !== "string") fail("invalid_input", "parentRunId must be a string")
@@ -168,6 +172,7 @@ export function createRun(
         prompt: request.prompt,
         requires: request.requires ?? [],
         mcpServers: request.mcpServers ?? [],
+        permissionPolicy: request.permissionPolicy ?? "allow",
       },
       now,
     )

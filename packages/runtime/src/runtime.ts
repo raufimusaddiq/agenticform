@@ -9,7 +9,9 @@ import {
   type Capabilities,
   type Capability,
   type HarnessDefinition,
+  permissionPolicies,
   type PermissionDecision,
+  type PermissionPolicy,
   type PermissionRequest,
   type RunEvent,
   type RunInput,
@@ -105,6 +107,9 @@ export class Run {
   }
 
   private async decide(request: PermissionRequest): Promise<PermissionDecision> {
+    const policy = this.input.permissionPolicy ?? "allow"
+    if (policy === "allow") return "allow"
+    if (policy === "deny") return "deny"
     const handler = this.input.onPermission
     if (!handler) return "deny"
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -202,6 +207,10 @@ export class Run {
       if (this.harnessError) throw this.harnessError
       if (!isAbsolute(this.input.cwd)) throw new RuntimeError("invalid_input", "cwd must be an absolute path")
       if (!this.input.prompt) throw new RuntimeError("invalid_input", "prompt must not be empty")
+      const policy: unknown = this.input.permissionPolicy ?? "allow"
+      if (!permissionPolicies.includes(policy as PermissionPolicy)) {
+        throw new RuntimeError("invalid_input", "permissionPolicy must be allow, ask or deny")
+      }
       const harness = this.harness!
       this.log.append({ type: "run.started", harness: harness.id, profile: harness.profile })
 

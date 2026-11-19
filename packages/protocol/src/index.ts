@@ -204,7 +204,15 @@ export interface RunRequest {
   gitBacked?: boolean
   /** The run that started this one. Depth is parent.depth + 1. */
   parentRunId?: string
+  /**
+   * How the run answers harness permission requests. Defaults to "allow": the sandbox is the
+   * boundary. "ask" waits for a remote owner answer and denies at the timeout; "deny" refuses all.
+   */
+  permissionPolicy?: PermissionPolicy
 }
+
+export type PermissionPolicy = "allow" | "ask" | "deny"
+export const PERMISSION_POLICIES: readonly PermissionPolicy[] = ["allow", "ask", "deny"]
 
 export type RunStatus =
   | "queued"
@@ -260,6 +268,8 @@ export interface PermissionRequestView {
   options: ("allow" | "deny")[]
   status: PermissionStatus
   decision: "allow" | "deny" | null
+  /** Who decided: the run's policy, or a remote owner answer. Null while pending or when the harness or timeout settled it. */
+  by: "policy" | "admin" | null
   requestedAt: string
   expiresAt: string
 }

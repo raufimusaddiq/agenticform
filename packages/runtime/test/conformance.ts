@@ -55,10 +55,18 @@ export const conformance = {
       expect((await run.result()).status).toBe("cancelled")
     },
   },
-  permissionDeniedByDefault: {
+  permissionAllowedByDefault: {
     scripted: true,
     run: async (target: ConformanceTarget) => {
       const run = start(target, "permission")
+      const result = await run.result()
+      expect(result.text).toBe("once")
+    },
+  },
+  permissionDenied: {
+    scripted: true,
+    run: async (target: ConformanceTarget) => {
+      const run = start(target, "permission", { permissionPolicy: "deny" })
       const result = await run.result()
       expect(result.text).toBe("no")
     },
@@ -66,7 +74,7 @@ export const conformance = {
   permissionAllowed: {
     scripted: true,
     run: async (target: ConformanceTarget) => {
-      const run = start(target, "permission", { onPermission: () => "allow" })
+      const run = start(target, "permission", { permissionPolicy: "ask", onPermission: () => "allow" })
       const result = await run.result()
       expect(result.text).toBe("once")
     },

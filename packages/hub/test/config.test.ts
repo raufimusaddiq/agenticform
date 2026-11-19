@@ -88,7 +88,7 @@ describe("hub config", () => {
     const root = mkdtempSync(join(tmpdir(), "af-db-"))
     const file = join(root, "hub.sqlite")
     const db = openDatabase(file)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 6 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 })
     db.exec("PRAGMA user_version = 99")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)
@@ -115,12 +115,12 @@ describe("hub config", () => {
     expect(toNodeView(row as NodeRow).isolation).toBeUndefined()
     // Re-running the migration is a no-op.
     migrate(db)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 6 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 })
     expect(db.query("SELECT COUNT(*) AS n FROM nodes").get()).toEqual({ n: 1 })
     db.close()
   })
 
-  test("a version-3 database migrates to 6 without losing a run, and a version-7 one is refused", () => {
+  test("a version-3 database migrates to 7 without losing a run, and a version-8 one is refused", () => {
     const root = mkdtempSync(join(tmpdir(), "af-db-"))
     const file = join(root, "hub.sqlite")
     const db = new Database(file, { create: true })
@@ -133,14 +133,14 @@ describe("hub config", () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run("r1", "k1", "{}", "codex", "p", "run/r1", "completed", "run/r1", 1, 2)
     migrate(db)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 6 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 })
     const run = db.query<RunRow, [string]>("SELECT * FROM runs WHERE id = ?").get("r1")
     expect(run?.status).toBe("completed")
     expect(run?.parent_run_id).toBeNull()
     expect(run?.depth).toBe(0)
     expect(db.query("SELECT COUNT(*) AS n FROM caller_tokens").get()).toEqual({ n: 0 })
     expect(db.query("SELECT COUNT(*) AS n FROM permission_requests").get()).toEqual({ n: 0 })
-    db.exec("PRAGMA user_version = 7")
+    db.exec("PRAGMA user_version = 8")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)
   })

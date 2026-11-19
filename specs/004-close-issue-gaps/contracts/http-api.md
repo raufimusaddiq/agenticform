@@ -47,6 +47,10 @@ Errors: `invalid_input` for a bad name or a scope other than `runs`;
 }] }
 ```
 
+Remote answers apply only to runs started with `permissionPolicy: "ask"` (`POST /v1/runs`,
+default `"allow"`, also `"deny"`). Under `allow` or `deny` the runtime answers at once, no request is
+ever pending, and the list shows each request as `resolved` with `by: "policy"` and the decision.
+
 `POST /v1/runs/{id}/permissions/{requestId}` (admin only), with body
 `{ "decision": "allow" | "deny" }` → `200` with the updated view
 (`status: "answered"`).
@@ -56,7 +60,7 @@ Errors: `invalid_input` for a bad name or a scope other than `runs`;
 | `forbidden` | 403 | the caller is a `runs` token |
 | `not_found` | 404 | no such run or request in the run's current generation |
 | `invalid_input` | 400 | the decision is not `allow` or `deny` |
-| `permission_resolved` | 409 | the request is already answered, resolved or cancelled |
+| `permission_resolved` | 409 | the request is already answered, resolved or cancelled, or the run's policy is not `ask` |
 | `permission_expired` | 409 | the current time is past `expiresAt` |
 | `permission_unsupported` | 409 | the run's node does not advertise `permissions.remote` |
 

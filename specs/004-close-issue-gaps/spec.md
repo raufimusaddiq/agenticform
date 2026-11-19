@@ -26,6 +26,10 @@ Owner decision (2026-11-19): answering permission requests remotely is in scope
 and owner-only. This reverses the exclusion of approvals in spec 002 for permission
 requests only. A task, project or approval-board model stays out (constitution I).
 
+Amendment (2026-11-19, constitution 2.0.0): a run's permission policy defaults to `allow`, so remote
+answers apply only to runs started with policy `ask`. Under `allow` or `deny` the hub records the
+request as resolved by policy and refuses an answer with `permission_resolved`.
+
 Out of scope: multi-user accounts, a new login system, task or project state,
 harness installation or authentication, and changes to the wire protocol version.
 
@@ -166,7 +170,7 @@ direction.
 
 ### Remote permission answers
 
-- **FR-007**: A harness permission request in a hub-placed run MUST be recorded as pending on the hub with the run, the tool, a short description and the offered options, and MUST appear in the run's events.
+- **FR-007**: A harness permission request in a hub-placed run with policy `ask` MUST be recorded as pending on the hub with the run, the tool, a short description and the offered options, and MUST appear in the run's events.
 - **FR-008**: Only the admin token MUST be able to answer a pending request, through HTTP, CLI, MCP and the UI, by choosing one of the offered options.
 - **FR-009**: An answer MUST reach the harness at most once. A second answer, an answer to a resolved request, or an option that was not offered MUST be refused with a named error.
 - **FR-010**: A request left unanswered MUST be denied at the timeout. The default is 300 s, the same as the local runtime.

@@ -185,6 +185,12 @@ describe("af run events --follow", () => {
     expect(result.err).toContain("--git-backed takes no space-separated value; use --git-backed=false")
   })
 
+  test("rejects an unknown --permissions value", async () => {
+    const result = await cli(["run", "start", "--key", "k", "--harness", "codex", "--prompt", "p", "--permissions", "yolo"])
+    expect(result.code).toBe(1)
+    expect(result.err).toContain("--permissions must be allow, ask or deny")
+  })
+
   test("--after rejects a non-negative integer violation", async () => {
     const result = await cli(["run", "events", "r1", "--after", "-1"])
     expect(result.code).toBe(1)

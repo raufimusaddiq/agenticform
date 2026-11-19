@@ -154,7 +154,7 @@ describe("browser journey", () => {
     const node = await enroll(hub)
     await heartbeat(hub, node, { capabilities: ["permissions.remote"] })
     const auth = { authorization: `Bearer ${hub.config.adminToken}` }
-    const created = await createRun(hub)
+    const created = await createRun(hub, { permissionPolicy: "ask" })
     const runId = created.body.runId as string
     const command = (await nextCommand(hub, node)).body
 

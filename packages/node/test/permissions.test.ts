@@ -81,6 +81,7 @@ const command = (overrides: Partial<CommandEnvelope> = {}): CommandEnvelope => {
     prompt: "go",
     requires: [],
     mcpServers: [],
+    permissionPolicy: "ask",
     ...overrides.payload,
   }
   const envelope: CommandEnvelope = {
@@ -256,7 +257,7 @@ async function startRun(hub: Hub, nodeId: string, key: string): Promise<string> 
   const response = await fetch(`${hub.url}/v1/runs`, {
     method: "POST",
     headers: adminHeaders(hub),
-    body: JSON.stringify({ idempotencyKey: key, harness: "fake", prompt: "go", cwd: tmpdir(), nodeId }),
+    body: JSON.stringify({ idempotencyKey: key, harness: "fake", prompt: "go", cwd: tmpdir(), nodeId, permissionPolicy: "ask" }),
   })
   expect(response.status).toBe(201)
   return ((await response.json()) as { runId: string }).runId

@@ -19,12 +19,15 @@ interface Pending {
 }
 
 /** An online node that advertises `permissions.remote`, one leased run.start. */
-async function pendingRun(capabilities: string[] = ["permissions.remote"]): Promise<Pending> {
+async function pendingRun(
+  capabilities: string[] = ["permissions.remote"],
+  permissionPolicy?: string,
+): Promise<Pending> {
   const started = startHub()
   hub = started
   const node = await enroll(started)
   expect((await heartbeat(started, node, { capabilities })).status).toBe(200)
-  const created = await createRun(started, { nodeId: node.nodeId })
+  const created = await createRun(started, { nodeId: node.nodeId, permissionPolicy: permissionPolicy ?? "ask" })
   expect(created.status).toBe(201)
   const command = (await nextCommand(started, node)).body
   return { hub: started, node, runId: created.body.runId as string, command }
@@ -293,5 +296,59 @@ describe("event bounds (T020)", () => {
       )
       .get(pending.runId)
     expect(count?.n).toBe(1)
+  })
+})
+
+describe("permission policy", () => {
+  for (const [policy, decision] of [
+    ["allow", "allow"],
+    ["deny", "deny"],
+  ] as const) {
+    test(`policy ${policy} records a resolved row decided by policy and takes no remote answer`, async () => {
+      const pending = await pendingRun(["permissions.remote"], policy)
+      expect((await requestPermission(pending)).status).toBe(200)
+      const [view] = (await list(pending)).body.permissions
+      expect(view).toMatchObject({ requestId: "call_7", status: "resolved", decision, by: "policy" })
+      expect((await resolvePermission(pending, decision)).status).toBe(200)
+      expect((await list(pending)).body.permissions[0]).toMatchObject({ status: "resolved", decision, by: "policy" })
+
+      const refused = await answer(pending, "allow")
+      expect(refused.status).toBe(409)
+      expect(refused.body.error.code).toBe("permission_resolved")
+    })
+  }
+
+  test("the default policy is allow, and a missing request is still refused as policy-answered", async () => {
+    const pending = await pendingRun(["permissions.remote"], "allow")
+    const refused = await answer(pending, "deny")
+    expect(refused.status).toBe(409)
+    expect(refused.body.error.code).toBe("permission_resolved")
+  })
+
+  test("the resolved event is the truth when the driver denied an allow", async () => {
+    const pending = await pendingRun(["permissions.remote"], "allow")
+    await requestPermission(pending)
+    await resolvePermission(pending, "deny")
+    expect((await list(pending)).body.permissions[0]).toMatchObject({ decision: "deny", by: "policy" })
+  })
+
+  test("policy ask keeps the pending flow and records an admin answer", async () => {
+    const pending = await pendingRun(["permissions.remote"], "ask")
+    await requestPermission(pending)
+    expect((await list(pending)).body.permissions[0]).toMatchObject({ status: "pending", by: null })
+    expect((await answer(pending, "allow")).body).toMatchObject({ status: "answered", decision: "allow", by: "admin" })
+  })
+
+  test("the policy is carried in the run.start payload", async () => {
+    const pending = await pendingRun(["permissions.remote"], "deny")
+    expect((pending.command as { payload?: unknown }).payload).toMatchObject({ permissionPolicy: "deny" })
+  })
+
+  test("a run with no policy is started as allow", async () => {
+    hub = startHub()
+    const node = await enroll(hub)
+    await heartbeat(hub, node, { capabilities: ["permissions.remote"] })
+    expect((await createRun(hub, { nodeId: node.nodeId })).status).toBe(201)
+    expect((await nextCommand(hub, node)).body.payload).toMatchObject({ permissionPolicy: "allow" })
   })
 })

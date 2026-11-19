@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS run_events (
 );
 `
 
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 /** Ordered migrations. Append a new entry and bump SCHEMA_VERSION for each change. */
 export const MIGRATIONS: readonly { version: number; sql: string }[] = [
@@ -147,6 +147,10 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
     version: 6,
     sql: `ALTER TABLE runs ADD COLUMN parent_run_id TEXT REFERENCES runs(id);
       ALTER TABLE runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    version: 7,
+    sql: `ALTER TABLE permission_requests ADD COLUMN decided_by TEXT;`,
   },
 ]
 
@@ -240,6 +244,8 @@ export interface PermissionRequestRow {
   requested_at: number
   expires_at: number
   decided_at: number | null
+  /** "policy" when the run's permission policy answered, "admin" for a remote answer. */
+  decided_by: string | null
 }
 
 export interface CommandRow {
