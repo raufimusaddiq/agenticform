@@ -13,5 +13,5 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["packages/*/src", "packages/*/test", "packages/*/examples", "packages/*/bin"]
+  "include": ["packages/*/src", "packages/*/test", "packages/*/examples", "packages/*/bin", "scripts"]
 }

@@ -173,10 +173,10 @@ include manual work on Linux hosts, marked **(manual)**.
 
 **Independent Test**: run the scripts and the procedure on Linux hosts and read the recorded results.
 
-- [ ] T036 [P] [US4] Create `scripts/soak.ts` per plan.md §Evidence, with flags `--hours` (default 4), `--restarts` (default 3) and `AGENTICFORM_SOAK_HARNESS`. It mixes complete, cancel, permission allow and permission timeout runs. It samples `VmRSS` of hub and node every 60 s, records harness process groups and checks them with `kill(-pgid, 0)`, and writes `soak-result.json` with the fields in data-model.md. It exits non-zero if any orphan or non-terminal run remains, or if final RSS exceeds 120% of the first-hour RSS (SC-005)
-- [ ] T037 [P] [US4] Add a 2-minute smoke mode (`--minutes 2 --restarts 1`) of `scripts/soak.ts`, run by `bun test` through `packages/node/test/soak-smoke.test.ts`, skipped with a printed reason when `bwrap` is absent
-- [ ] T038 [P] [US4] Create `scripts/package-node.ts`. It builds the node with `bun build --compile` and as a `bun install --production` tree, lists the contents, fails if anything beyond the node, its workspace dependencies and the runtime is included, and prints size and cold start to first heartbeat for both (FR-020)
-- [ ] T039 [P] [US4] Create `docs/release-evidence.md`:
+- [X] T036 [P] [US4] Create `scripts/soak.ts` per plan.md §Evidence, with flags `--hours` (default 4), `--restarts` (default 3) and `AGENTICFORM_SOAK_HARNESS`. It mixes complete, cancel, permission allow and permission timeout runs. It samples `VmRSS` of hub and node every 60 s, records harness process groups and checks them with `kill(-pgid, 0)`, and writes `soak-result.json` with the fields in data-model.md. It exits non-zero if any orphan or non-terminal run remains, or if final RSS exceeds 120% of the first-hour RSS (SC-005)
+- [X] T037 [P] [US4] Add a 2-minute smoke mode (`--minutes 2 --restarts 1`) of `scripts/soak.ts`, run by `bun test` through `packages/node/test/soak-smoke.test.ts`, skipped with a printed reason when `bwrap` is absent
+- [X] T038 [P] [US4] Create `scripts/package-node.ts`. It builds the node with `bun build --compile` and as a `bun install --production` tree, lists the contents, fails if anything beyond the node, its workspace dependencies and the runtime is included, and prints size and cold start to first heartbeat for both (FR-020)
+- [X] T039 [P] [US4] Create `docs/release-evidence.md`:
   - the two-machine journey from FR-019 as numbered steps: enrol, two harnesses ready, a run on each, a remote permission answer, stop the node mid-run and restart, stale generation rejected, a bad signature does not consume a nonce, `ss -ltn` shows no node listener;
   - an empty results table with host, date and versions columns
 - [ ] T040 [US4] **(manual)** Run `scripts/soak.ts --hours 4 --restarts 3` on a Linux host and commit the result summary into `docs/release-evidence.md`

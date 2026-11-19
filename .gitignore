@@ -9,3 +9,6 @@
 
 # Bun
 node_modules/
+
+# Soak evidence
+soak-result.json
