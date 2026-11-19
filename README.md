@@ -57,9 +57,7 @@ bun packages/node/examples/end-to-end.ts
 
 The last command runs a real node against a fake hub and a fake agent: it enrolls, heartbeats, leases one `run.start`, streams events and completes. It needs no harness, credentials or database, and writes only to a temporary state directory.
 
-## Configuration
-
-Every environment variable below is read by at least one package. Empty defaults mean the feature is off until set. Secrets are marked; never put a real value in a file that is committed.
+## Remote runs
 
 The hub also serves a small operator UI at `/` from the same origin. It asks for the admin token in the browser, keeps it in `sessionStorage`, and sends it only in the `Authorization` header; the token never appears in a URL, the page, or a log.
 
@@ -109,6 +107,10 @@ af run start --key subtask-1 --harness codex --prompt "Investigate failure" --pa
 ```
 
 To prevent runaway recursive agent cascades, `AGENTICFORM_RUN_MAX_DEPTH` (default `3`) limits the maximum tree depth. Submissions past this limit fail with `422 depth_exceeded` without inserting a row. An invalid parent ID returns `404 parent_not_found`.
+
+## Configuration
+
+Every environment variable below is read by at least one package. Empty defaults mean the feature is off until set. Secrets are marked; never put a real value in a file that is committed.
 
 | Variable | Package | Default | Meaning |
 |---|---|---|---|

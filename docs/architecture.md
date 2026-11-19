@@ -74,7 +74,7 @@ node ──lease (control lane)──▶ executor resolves the waiter ──▶ 
 runtime emits permission.resolved ──▶ hub marks the row resolved (or timed_out)
 ```
 
-The owner can inspect pending requests via `af run permissions <id>` (or MCP `list_permissions`) and answer them remotely via `af run answer <id> <requestId> allow|deny` (or MCP `answer_permission`, or the operator UI at `/`). Only the admin token answers; a `runs` token may read the list but cannot answer (`403 forbidden`). A node that does not advertise `permissions.remote` is refused with `permission_unsupported` rather than emulated. A duplicate answer completes `{ applied: false }`, so the harness is never told twice. Run end cancels every open request in the same transaction as the status change, and a node restart never re-asks.
+The owner can inspect pending requests via `af run permissions <id>` (or MCP `list_permissions`) and answer them remotely via `af run answer <id> <requestId> allow|deny` (or MCP `answer_permission`, or the operator UI at `/`). Only the admin token answers; a `runs` token may read the list but cannot answer (`403 forbidden`). A node that does not advertise `permissions.remote` is refused with `permission_unsupported` rather than emulated. A duplicate answer through the API gets `409 permission_resolved`, and the node completes a duplicate command with `{ applied: false }`, so the harness is never told twice. Run end cancels every open request in the same transaction as the status change, and a node restart never re-asks.
 
 ## Run lineage
 
