@@ -17,6 +17,7 @@ bun install
 bun run typecheck
 bun test packages
 AGENTICFORM_CONFORMANCE_HARNESS=codex bun test packages # opt-in; may use paid inference
+AGENTICFORM_REAL_HARNESS=1 bun test packages # opt-in; spawns installed harness CLIs (claude, opencode)
 ```
 
 ## Coding Style & Naming Conventions

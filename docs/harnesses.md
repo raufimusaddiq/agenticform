@@ -156,3 +156,7 @@ runtime.run({
 1. Change the pinned version in `packages/runtime/src/harnesses.ts`.
 2. Run `AGENTICFORM_CONFORMANCE_HARNESS=<id> bun test packages`.
 3. Update this table.
+
+## Real-harness checks
+
+A default `bun test packages` never starts a real harness. Tests that probe an installed harness CLI (the sandboxed claude and opencode handshakes in `packages/node/test/probe.test.ts`) run only with `AGENTICFORM_REAL_HARNESS=1`, and still skip a harness that is not installed. The skip reason names the flag. This is separate from `AGENTICFORM_CONFORMANCE_HARNESS`, which selects the harness for the paid conformance suite. CI must not set `AGENTICFORM_REAL_HARNESS`.
