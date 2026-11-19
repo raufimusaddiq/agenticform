@@ -6,8 +6,8 @@ A harness counts as **tested** only after the conformance suite passes against a
 
 | Id | Harness | Profile | Entry point | Level | Notes |
 |---|---|---|---|---|---|
-| `claude` | Claude Code | coding | `claude-agent-acp` 0.109.0 | documented | One real prompt completed on 2026-11-05 |
-| `codex` | Codex | coding | `codex-acp` 2.8.0 | documented | Handshake and `auth_required` seen on 2026-11-05; no prompt run |
+| `claude` | Claude Code | coding | `claude-agent-acp` 0.109.0 | documented | One real prompt completed on 2026-11-05 with 0.100.0; not re-run on 0.109.0. Starts sessions in auto permission mode, see [Permission mode](#claude-permission-mode) |
+| `codex` | Codex | coding | `codex-acp` 2.8.0 | documented | Handshake and `auth_required` seen on 2026-11-05 with 2.5.0; not re-run on 2.8.0; no prompt run |
 | `opencode` | OpenCode | coding | `opencode acp` | documented | Not run |
 | `omp` | Oh My Pi | coding | `omp acp` | documented | Not run; confirm the command on your version |
 | `pi` | Pi | coding | `pi-acp` 0.0.34 | documented | Not run; early third-party adapter. `pi --mode rpc` is a possible direct driver |
@@ -82,8 +82,8 @@ Tested with a temporary `HOME` holding empty state, never the real config dirs.
 
 | Harness | Gap | Auth check | Evidence |
 |---|---|---|---|
-| `claude` | yes | yes (`claude auth status`) | tested on WSL, claude-agent-acp 0.100.0 (CLI 2.1.328; bumped to 0.109.0, not re-run: real-harness tests paused): `session/new` succeeds, the first prompt fails; `auth status` prints `loggedIn: false` |
-| `codex` | no | no | tested on WSL, codex-acp 2.5.0 (codex-cli 0.159.0; bumped to 2.8.0, not re-run): `session/new` fails with "Authentication required" (`-32000`) |
+| `claude` | yes | yes (`claude auth status`) | tested on WSL, claude-agent-acp 0.100.0 (CLI 2.1.328); not re-run on 0.109.0 / 2.8.0: `session/new` succeeds, the first prompt fails; `auth status` prints `loggedIn: false` |
+| `codex` | no | no | tested on WSL, codex-acp 2.5.0 (codex-cli 0.159.0); not re-run on 2.8.0: `session/new` fails with "Authentication required" (`-32000`) |
 | `opencode` | no (built-in free models) | no | tested on WSL, opencode 1.19.6: `session/new` succeeds logged out and lists free models; a paid provider that is not configured fails at the prompt. `opencode auth list` reports providers, not a login boolean, so no check is declared |
 | `pi` | no | no | documentation only: pi-acp 0.0.34 source returns `auth_required` from `session/new` when no model is available; `pi` itself not installed |
 | `omp` | unknown | no | documentation only; not installed on WSL |
@@ -160,3 +160,7 @@ runtime.run({
 ## Real-harness checks
 
 A default `bun test packages` never starts a real harness. Tests that probe an installed harness CLI (the sandboxed claude and opencode handshakes in `packages/node/test/probe.test.ts`) run only with `AGENTICFORM_REAL_HARNESS=1`, and still skip a harness that is not installed. The skip reason names the flag. This is separate from `AGENTICFORM_CONFORMANCE_HARNESS`, which selects the harness for the paid conformance suite. CI must not set `AGENTICFORM_REAL_HARNESS`.
+
+## `claude` permission mode
+
+Since `claude-agent-acp` 0.101, sessions start in Claude Code's `auto` permission mode, where Claude Code's classifier decides which actions need a `session/request_permission`. This is consistent with principle IV of the constitution (2.0.0): the node sandbox is the safety boundary, and a native auto mode agrees with the `allow` default. Requests that Claude Code does send follow the run's permission policy as usual. The runtime does not change the session mode.
