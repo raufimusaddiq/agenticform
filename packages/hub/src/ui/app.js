@@ -405,7 +405,10 @@ function appendEvent(event) {
   const seqSpan = el("span", { className: "event-seq" }, `#${event.seq}`)
 
   // Time
-  const timeStr = event.at ? new Date(event.at).toLocaleTimeString() : ""
+  const when = event.at ? new Date(event.at) : null
+  const timeStr = when && !isNaN(when.getTime())
+    ? when.toTimeString().slice(0, 8) + "." + String(when.getMilliseconds()).padStart(3, "0")
+    : ""
   const timeSpan = el("span", { className: "event-time" }, timeStr)
 
   // Type badge
