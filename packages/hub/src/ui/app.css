@@ -254,7 +254,8 @@ label { display: block; font-size: 0.78rem; color: var(--ink-2); margin-bottom: 
 .badge-pending::before, .badge-queued::before, .badge-stale::before, .badge-missing::before { content: "\25B2"; }
 .badge-failed, .badge-revoked, .badge-disabled, .badge-cancelled, .badge-unauthenticated { color: var(--bad); }
 .badge-failed::before, .badge-revoked::before, .badge-disabled::before, .badge-cancelled::before, .badge-unauthenticated::before { content: "\25A0"; }
-.badge-neutral { color: var(--ink-3); }
+.badge-neutral, .badge-unknown { color: var(--ink-3); }
+.badge-unknown::before { content: "\2022"; }
 .harness-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .chip-detail { font-weight: 400; }
 
