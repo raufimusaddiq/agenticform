@@ -150,7 +150,7 @@ describe("node config file and identity fallback", () => {
         privateKeyPem: keys.privateKeyPem,
         hubUrl: "https://identity.example.com",
       })
-      const fromIdentity = loadConfig({ AGENTICFORM_STATE_DIR: stateDir })
+      const fromIdentity = loadConfig({ AGENTICFORM_STATE_DIR: stateDir, AGENTICFORM_HUB_URL: "" })
       expect(fromIdentity.hubUrl).toBe("https://identity.example.com")
     } finally {
       rmSync(dir, { recursive: true, force: true })

@@ -16,6 +16,9 @@ describe("shared config file", () => {
   test("resolveConfigPath respects AGENTICFORM_CONFIG, XDG_CONFIG_HOME, HOME, and returns null for empty synthetic env", () => {
     expect(resolveConfigPath({})).toBeNull()
     expect(resolveConfigPath({ HOME: "/tmp/h" })).toBe(join("/tmp/h", ".config", "agenticform", "config.json"))
+    expect(resolveConfigPath({ USERPROFILE: "C:\\Users\\demo" })).toBe(
+      join("C:\\Users\\demo", ".config", "agenticform", "config.json"),
+    )
     expect(resolveConfigPath({ HOME: "/tmp/h", XDG_CONFIG_HOME: "/tmp/xdg" })).toBe(
       join("/tmp/xdg", "agenticform", "config.json"),
     )
@@ -82,12 +85,21 @@ describe("shared config file", () => {
       const view = redactedConfigView({
         AGENTICFORM_CONFIG: file,
         AGENTICFORM_HUB_PORT: "9999",
+        HOME: "/tmp/home-view",
       })
       expect(view.exists).toBe(true)
       expect(view.values.hubUrl).toEqual({ value: "http://127.0.0.1:8787", source: "file" })
       expect(view.values.token).toEqual({ value: "***", source: "file" })
       expect(view.values.adminToken).toEqual({ value: "***", source: "file" })
       expect(view.values["hub.port"]).toEqual({ value: 9999, source: "env" })
+      expect(view.values["hub.stateDir"]).toEqual({
+        value: join("/tmp/home-view", ".agenticform-hub"),
+        source: "default",
+      })
+      expect(view.values["node.stateDir"]).toEqual({
+        value: join("/tmp/home-view", ".agenticform-node"),
+        source: "default",
+      })
       expect(view.values["node.harnesses"]).toEqual({ value: ["codex", "claude"], source: "file" })
       expect(JSON.stringify(view)).not.toContain("afc_secret_value")
       expect(JSON.stringify(view)).not.toContain("a".repeat(32))

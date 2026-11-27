@@ -29,11 +29,15 @@ const seconds = (value: string | undefined, fallback: number): number =>
 const millis = (value: string | undefined, fallback: number): number =>
   value === undefined ? fallback : Number(value)
 
+const nonEmpty = (value: string | undefined): string | undefined =>
+  value !== undefined && value !== "" ? value : undefined
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): NodeConfig {
   const file = loadConfigFile(env)
+  const home = nonEmpty(env.HOME) ?? nonEmpty(env.USERPROFILE) ?? "."
   const stateDir =
-    env.AGENTICFORM_STATE_DIR ?? file.node?.stateDir ?? join(env.HOME ?? ".", ".agenticform-node")
-  const hubUrl = env.AGENTICFORM_HUB_URL ?? file.hubUrl ?? loadIdentity(stateDir)?.hubUrl ?? ""
+    nonEmpty(env.AGENTICFORM_STATE_DIR) ?? file.node?.stateDir ?? join(home, ".agenticform-node")
+  const hubUrl = nonEmpty(env.AGENTICFORM_HUB_URL) ?? file.hubUrl ?? loadIdentity(stateDir)?.hubUrl ?? ""
   const config: NodeConfig = {
     hubUrl,
     stateDir,

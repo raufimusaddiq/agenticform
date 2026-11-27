@@ -249,6 +249,18 @@ describe("hub config", () => {
       expect(overridden.port).toBe(9999)
       expect(overridden.maxDepth).toBe(2)
       expect(overridden.adminToken).toBe("f".repeat(32))
+
+      // Empty env vars fall through to config.json consistently with client/CLI.
+      const emptyFallthrough = loadConfig({
+        AGENTICFORM_CONFIG: file,
+        AGENTICFORM_ADMIN_TOKEN: "",
+        AGENTICFORM_HUB_URL: "",
+        AGENTICFORM_STATE_DIR: "",
+        AGENTICFORM_HUB_PORT: "",
+      })
+      expect(emptyFallthrough.adminToken).toBe("f".repeat(32))
+      expect(emptyFallthrough.publicUrl).toBe("https://file.example.com")
+      expect(emptyFallthrough.port).toBe(9123)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

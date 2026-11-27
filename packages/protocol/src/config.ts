@@ -73,7 +73,7 @@ export function resolveConfigPath(env: Record<string, string | undefined> = proc
   if (env.AGENTICFORM_CONFIG) return env.AGENTICFORM_CONFIG
   if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "agenticform", "config.json")
   if (env.HOME) return join(env.HOME, ".config", "agenticform", "config.json")
-  if (env === process.env && env.USERPROFILE) {
+  if (env.USERPROFILE) {
     return join(env.USERPROFILE, ".config", "agenticform", "config.json")
   }
   return null
@@ -448,6 +448,7 @@ export function redactedConfigView(
   const configPath = resolved ?? defaultConfigPath(env)
   const exists = resolved !== null && existsSync(resolved)
   const file = loadConfigFile(env)
+  const homeDir = env.HOME || env.USERPROFILE || "."
   return {
     configPath,
     exists,
@@ -457,7 +458,11 @@ export function redactedConfigView(
       adminToken: entry(env.AGENTICFORM_ADMIN_TOKEN, file.adminToken, null, (v) => v, true),
       "hub.port": entry(env.AGENTICFORM_HUB_PORT, file.hub?.port, 8787, (v) => Number(v)),
       "hub.publicUrl": entry(env.AGENTICFORM_HUB_URL, file.hub?.publicUrl, null),
-      "hub.stateDir": entry(env.AGENTICFORM_STATE_DIR, file.hub?.stateDir, null),
+      "hub.stateDir": entry(
+        env.AGENTICFORM_STATE_DIR,
+        file.hub?.stateDir,
+        join(homeDir, ".agenticform-hub"),
+      ),
       "hub.dbPath": entry(env.AGENTICFORM_HUB_DB, file.hub?.dbPath, null),
       "hub.maxDepth": entry(env.AGENTICFORM_RUN_MAX_DEPTH, file.hub?.maxDepth, 3, (v) => Number(v)),
       "hub.workflowTimeoutMs": entry(
@@ -473,7 +478,11 @@ export function redactedConfigView(
         (v) => Number(v),
       ),
       "node.name": entry(env.AGENTICFORM_NODE_NAME, file.node?.name, null),
-      "node.stateDir": entry(env.AGENTICFORM_STATE_DIR, file.node?.stateDir, null),
+      "node.stateDir": entry(
+        env.AGENTICFORM_STATE_DIR,
+        file.node?.stateDir,
+        join(homeDir, ".agenticform-node"),
+      ),
       "node.slots": entry(env.AGENTICFORM_NODE_SLOTS, file.node?.slots, 1, (v) => Number(v)),
       "node.harnesses": entry(env.AGENTICFORM_NODE_HARNESSES, file.node?.harnesses, [], parseListString),
       "node.capabilities": entry(
