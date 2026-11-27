@@ -28,7 +28,14 @@ export const harnesses: Readonly<Record<string, HarnessDefinition>> = {
     args: ["@agentclientprotocol/codex-acp@2.12.1"],
     verification: "documented",
   },
-  opencode: { id: "opencode", profile: "coding", command: "opencode", args: ["acp"], verification: "documented" },
+  opencode: {
+    id: "opencode",
+    profile: "coding",
+    command: "opencode",
+    args: ["acp"],
+    verification: "tested",
+    notes: "Tested with opencode 2.3.2.",
+  },
   omp: { id: "omp", profile: "coding", command: "omp", args: ["acp"], verification: "documented" },
   pi: {
     id: "pi",

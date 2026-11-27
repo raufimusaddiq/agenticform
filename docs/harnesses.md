@@ -2,13 +2,13 @@
 
 You install, update and log in to each harness yourself. Agenticform starts it and reports a named error when it is missing or not logged in.
 
-A harness counts as **tested** only after the conformance suite passes against a recorded version. No harness has reached that level yet.
+A harness counts as **tested** only after the conformance suite passes against a recorded version. Only `opencode` has reached that level, with 2.3.2. Against a real harness the suite runs two cases, the handshake and one prompt; the scripted cases (cancel, permissions, process death, capability refusal) run only against the fake agent.
 
 | Id | Harness | Profile | Entry point | Level | Notes |
 |---|---|---|---|---|---|
 | `claude` | Claude Code | coding | `claude-agent-acp` 0.113.0 | documented | One real prompt completed on 2026-11-05 with 0.100.0; not re-run on 0.113.0. Starts sessions in auto permission mode, see [Permission mode](#claude-permission-mode) |
 | `codex` | Codex | coding | `codex-acp` 2.12.1 | documented | Handshake and `auth_required` seen on 2026-11-05 with 2.5.0; not re-run on 2.12.1; no prompt run |
-| `opencode` | OpenCode | coding | `opencode acp` | documented | Not run |
+| `opencode` | OpenCode | coding | `opencode acp` | tested | On 2026-11-27 with 2.3.2 on WSL Ubuntu and ACP SDK 2.12.0: the conformance suite, the sandboxed probe and one sandboxed hub run passed. Other versions are not covered |
 | `omp` | Oh My Pi | coding | `omp acp` | documented | Not run; confirm the command on your version |
 | `pi` | Pi | coding | `pi-acp` 0.0.35 | documented | Not run; early third-party adapter. `pi --mode rpc` is a possible direct driver |
 | `dsh` | DeepSeek Harness | coding | `dsh --profile acp` | documented | Not run; developer preview. MCP session support unconfirmed |
