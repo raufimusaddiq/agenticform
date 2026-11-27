@@ -117,6 +117,14 @@ Runs keep their events in memory. Durability belongs to `node` and `hub`: the
 node writes a command ledger before any effect, and the hub keeps runs, commands
 and events in SQLite with WAL.
 
+## Workflows and Psychoscript
+
+`@agenticform/script` embeds [Psychoscript](https://github.com/anomalyco/psychoscript) to run confined, resumable JavaScript ("code mode") against a `ScriptRunsPort`:
+
+- **Confinement:** Scripts run inside a bytecode VM with no ambient filesystem, network, process, timer, or `eval` access. Only the read/run `af.*` host namespace (`af.run`, `af.startRun`, `af.getRun`, `af.cancelRun`, `af.listNodes`, `af.listEvents`, `af.listPermissions`) is exposed; admin operations (`answerPermission`, tokens, node control) are never exposed.
+- **Library-first or hub-hosted:** Callers can run scripts locally with `@agenticform/script` (`af script run|resume` over `HubClient`) or submit durable workflows to the hub (`POST /v1/workflows`, `af workflow`, MCP `start_workflow`).
+- **Auto-parking and fail-closed recovery:** When a hub workflow awaits `af.run(...)` on a live child run, the hub parks its VM state (`snapshot_bytes`) in SQLite and resumes it automatically when child runs finish—including across hub restarts. A workflow interrupted while active without a saved snapshot fails closed (`Interrupted`) and is never replayed ambiguously.
+
 ## Evidence and verification
 
 Release qualification and verification artifacts:

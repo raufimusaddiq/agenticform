@@ -109,6 +109,23 @@ af run start --key subtask-1 --harness codex --prompt "Investigate failure" --pa
 
 To prevent runaway recursive agent cascades, `AGENTICFORM_RUN_MAX_DEPTH` (default `3`) limits the maximum tree depth. Submissions past this limit fail with `422 depth_exceeded` without inserting a row. An invalid parent ID returns `404 parent_not_found`.
 
+### Durable workflows (Psychoscript)
+
+Callers and agents can also run confined JavaScript workflows ("code mode") locally via `@agenticform/script` (`af script`) or durably on the hub (`POST /v1/workflows`, `af workflow`, or MCP `start_workflow`):
+
+```bash
+af workflow start --key wf-1 --code 'const r = await af.run({ harness: "codex", prompt: "Fix tests" }); return r.status'
+af workflow get <workflowId>
+af workflow list
+af workflow cancel <workflowId>
+
+# Or run/resume locally on the caller side without hub workflow storage:
+af script run --code 'return await af.listNodes()' --state-out wf.snap
+af script resume --state wf.snap
+```
+
+Scripts run inside a Psychoscript bytecode VM with no ambient filesystem, network, timers, or `eval`, exposing only `af.run`, `af.startRun`, `af.getRun`, `af.cancelRun`, `af.listNodes`, `af.listEvents`, and `af.listPermissions`. When a hub workflow awaits `af.run(...)`, the hub suspends its VM snapshot to SQLite (`snapshot_bytes`) and resumes it automatically once child runs reach a terminal state, including across hub restarts.
+
 ## Configuration
 
 Every environment variable below is read by at least one package. Empty defaults mean the feature is off until set. Secrets are marked; never put a real value in a file that is committed.
@@ -137,6 +154,12 @@ Every environment variable below is read by at least one package. Empty defaults
 | `AGENTICFORM_NONCE_CLEANUP_SECONDS` | hub | `600` | Nonce cleanup interval |
 | `AGENTICFORM_RECOVERY_GRACE_SECONDS` | hub | `120` | Wait before a disconnected run may recover |
 | `AGENTICFORM_MAX_BODY_BYTES` | hub | `1048576` | Maximum request body before `413 payload_too_large` |
+| `AGENTICFORM_WORKFLOW_TIMEOUT_MS` | hub | `30000` | Maximum active JS execution budget per workflow (ms) |
+| `AGENTICFORM_WORKFLOW_MAX_OUTPUT_BYTES` | hub | `65536` | Maximum UTF-8 bytes retained for workflow result and logs |
+| `AGENTICFORM_WORKFLOW_MAX_SNAPSHOT_BYTES` | hub | `524288` | Maximum serialized Psychoscript snapshot size in bytes |
+| `AGENTICFORM_WORKFLOW_MAX_CHILD_RUNS` | hub | `20` | Maximum child runs a single workflow may create |
+| `AGENTICFORM_WORKFLOW_MAX_CODE_BYTES` | hub | `65536` | Maximum UTF-8 bytes accepted in workflow `code` |
+| `AGENTICFORM_WORKFLOW_PARK_MS` | hub | `50` | Delay before parking an awaiting workflow's VM snapshot to SQLite |
 | `AGENTICFORM_ENROLL_TOKEN` | node | none (required for `agenticform-node enroll`) | Secret. Single-use enrollment token issued by the hub |
 | `AGENTICFORM_NODE_NAME` | node | hostname | Name reported at enrollment |
 | `AGENTICFORM_NODE_SLOTS` | node | `1` | Concurrent commands the node accepts |
@@ -198,6 +221,7 @@ startup. A probe runs at most one at a time and never blocks a heartbeat.
 - [Runtime spec](specs/001-runtime-foundation/spec.md)
 - [Node and hub spec](specs/002-node-hub/spec.md)
 - [Harness isolation spec](specs/003-harness-isolation/spec.md)
+- [Psychoscript workflows spec](specs/005-psychoscript-workflows/spec.md)
 - Soak test runner: [`scripts/soak.ts`](scripts/soak.ts)
 - Node packaging test: [`scripts/package-node.ts`](scripts/package-node.ts)
 

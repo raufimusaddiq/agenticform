@@ -8,6 +8,11 @@ import type {
   RunRequest,
   RunStatus,
   RunView,
+  WorkflowError,
+  WorkflowLimits,
+  WorkflowRequest,
+  WorkflowStatus,
+  WorkflowView,
 } from "@agenticform/protocol"
 
 export type {
@@ -20,7 +25,18 @@ export type {
   RunRequest,
   RunStatus,
   RunView,
+  WorkflowError,
+  WorkflowLimits,
+  WorkflowRequest,
+  WorkflowStatus,
+  WorkflowView,
 } from "@agenticform/protocol"
+
+export const TERMINAL_WORKFLOW_STATUSES: ReadonlySet<WorkflowStatus> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+])
 
 /**
  * Terminal run statuses (contracts/http-api.md, "Terminal states"). A
@@ -199,6 +215,23 @@ export class HubClient {
 
   cancelRun(runId: string): Promise<RunView> {
     return this.request<RunView>("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`)
+  }
+
+  createWorkflow(request: WorkflowRequest): Promise<WorkflowView> {
+    return this.request<WorkflowView>("POST", "/v1/workflows", request)
+  }
+
+  async listWorkflows(): Promise<WorkflowView[]> {
+    const body = await this.request<{ workflows: WorkflowView[] } | undefined>("GET", "/v1/workflows")
+    return body?.workflows ?? []
+  }
+
+  getWorkflow(workflowId: string): Promise<WorkflowView> {
+    return this.request<WorkflowView>("GET", `/v1/workflows/${encodeURIComponent(workflowId)}`)
+  }
+
+  cancelWorkflow(workflowId: string): Promise<WorkflowView> {
+    return this.request<WorkflowView>("POST", `/v1/workflows/${encodeURIComponent(workflowId)}/cancel`)
   }
 
   async listPermissions(runId: string): Promise<PermissionRequestView[]> {

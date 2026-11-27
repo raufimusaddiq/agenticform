@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import type { RunRequest } from "@agenticform/protocol"
+import { readFileSync, writeFileSync } from "node:fs"
+import type { RunRequest, WorkflowLimits, WorkflowRequest } from "@agenticform/protocol"
 import {
   FOLLOW_STOP_STATUSES,
   HubApiError,
@@ -8,6 +9,7 @@ import {
   normalizeAfter,
   reconnectDelay,
 } from "@agenticform/client"
+import { createScriptRuntime, type Json } from "@agenticform/script"
 
 const USAGE = `usage: af <command>
   af nodes
@@ -20,6 +22,17 @@ const USAGE = `usage: af <command>
   af run cancel <runId>
   af run permissions <runId>
   af run answer <runId> <requestId> allow|deny
+  af workflow start --key <idempotency-key> (--code <js> | --file <path>)
+                    [--parent <runId>] [--timeout-ms <ms>] [--max-output-bytes <n>]
+                    [--max-snapshot-bytes <n>] [--max-child-runs <n>]
+  af workflow list
+  af workflow get <workflowId>
+  af workflow cancel <workflowId>
+  af script run (--code <js> | --file <path>) [--parent <runId>]
+                [--timeout-ms <ms>] [--max-output-bytes <n>]
+                [--max-snapshot-bytes <n>] [--max-child-runs <n>]
+                [--state-out <file>]
+  af script resume --state <file> [--state-out <file>]
   af token issue <name>
   af token list
   af token revoke <id>
@@ -78,6 +91,47 @@ function print(value: unknown): void {
   console.log(JSON.stringify(value, null, 2))
 }
 
+function parseOptionalIntFlag(rest: string[], name: string, min: number): number | undefined {
+  const raw = flag(rest, name)
+  if (raw === undefined) return undefined
+  if (!/^\d+$/.test(raw)) throw new Error(`--${name} must be an integer >= ${min}`)
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value < min) throw new Error(`--${name} must be an integer >= ${min}`)
+  return value
+}
+
+function parseWorkflowLimits(rest: string[]): WorkflowLimits | undefined {
+  const timeoutMs = parseOptionalIntFlag(rest, "timeout-ms", 1)
+  const maxOutputBytes = parseOptionalIntFlag(rest, "max-output-bytes", 0)
+  const maxSnapshotBytes = parseOptionalIntFlag(rest, "max-snapshot-bytes", 1)
+  const maxChildRuns = parseOptionalIntFlag(rest, "max-child-runs", 0)
+  if (
+    timeoutMs === undefined &&
+    maxOutputBytes === undefined &&
+    maxSnapshotBytes === undefined &&
+    maxChildRuns === undefined
+  ) {
+    return undefined
+  }
+  return {
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+    ...(maxSnapshotBytes === undefined ? {} : { maxSnapshotBytes }),
+    ...(maxChildRuns === undefined ? {} : { maxChildRuns }),
+  }
+}
+
+function readScriptSource(rest: string[]): string {
+  const code = flag(rest, "code")
+  const file = flag(rest, "file")
+  if (code !== undefined && file !== undefined) {
+    throw new Error("pass either --code or --file, not both")
+  }
+  if (code !== undefined) return code
+  if (file !== undefined) return readFileSync(file, "utf8")
+  throw new Error("--code or --file is required")
+}
+
 /** Reject unknown --flags; booleans are listed too. */
 function rejectUnknownFlags(args: string[], allowed: readonly string[]): void {
   for (const arg of args) {
@@ -105,6 +159,128 @@ async function main(argv: string[]): Promise<void> {
     if (action === "revoke") {
       if (!id) throw new Error("af token revoke <id>")
       return print(await client().revokeToken(id))
+    }
+    throw new Error(USAGE)
+  }
+
+  if (group === "workflow") {
+    const rest = argv.slice(2)
+    if (action === "start") {
+      rejectUnknownFlags(rest, [
+        "key",
+        "code",
+        "file",
+        "parent",
+        "timeout-ms",
+        "max-output-bytes",
+        "max-snapshot-bytes",
+        "max-child-runs",
+      ])
+      const idempotencyKey = flag(rest, "key")
+      if (!idempotencyKey) throw new Error("--key is required")
+      const code = readScriptSource(rest)
+      const parentRunId = flag(rest, "parent")
+      const limits = parseWorkflowLimits(rest)
+      const request: WorkflowRequest = {
+        idempotencyKey,
+        code,
+        ...(parentRunId === undefined ? {} : { parentRunId }),
+        ...(limits === undefined ? {} : { limits }),
+      }
+      return print(await client().createWorkflow(request))
+    }
+    if (action === "list") {
+      rejectUnknownFlags(rest, [])
+      return print(await client().listWorkflows())
+    }
+    if (action === "get") {
+      rejectUnknownFlags(rest, [])
+      if (!id) throw new Error("af workflow get <workflowId>")
+      return print(await client().getWorkflow(id))
+    }
+    if (action === "cancel") {
+      rejectUnknownFlags(rest, [])
+      if (!id) throw new Error("af workflow cancel <workflowId>")
+      return print(await client().cancelWorkflow(id))
+    }
+    throw new Error(USAGE)
+  }
+
+  if (group === "script") {
+    const rest = argv.slice(2)
+    if (action === "run") {
+      rejectUnknownFlags(rest, [
+        "code",
+        "file",
+        "parent",
+        "timeout-ms",
+        "max-output-bytes",
+        "max-snapshot-bytes",
+        "max-child-runs",
+        "state-out",
+      ])
+      const code = readScriptSource(rest)
+      const parentRunId = flag(rest, "parent")
+      const limits = parseWorkflowLimits(rest)
+      const stateOut = flag(rest, "state-out")
+      const runtime = createScriptRuntime(client(), {
+        ...(limits === undefined ? {} : { limits }),
+        ...(parentRunId === undefined ? {} : { parentRunId }),
+      })
+      const program = runtime.program(code)
+      let suspendedBySignal = false
+      const onSignal = (): void => {
+        if (stateOut && !suspendedBySignal) {
+          suspendedBySignal = true
+          void program.suspend().then((outcome) => {
+            if (outcome.ok === "suspended") writeFileSync(stateOut, outcome.bytes)
+          })
+        }
+      }
+      process.once("SIGINT", onSignal)
+      try {
+        const outcome = await program.run()
+        if (outcome.ok === "suspended") {
+          if (stateOut) writeFileSync(stateOut, outcome.bytes)
+          return print({ ok: "suspended", stateFile: stateOut ?? null, bytes: outcome.bytes.length })
+        }
+        print(outcome)
+        if (!outcome.ok) process.exit(1)
+        return
+      } finally {
+        process.off("SIGINT", onSignal)
+      }
+    }
+    if (action === "resume") {
+      rejectUnknownFlags(rest, ["state", "state-out"])
+      const stateFile = flag(rest, "state")
+      if (!stateFile) throw new Error("--state is required")
+      const stateOut = flag(rest, "state-out") ?? stateFile
+      const bytes = new Uint8Array(readFileSync(stateFile))
+      const runtime = createScriptRuntime(client())
+      const program = runtime.resume(bytes)
+      let suspendedBySignal = false
+      const onSignal = (): void => {
+        if (!suspendedBySignal) {
+          suspendedBySignal = true
+          void program.suspend().then((outcome) => {
+            if (outcome.ok === "suspended") writeFileSync(stateOut, outcome.bytes)
+          })
+        }
+      }
+      process.once("SIGINT", onSignal)
+      try {
+        const outcome = await program.run()
+        if (outcome.ok === "suspended") {
+          writeFileSync(stateOut, outcome.bytes)
+          return print({ ok: "suspended", stateFile: stateOut, bytes: outcome.bytes.length })
+        }
+        print(outcome)
+        if (!outcome.ok) process.exit(1)
+        return
+      } finally {
+        process.off("SIGINT", onSignal)
+      }
     }
     throw new Error(USAGE)
   }

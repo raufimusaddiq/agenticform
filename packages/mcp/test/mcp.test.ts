@@ -122,6 +122,18 @@ const server = Bun.serve({
         auth: request.headers.get("authorization"),
       })
     }
+    if (url.pathname === "/v1/workflows" && request.method === "POST") {
+      return Response.json({
+        workflowId: "wf-1",
+        status: "running",
+        parentRunId: null,
+        depth: 0,
+        childRunIds: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        completedAt: null,
+      })
+    }
     return new Response("not found", { status: 404 })
   },
 })
@@ -257,6 +269,41 @@ describe("MCP boundary validation", () => {
       expect(
         toolError(await client.call("answer_permission", { runId: "r1", requestId: "call_7", decision: "maybe" })),
       ).toContain("decision must be allow or deny")
+    } finally {
+      client.close()
+    }
+  })
+
+  test("workflow tools are advertised and validated", async () => {
+    const client = mcp()
+    try {
+      const listed = await client.request("tools/list")
+      const names = listed.result.tools.map((entry: { name: string }) => entry.name)
+      expect(names).toContain("start_workflow")
+      expect(names).toContain("get_workflow")
+      expect(names).toContain("list_workflows")
+      expect(names).toContain("cancel_workflow")
+
+      expect(toolError(await client.call("start_workflow", { code: "return 1" }))).toContain(
+        "idempotencyKey is required",
+      )
+      expect(
+        toolError(await client.call("start_workflow", { idempotencyKey: "k", code: "return 1", nope: true })),
+      ).toContain("unknown start_workflow argument: nope")
+      expect(
+        toolError(
+          await client.call("start_workflow", {
+            idempotencyKey: "k",
+            code: "return 1",
+            limits: { timeoutMs: 1.5 },
+          }),
+        ),
+      ).toContain("limits.timeoutMs must be an integer")
+      expect(toolError(await client.call("get_workflow", {}))).toContain("workflowId is required")
+      expect(toolError(await client.call("cancel_workflow", {}))).toContain("workflowId is required")
+
+      const ok = await client.call("start_workflow", { idempotencyKey: "k", code: "return 1" })
+      expect(JSON.parse(ok.result.content[0].text).workflowId).toBe("wf-1")
     } finally {
       client.close()
     }

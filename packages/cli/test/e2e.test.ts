@@ -197,6 +197,7 @@ describe("thin clients over the hub HTTP API", () => {
       expect(listed.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
         "list_nodes", "start_run", "get_run", "list_events", "cancel_run",
         "list_permissions", "answer_permission",
+        "start_workflow", "get_workflow", "list_workflows", "cancel_workflow",
       ])
       const mcpStart = await server.request("tools/call", { name: "start_run", arguments: request })
       expect(JSON.parse(mcpStart.result.content[0].text).runId).toBe(viaHttp.runId)
@@ -352,5 +353,46 @@ describe("thin clients over the hub HTTP API", () => {
     const listed = await cli(["token", "list"])
     expect(listed.code).toBe(0)
     expect(parse(listed.out).some((token: { name: string }) => token.name === "cli-runs")).toBe(true)
+  })
+
+  test("HTTP, CLI, script, and MCP share workflow parity", async () => {
+    await enrollOnlineNode()
+    const started = await cli([
+      "workflow", "start", "--key", "e2e-wf-1", "--code", "return (await af.listNodes()).length",
+    ])
+    expect(started.code).toBe(0)
+    const wf = parse(started.out)
+    expect(wf.workflowId).toBeTruthy()
+
+    const listed = await cli(["workflow", "list"])
+    expect(listed.code).toBe(0)
+    expect(parse(listed.out).some((item: { workflowId: string }) => item.workflowId === wf.workflowId)).toBe(true)
+
+    const fetched = await cli(["workflow", "get", wf.workflowId])
+    expect(fetched.code).toBe(0)
+
+    const localScript = await cli([
+      "script", "run", "--code", "return (await af.listNodes()).length",
+    ])
+    expect(localScript.code).toBe(0)
+    expect(parse(localScript.out)).toMatchObject({ ok: true })
+
+    const server = mcp()
+    try {
+      await server.request("initialize", { protocolVersion: "2024-11-05" })
+      const mcpStart = await server.request("tools/call", {
+        name: "start_workflow",
+        arguments: { idempotencyKey: "e2e-wf-1", code: "return (await af.listNodes()).length" },
+      })
+      expect(JSON.parse(mcpStart.result.content[0].text).workflowId).toBe(wf.workflowId)
+
+      const mcpGet = await server.request("tools/call", {
+        name: "get_workflow",
+        arguments: { workflowId: wf.workflowId },
+      })
+      expect(JSON.parse(mcpGet.result.content[0].text).workflowId).toBe(wf.workflowId)
+    } finally {
+      server.close()
+    }
   })
 })

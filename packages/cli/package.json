@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@agenticform/client": "workspace:*",
-    "@agenticform/protocol": "workspace:*"
+    "@agenticform/protocol": "workspace:*",
+    "@agenticform/script": "workspace:*"
   }
 }

@@ -25,6 +25,9 @@ export type ErrorCode =
   | "permission_unsupported"
   | "parent_not_found"
   | "depth_exceeded"
+  | "script_invalid"
+  | "snapshot_incompatible"
+  | "workflow_limit_exceeded"
   | "internal"
 
 export interface ApiErrorBody {
@@ -295,4 +298,42 @@ export interface NodeView {
   /** Last heartbeat's isolation report, verbatim. Additive and optional. */
   isolation?: IsolationReport
   lastHeartbeatAt: string | null
+}
+
+export type WorkflowStatus = "running" | "suspended" | "completed" | "failed" | "cancelled"
+
+export interface WorkflowLimits {
+  timeoutMs?: number
+  maxOutputBytes?: number
+  maxSnapshotBytes?: number
+  maxChildRuns?: number
+}
+
+export interface WorkflowRequest {
+  idempotencyKey: string
+  code: string
+  bindings?: Record<string, unknown>
+  parentRunId?: string
+  limits?: WorkflowLimits
+}
+
+export interface WorkflowError {
+  kind: string
+  message: string
+  suggestions?: string[]
+}
+
+export interface WorkflowView {
+  workflowId: string
+  status: WorkflowStatus
+  parentRunId: string | null
+  depth: number
+  result?: unknown
+  error?: WorkflowError | null
+  logs?: string[]
+  truncated?: boolean
+  childRunIds: string[]
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
 }

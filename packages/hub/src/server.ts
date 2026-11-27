@@ -7,6 +7,7 @@ import type {
   EventBatch,
   HeartbeatRequest,
   RunRequest,
+  WorkflowRequest,
 } from "@agenticform/protocol"
 import { completeCommand, leaseNext, renewLease } from "./commands.ts"
 import type { HubConfig } from "./config.ts"
@@ -22,12 +23,14 @@ import { authenticateMachine } from "./signatures.ts"
 import { authenticateToken, issueToken, listTokens, revokeToken, type Principal } from "./tokens.ts"
 import { uiAsset } from "./ui.ts"
 import { validateConfig } from "./config.ts"
+import { WorkflowManager, workflowView } from "./workflows.ts"
 
 export interface Hub {
   server: ReturnType<typeof Bun.serve>
   db: Database
   config: HubConfig
   url: string
+  suspendWorkflows(): Promise<void>
   stop(): void
 }
 
@@ -131,6 +134,10 @@ const RUNS_ROUTES: readonly { method: string; pattern: RegExp }[] = [
   { method: "POST", pattern: /^\/v1\/runs\/[^/]+\/cancel$/ },
   { method: "GET", pattern: /^\/v1\/runs\/[^/]+\/permissions$/ },
   { method: "GET", pattern: /^\/v1\/nodes$/ },
+  { method: "POST", pattern: /^\/v1\/workflows$/ },
+  { method: "GET", pattern: /^\/v1\/workflows$/ },
+  { method: "GET", pattern: /^\/v1\/workflows\/[^/]+$/ },
+  { method: "POST", pattern: /^\/v1\/workflows\/[^/]+\/cancel$/ },
 ]
 
 function runsMayUse(method: string, path: string): boolean {
@@ -157,6 +164,8 @@ function authenticate(config: HubConfig, db: Database, headers: Headers): Princi
 export function createHub(config: HubConfig): Hub {
   validateConfig(config)
   const db = openDatabase(config.stateFile)
+  const workflows = new WorkflowManager(db, config)
+  workflows.recoverOnStartup()
 
   const handle = async (request: Request): Promise<Response> => {
     const url = new URL(request.url)
@@ -236,10 +245,30 @@ export function createHub(config: HubConfig): Hub {
         }
         if (request.method === "POST" && action === "cancel") {
           const result = cancelRun(db, runId)
+          workflows.notifyRunChanged(runId)
           return json(runView(db, result.run), result.queued ? 202 : 200)
         }
         if (request.method === "POST" && action === "recover") {
           return json(runView(db, recoverRun(db, config, runId)))
+        }
+      }
+      if (request.method === "POST" && path === "/v1/workflows") {
+        const body = await readJson<WorkflowRequest>(request, config.maxBodyBytes)
+        const result = workflows.createWorkflow(body)
+        return json(workflowView(result.workflow), result.created ? 201 : 200)
+      }
+      if (request.method === "GET" && path === "/v1/workflows") {
+        return json({ workflows: workflows.listWorkflows().map(workflowView) })
+      }
+      const workflowAction = /^\/v1\/workflows\/([^/]+)(?:\/(cancel))?$/.exec(path)
+      if (workflowAction) {
+        const workflowId = workflowAction[1] as string
+        const action = workflowAction[2]
+        if (request.method === "GET" && action === undefined) {
+          return json(workflowView(workflows.getWorkflow(workflowId)))
+        }
+        if (request.method === "POST" && action === "cancel") {
+          return json(workflowView(await workflows.cancelWorkflow(workflowId)))
         }
       }
       const permissionAction = /^\/v1\/runs\/([^/]+)\/permissions(?:\/([^/]+))?$/.exec(path)
@@ -294,7 +323,14 @@ export function createHub(config: HubConfig): Hub {
       if (action[2] === "events") {
         return json(appendEvents(db, node.id, commandId, requireBody(body) as unknown as EventBatch))
       }
-      return json(completeCommand(db, node, commandId, requireBody(body) as unknown as CompletionRequest))
+      const completed = completeCommand(
+        db,
+        node,
+        commandId,
+        requireBody(body) as unknown as CompletionRequest,
+      )
+      workflows.notifyRunChanged(completed.run_id)
+      return json(completed)
     }
     fail("not_found", "route not found")
   }
@@ -302,17 +338,19 @@ export function createHub(config: HubConfig): Hub {
   const server = Bun.serve({ port: config.port, fetch: handle })
 
   const nonceTimer = setInterval(() => cleanupNonces(db), config.nonceCleanupMs)
-  const healthTimer = setInterval(
-    () => sweepHealth(db, config),
-    Math.max(1_000, Math.min(config.heartbeatIntervalMs, config.nodeOfflineMs)),
-  )
+  const healthTimer = setInterval(() => {
+    sweepHealth(db, config)
+    workflows.sweep()
+  }, Math.max(1_000, Math.min(config.heartbeatIntervalMs, config.nodeOfflineMs)))
 
   return {
     server,
     db,
     config,
     url: config.publicUrl ?? `http://127.0.0.1:${server.port}`,
+    suspendWorkflows: () => workflows.suspendAll(),
     stop() {
+      workflows.close()
       clearInterval(nonceTimer)
       clearInterval(healthTimer)
       server.stop(true)

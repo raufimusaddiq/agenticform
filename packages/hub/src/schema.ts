@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS run_events (
 );
 `
 
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 /** Ordered migrations. Append a new entry and bump SCHEMA_VERSION for each change. */
 export const MIGRATIONS: readonly { version: number; sql: string }[] = [
@@ -151,6 +151,31 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
   {
     version: 7,
     sql: `ALTER TABLE permission_requests ADD COLUMN decided_by TEXT;`,
+  },
+  {
+    version: 8,
+    sql: `CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      request_json TEXT NOT NULL,
+      code TEXT NOT NULL,
+      bindings_json TEXT NOT NULL DEFAULT '{}',
+      limits_json TEXT NOT NULL DEFAULT '{}',
+      parent_run_id TEXT REFERENCES runs(id),
+      depth INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      snapshot_bytes BLOB,
+      child_run_ids_json TEXT NOT NULL DEFAULT '[]',
+      waiting_run_ids_json TEXT NOT NULL DEFAULT '[]',
+      result_json TEXT,
+      error_json TEXT,
+      logs_json TEXT,
+      truncated INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      completed_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS workflows_status ON workflows(status);`,
   },
 ]
 
@@ -273,4 +298,26 @@ export interface EventRow {
   type: string
   at: string
   data_json: string
+}
+
+export interface WorkflowRow {
+  id: string
+  idempotency_key: string
+  request_json: string
+  code: string
+  bindings_json: string
+  limits_json: string
+  parent_run_id: string | null
+  depth: number
+  status: string
+  snapshot_bytes: Uint8Array | null
+  child_run_ids_json: string
+  waiting_run_ids_json: string
+  result_json: string | null
+  error_json: string | null
+  logs_json: string | null
+  truncated: number
+  created_at: number
+  updated_at: number
+  completed_at: number | null
 }

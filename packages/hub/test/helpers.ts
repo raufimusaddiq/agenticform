@@ -23,6 +23,12 @@ export function testConfig(overrides: Partial<HubConfig> = {}): HubConfig {
     recoveryGraceMs: 120_000,
     maxBodyBytes: 1_048_576,
     maxDepth: 3,
+    workflowTimeoutMs: 30_000,
+    workflowMaxOutputBytes: 65_536,
+    workflowMaxSnapshotBytes: 524_288,
+    workflowMaxChildRuns: 20,
+    workflowMaxCodeBytes: 65_536,
+    workflowParkMs: 50,
     ...overrides,
   }
 }

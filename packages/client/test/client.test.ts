@@ -1,5 +1,12 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { HubApiError, FOLLOW_STOP_STATUSES, HubClient, normalizeAfter, reconnectDelay } from "../src/index.ts"
+import {
+  FOLLOW_STOP_STATUSES,
+  HubApiError,
+  HubClient,
+  TERMINAL_WORKFLOW_STATUSES,
+  normalizeAfter,
+  reconnectDelay,
+} from "../src/index.ts"
 
 const server = Bun.serve({
   port: 0,
@@ -130,6 +137,49 @@ describe("listNodes", () => {
     try {
       const emptyClient = new HubClient({ url: stub.url.origin, token: "t" })
       expect(await emptyClient.listNodes()).toEqual([])
+    } finally {
+      stub.stop(true)
+    }
+  })
+})
+
+describe("workflows", () => {
+  test("TERMINAL_WORKFLOW_STATUSES and workflow client endpoints round-trip", async () => {
+    expect(TERMINAL_WORKFLOW_STATUSES.has("completed")).toBe(true)
+    expect(TERMINAL_WORKFLOW_STATUSES.has("failed")).toBe(true)
+    expect(TERMINAL_WORKFLOW_STATUSES.has("cancelled")).toBe(true)
+    expect(TERMINAL_WORKFLOW_STATUSES.has("suspended")).toBe(false)
+
+    const workflow = {
+      workflowId: "wf-1",
+      status: "completed",
+      parentRunId: null,
+      depth: 0,
+      result: { ok: true },
+      childRunIds: [],
+      createdAt: "2026-11-27T00:00:00.000Z",
+      updatedAt: "2026-11-27T00:00:00.000Z",
+      completedAt: "2026-11-27T00:00:00.000Z",
+    }
+    const stub = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname
+        if (path === "/v1/workflows" && req.method === "POST") return Response.json(workflow, { status: 201 })
+        if (path === "/v1/workflows" && req.method === "GET") return Response.json({ workflows: [workflow] })
+        if (path === "/v1/workflows/wf-1" && req.method === "GET") return Response.json(workflow)
+        if (path === "/v1/workflows/wf-1/cancel" && req.method === "POST") {
+          return Response.json({ ...workflow, status: "cancelled" })
+        }
+        return new Response("not found", { status: 404 })
+      },
+    })
+    try {
+      const wfClient = new HubClient({ url: stub.url.origin, token: "t" })
+      expect((await wfClient.createWorkflow({ idempotencyKey: "k1", code: "return 1" })).workflowId).toBe("wf-1")
+      expect(await wfClient.listWorkflows()).toHaveLength(1)
+      expect((await wfClient.getWorkflow("wf-1")).status).toBe("completed")
+      expect((await wfClient.cancelWorkflow("wf-1")).status).toBe("cancelled")
     } finally {
       stub.stop(true)
     }

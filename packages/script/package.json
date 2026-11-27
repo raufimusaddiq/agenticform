@@ -1,0 +1,14 @@
+{
+  "name": "@agenticform/script",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@agenticform/protocol": "workspace:*",
+    "psychoscript": "^0.3.0"
+  }
+}
