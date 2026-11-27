@@ -19,6 +19,7 @@
       "dependencies": {
         "@agenticform/client": "workspace:*",
         "@agenticform/protocol": "workspace:*",
+        "@agenticform/script": "workspace:*",
       },
     },
     "packages/client": {
@@ -36,6 +37,7 @@
       },
       "dependencies": {
         "@agenticform/protocol": "workspace:*",
+        "@agenticform/script": "workspace:*",
       },
     },
     "packages/mcp": {
@@ -70,6 +72,14 @@
         "@agentclientprotocol/sdk": "2.8.0",
       },
     },
+    "packages/script": {
+      "name": "@agenticform/script",
+      "version": "0.1.0",
+      "dependencies": {
+        "@agenticform/protocol": "workspace:*",
+        "psychoscript": "^0.3.0",
+      },
+    },
   },
   "packages": {
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@2.8.0", "", { "peerDependencies": { "@modelcontextprotocol/server": "^2.4.0", "zod": "^3.25.76 || ^4.0.0" }, "optionalPeers": ["@modelcontextprotocol/server"] }, "sha512-EjsvoRX8nEH2z3PAVI2ILsVXAefVcSlLPeXGjlQoFgkJE71F2J0Fj7N6oL/k7SnP0vY+9hmONPFz/K2zalnTiw=="],
@@ -88,11 +98,17 @@
 
     "@agenticform/runtime": ["@agenticform/runtime@workspace:packages/runtime"],
 
+    "@agenticform/script": ["@agenticform/script@workspace:packages/script"],
+
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
     "@types/node": ["@types/node@22.19.1", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-LCCV0HdSZZZb34qifBsyWlUmok6W7ouER+oQIGBScS8EsZsQbrtFTUrDX4hOl+CS6p7cnNC4td+qrSVGSCTUfQ=="],
 
+    "acorn": ["acorn@8.15.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg=="],
+
     "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
+
+    "psychoscript": ["psychoscript@0.3.0", "", { "dependencies": { "acorn": "8.15.0" }, "peerDependencies": { "effect": "^4.1.0" }, "optionalPeers": ["effect"] }, "sha512-S4VohBlR6aXJtitKUZaYJ0OYs7AHjdKqBGYEL+6YoMU0oBFiVTFw8vTPrFujKBRuhjtj5kNu69CCJ/MBk4eM2g=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

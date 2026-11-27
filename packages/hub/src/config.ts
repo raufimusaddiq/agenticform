@@ -16,6 +16,12 @@ export interface HubConfig {
   recoveryGraceMs: number
   maxBodyBytes: number
   maxDepth: number
+  workflowTimeoutMs: number
+  workflowMaxOutputBytes: number
+  workflowMaxSnapshotBytes: number
+  workflowMaxChildRuns: number
+  workflowMaxCodeBytes: number
+  workflowParkMs: number
 }
 
 const seconds = (value: string | undefined, fallback: number): number =>
@@ -42,6 +48,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     recoveryGraceMs: seconds(env.AGENTICFORM_RECOVERY_GRACE_SECONDS, 120_000),
     maxBodyBytes: millis(env.AGENTICFORM_MAX_BODY_BYTES, 1_048_576),
     maxDepth: millis(env.AGENTICFORM_RUN_MAX_DEPTH, 3),
+    workflowTimeoutMs: millis(env.AGENTICFORM_WORKFLOW_TIMEOUT_MS, 30_000),
+    workflowMaxOutputBytes: millis(env.AGENTICFORM_WORKFLOW_MAX_OUTPUT_BYTES, 65_536),
+    workflowMaxSnapshotBytes: millis(env.AGENTICFORM_WORKFLOW_MAX_SNAPSHOT_BYTES, 524_288),
+    workflowMaxChildRuns: millis(env.AGENTICFORM_WORKFLOW_MAX_CHILD_RUNS, 20),
+    workflowMaxCodeBytes: millis(env.AGENTICFORM_WORKFLOW_MAX_CODE_BYTES, 65_536),
+    workflowParkMs: millis(env.AGENTICFORM_WORKFLOW_PARK_MS, 50),
   }
   validateConfig(config)
   return config
@@ -65,6 +77,10 @@ export function validateConfig(config: HubConfig): void {
     ["AGENTICFORM_POLL_MS", config.pollMs],
     ["AGENTICFORM_RECOVERY_GRACE_SECONDS", config.recoveryGraceMs],
     ["AGENTICFORM_MAX_BODY_BYTES", config.maxBodyBytes],
+    ["AGENTICFORM_WORKFLOW_TIMEOUT_MS", config.workflowTimeoutMs],
+    ["AGENTICFORM_WORKFLOW_MAX_SNAPSHOT_BYTES", config.workflowMaxSnapshotBytes],
+    ["AGENTICFORM_WORKFLOW_MAX_CODE_BYTES", config.workflowMaxCodeBytes],
+    ["AGENTICFORM_WORKFLOW_PARK_MS", config.workflowParkMs],
   ]
   for (const [name, value] of numbers) {
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`)
@@ -74,6 +90,12 @@ export function validateConfig(config: HubConfig): void {
   }
   if (!Number.isInteger(config.maxDepth) || config.maxDepth < 0) {
     throw new Error("AGENTICFORM_RUN_MAX_DEPTH must be a non-negative integer")
+  }
+  if (!Number.isInteger(config.workflowMaxOutputBytes) || config.workflowMaxOutputBytes < 0) {
+    throw new Error("AGENTICFORM_WORKFLOW_MAX_OUTPUT_BYTES must be a non-negative integer")
+  }
+  if (!Number.isInteger(config.workflowMaxChildRuns) || config.workflowMaxChildRuns < 0) {
+    throw new Error("AGENTICFORM_WORKFLOW_MAX_CHILD_RUNS must be a non-negative integer")
   }
   if (config.nonceTtlMs < 2 * config.clockSkewMs + 60_000) {
     throw new Error(

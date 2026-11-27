@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { createInterface } from "node:readline"
-import type { RunEventWire, RunRequest } from "@agenticform/client"
+import type { RunEventWire, RunRequest, WorkflowLimits, WorkflowRequest } from "@agenticform/client"
 import {
   FOLLOW_STOP_STATUSES,
   HubApiError,
@@ -108,6 +108,57 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "start_workflow",
+    description:
+      "Start a durable Psychoscript workflow on the hub. Code runs in a confined JS VM with no ambient I/O and only af.run(req), af.startRun(req), af.getRun(id), af.cancelRun(id), af.listNodes(), af.listEvents(id, after?), and af.listPermissions(id).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        idempotencyKey: { type: "string" },
+        code: { type: "string" },
+        bindings: { type: "object" },
+        parentRunId: { type: "string" },
+        limits: {
+          type: "object",
+          properties: {
+            timeoutMs: { type: "number" },
+            maxOutputBytes: { type: "number" },
+            maxSnapshotBytes: { type: "number" },
+            maxChildRuns: { type: "number" },
+          },
+          additionalProperties: false,
+        },
+      },
+      required: ["idempotencyKey", "code"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_workflow",
+    description: "Get a workflow's status, child runs, logs, result, or error.",
+    inputSchema: {
+      type: "object",
+      properties: { workflowId: { type: "string" } },
+      required: ["workflowId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_workflows",
+    description: "List workflows stored on the hub.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "cancel_workflow",
+    description: "Cancel a running or suspended workflow and its active child runs.",
+    inputSchema: {
+      type: "object",
+      properties: { workflowId: { type: "string" } },
+      required: ["workflowId"],
+      additionalProperties: false,
+    },
+  },
 ] as const
 
 function client(): HubClient {
@@ -180,6 +231,45 @@ function startRunRequest(args: Record<string, unknown>): RunRequest {
       throw new Error("permissionPolicy must be allow, ask or deny")
     }
     request.permissionPolicy = args.permissionPolicy
+  }
+  return request
+}
+
+/** Validate start_workflow arguments at the MCP boundary against the tool schema. */
+function startWorkflowRequest(args: Record<string, unknown>): WorkflowRequest {
+  const allowed = new Set(["idempotencyKey", "code", "bindings", "parentRunId", "limits"])
+  for (const key of Object.keys(args)) {
+    if (!allowed.has(key)) throw new Error(`unknown start_workflow argument: ${key}`)
+  }
+  const request: WorkflowRequest = {
+    idempotencyKey: requireString(args, "idempotencyKey"),
+    code: requireString(args, "code"),
+  }
+  if (args.bindings !== undefined) {
+    if (args.bindings === null || typeof args.bindings !== "object" || Array.isArray(args.bindings)) {
+      throw new Error("bindings must be a plain object")
+    }
+    request.bindings = args.bindings as Record<string, unknown>
+  }
+  if (args.parentRunId !== undefined) {
+    if (typeof args.parentRunId !== "string" || !args.parentRunId) {
+      throw new Error("parentRunId must be a non-empty string")
+    }
+    request.parentRunId = args.parentRunId
+  }
+  if (args.limits !== undefined) {
+    if (args.limits === null || typeof args.limits !== "object" || Array.isArray(args.limits)) {
+      throw new Error("limits must be an object")
+    }
+    const raw = args.limits as Record<string, unknown>
+    const allowedLimits = new Set(["timeoutMs", "maxOutputBytes", "maxSnapshotBytes", "maxChildRuns"])
+    for (const key of Object.keys(raw)) {
+      if (!allowedLimits.has(key)) throw new Error(`unknown limit: ${key}`)
+      if (typeof raw[key] !== "number" || !Number.isInteger(raw[key])) {
+        throw new Error(`limits.${key} must be an integer`)
+      }
+    }
+    request.limits = raw as WorkflowLimits
   }
   return request
 }
@@ -287,6 +377,14 @@ async function call(name: string, args: Record<string, unknown>, requestId: unkn
       }
       return followRun(hub, runId, after, requestId)
     }
+    case "start_workflow":
+      return hub.createWorkflow(startWorkflowRequest(args))
+    case "get_workflow":
+      return hub.getWorkflow(requireString(args, "workflowId"))
+    case "list_workflows":
+      return hub.listWorkflows()
+    case "cancel_workflow":
+      return hub.cancelWorkflow(requireString(args, "workflowId"))
     default:
       throw new Error(`unknown tool: ${name}`)
   }

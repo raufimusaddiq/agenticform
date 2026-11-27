@@ -89,7 +89,7 @@ describe("hub config", () => {
     const root = mkdtempSync(join(tmpdir(), "af-db-"))
     const file = join(root, "hub.sqlite")
     const db = openDatabase(file)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 8 })
     db.exec("PRAGMA user_version = 99")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)
@@ -116,12 +116,12 @@ describe("hub config", () => {
     expect(toNodeView(row as NodeRow).isolation).toBeUndefined()
     // Re-running the migration is a no-op.
     migrate(db)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 8 })
     expect(db.query("SELECT COUNT(*) AS n FROM nodes").get()).toEqual({ n: 1 })
     db.close()
   })
 
-  test("a version-3 database migrates to 7 without losing a run, and a version-8 one is refused", () => {
+  test("a version-3 database migrates to 8 without losing a run, and a version-9 one is refused", () => {
     const root = mkdtempSync(join(tmpdir(), "af-db-"))
     const file = join(root, "hub.sqlite")
     const db = new Database(file, { create: true })
@@ -134,19 +134,20 @@ describe("hub config", () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run("r1", "k1", "{}", "codex", "p", "run/r1", "completed", "run/r1", 1, 2)
     migrate(db)
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 8 })
     const run = db.query<RunRow, [string]>("SELECT * FROM runs WHERE id = ?").get("r1")
     expect(run?.status).toBe("completed")
     expect(run?.parent_run_id).toBeNull()
     expect(run?.depth).toBe(0)
     expect(db.query("SELECT COUNT(*) AS n FROM caller_tokens").get()).toEqual({ n: 0 })
     expect(db.query("SELECT COUNT(*) AS n FROM permission_requests").get()).toEqual({ n: 0 })
-    db.exec("PRAGMA user_version = 8")
+    expect(db.query("SELECT COUNT(*) AS n FROM workflows").get()).toEqual({ n: 0 })
+    db.exec("PRAGMA user_version = 9")
     db.close()
     expect(() => openDatabase(file)).toThrow(/newer than supported/)
   })
 
-  test("a version-6 database upgrades to 7 and keeps a pending permission answerable", async () => {
+  test("a version-6 database upgrades to 8 and keeps a pending permission answerable", async () => {
     const stateFile = join(mkdtempSync(join(tmpdir(), "af-db-")), "hub.sqlite")
     const first = startHub({ stateFile })
     const node = await enroll(first)
@@ -154,7 +155,8 @@ describe("hub config", () => {
     const created = await createRun(first, { nodeId: node.nodeId, permissionPolicy: "ask" })
     const runId = created.body.runId as string
     recordRequested(first.db, runId, 1, { request: { toolCallId: "old", title: "Write", kind: "edit" } })
-    // Turn the file into what a v6 hub left behind: no decided_by column, a pending row.
+    // Turn the file into what a v6 hub left behind: no decided_by column, no workflows table, a pending row.
+    first.db.exec("DROP TABLE workflows")
     first.db.exec("ALTER TABLE permission_requests DROP COLUMN decided_by")
     first.db.exec("PRAGMA user_version = 6")
     first.stop()
@@ -164,7 +166,7 @@ describe("hub config", () => {
 
     const upgraded = startHub({ stateFile })
     try {
-      expect(upgraded.db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 })
+      expect(upgraded.db.query("PRAGMA user_version").get()).toEqual({ user_version: 8 })
       expect(upgraded.db.query("SELECT COUNT(*) AS n FROM pragma_table_info('permission_requests') WHERE name = 'decided_by'").get()).toEqual({ n: 1 })
       expect(upgraded.db.query("SELECT status, decided_by FROM permission_requests WHERE tool_call_id = 'old'").get()).toEqual({ status: "pending", decided_by: null })
       const listed = await api(upgraded, "GET", `/v1/runs/${runId}/permissions`)

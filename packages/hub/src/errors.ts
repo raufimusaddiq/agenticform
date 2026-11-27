@@ -22,6 +22,8 @@ const STATUS: Record<ErrorCode, number> = {
   permission_unsupported: 409,
   parent_not_found: 404,
   depth_exceeded: 422,
+  script_invalid: 400,
+  workflow_limit_exceeded: 422,
   internal: 500,
 }
 
