@@ -103,6 +103,9 @@ const server = Bun.serve({
         createdAt: new Date().toISOString(),
       })
     }
+    if (url.pathname === "/v1/nodes") {
+      return Response.json({ nodes: [{ nodeId: "n1", name: "box", status: "online" }] })
+    }
     if (url.pathname === "/v1/runs/r1") {
       return Response.json({
         runId: "r1",
@@ -403,6 +406,153 @@ describe("MCP initialize negotiation", () => {  test("echoes a supported version
       expect(supported.result.protocolVersion).toBe("2024-11-05")
       const unknown = await client.request("initialize", { protocolVersion: "1999-01-01" })
       expect(unknown.result.protocolVersion).toBe("2024-11-05")
+    } finally {
+      client.close()
+    }
+  })
+})
+
+const MODERN = "2026-07-28"
+
+const meta = (version: string = MODERN) => ({
+  _meta: {
+    "io.modelcontextprotocol/protocolVersion": version,
+    "io.modelcontextprotocol/clientCapabilities": {},
+  },
+})
+
+describe("MCP 2026-07-28 per-request metadata", () => {
+  test("server/discover advertises the modern version without a handshake", async () => {
+    const client = mcp()
+    try {
+      const { result } = await client.request("server/discover", meta())
+      expect(result).toEqual({
+        resultType: "complete",
+        supportedVersions: [MODERN],
+        capabilities: { tools: {} },
+        ttlMs: 3_600_000,
+        cacheScope: "public",
+        _meta: { "io.modelcontextprotocol/serverInfo": { name: "agenticform", version: "0.1.0" } },
+      })
+    } finally {
+      client.close()
+    }
+  })
+
+  test("an unsupported version is refused with the supported list, and nothing runs", async () => {
+    const client = mcp()
+    try {
+      const response = await client.request("tools/call", { name: "list_nodes", ...meta("1900-01-01") })
+      expect(response.result).toBeUndefined()
+      expect(response.error.code).toBe(-32022)
+      expect(response.error.data).toEqual({ supported: [MODERN], requested: "1900-01-01" })
+    } finally {
+      client.close()
+    }
+  })
+
+  test("a request missing required metadata is invalid", async () => {
+    const client = mcp()
+    try {
+      expect((await client.request("server/discover")).error.code).toBe(-32602)
+      const partial = { _meta: { "io.modelcontextprotocol/protocolVersion": MODERN } }
+      expect((await client.request("tools/list", partial)).error.code).toBe(-32602)
+    } finally {
+      client.close()
+    }
+  })
+
+  test("removed and unknown names are protocol errors", async () => {
+    const client = mcp()
+    try {
+      expect((await client.request("ping", meta())).error.code).toBe(-32601)
+      expect((await client.request("tools/call", { name: "nope", ...meta() })).error.code).toBe(-32602)
+    } finally {
+      client.close()
+    }
+  })
+
+  test("tools/list is cacheable and every tool declares its output", async () => {
+    const client = mcp()
+    try {
+      const { result } = await client.request("tools/list", meta())
+      expect(result.resultType).toBe("complete")
+      expect(result.ttlMs).toBe(3_600_000)
+      expect(result.cacheScope).toBe("public")
+      for (const tool of result.tools) expect(["object", "array"]).toContain(tool.outputSchema?.type)
+    } finally {
+      client.close()
+    }
+  })
+
+  test("tool results carry structuredContent matching the text block", async () => {
+    const client = mcp()
+    try {
+      const nodes = (await client.request("tools/call", { name: "list_nodes", ...meta() })).result
+      expect(nodes.resultType).toBe("complete")
+      expect(nodes.structuredContent).toEqual([{ nodeId: "n1", name: "box", status: "online" }])
+      expect(JSON.parse(nodes.content[0].text)).toEqual(nodes.structuredContent)
+
+      const failed = (await client.request("tools/call", { name: "get_run", arguments: {}, ...meta() })).result
+      expect(failed.resultType).toBe("complete")
+      expect(failed.isError).toBe(true)
+      expect(failed.structuredContent).toBeUndefined()
+    } finally {
+      client.close()
+    }
+  })
+
+  test("a cancelled request gets no response", async () => {
+    const client = mcp()
+    try {
+      const follow = client.send("tools/call", {
+        name: "list_events",
+        arguments: { runId: "live", follow: true },
+        ...meta(),
+      })
+      client.notify("notifications/cancelled", { requestId: follow.id })
+      const outcome = await Promise.race([follow.response, Bun.sleep(1_000).then(() => "silent")])
+      expect(outcome).toBe("silent")
+      expect((await client.request("server/discover", meta())).result.resultType).toBe("complete")
+    } finally {
+      client.close()
+    }
+  })
+})
+
+describe("MCP legacy results are unchanged", () => {
+  test("no modern fields reach a client that did not send modern metadata", async () => {
+    const client = mcp()
+    try {
+      const listed = (await client.request("tools/list")).result
+      expect(Object.keys(listed)).toEqual(["tools"])
+      for (const tool of listed.tools) expect(tool.outputSchema).toBeUndefined()
+      const nodes = (await client.call("list_nodes", {})).result
+      expect(Object.keys(nodes)).toEqual(["content"])
+    } finally {
+      client.close()
+    }
+  })
+})
+
+describe("MCP tool annotations", () => {
+  test("only reads are marked read-only; every write is marked destructive", async () => {
+    const client = mcp()
+    try {
+      const { tools } = (await client.request("tools/list")).result
+      const readOnly = tools.filter((tool: any) => tool.annotations?.readOnlyHint === true).map((tool: any) => tool.name)
+      expect(readOnly).toEqual([
+        "list_nodes",
+        "get_run",
+        "list_events",
+        "list_permissions",
+        "get_workflow",
+        "list_workflows",
+      ])
+      for (const tool of tools) {
+        if (readOnly.includes(tool.name)) continue
+        expect(tool.annotations?.destructiveHint).toBe(true)
+      }
     } finally {
       client.close()
     }

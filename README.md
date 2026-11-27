@@ -64,6 +64,8 @@ The hub also serves a small operator UI at `/` from the same origin. It asks for
 
 The CLI (`af`) and the MCP server (`agenticform-mcp`) are thin clients of the same API. Both read `AGENTICFORM_HUB_URL` and a bearer token from the environment — `AGENTICFORM_ADMIN_TOKEN` first, else `AGENTICFORM_TOKEN` — and never accept the token as an argument.
 
+The MCP server speaks `2026-07-28` (per-request metadata, `server/discover`) and still answers the `2024-11-05` `initialize` handshake, choosing from each request. Tools carry read-only and destructive hints. `outputSchema` and `structuredContent` go to `2026-07-28` clients only.
+
 ```bash
 af nodes
 af token issue ci-agent
