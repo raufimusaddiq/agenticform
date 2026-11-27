@@ -269,6 +269,7 @@ describe("catalog", () => {
     expect(entries.map((item) => item.id).sort()).toEqual(
       ["claude", "codex", "dsh", "hermes", "omp", "opencode", "openclaw", "pi"].sort(),
     )
-    expect(entries.every((item) => item.verification === "documented")).toBe(true)
+    // Add an id here only with the version recorded in docs/harnesses.md.
+    expect(entries.filter((item) => item.verification !== "documented").map((item) => item.id)).toEqual(["opencode"])
   })
 })

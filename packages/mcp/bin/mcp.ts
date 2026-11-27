@@ -17,15 +17,36 @@ const FOLLOW_BUDGET_MS = 30_000
 
 /** In-flight cancellable requests, keyed by JSON-RPC id. */
 const inFlight = new Map<unknown, () => void>()
+/** Modern tool calls still owed a response; a cancelled one must get none. */
+const owed = new Set<unknown>()
+
+/** Annotations are hints for the client. Reads touch only the hub; writes can reach anything a run can. */
+const READS = { readOnlyHint: true, openWorldHint: false }
+const WRITES = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }
+
+/** Output schemas name only what callers can rely on; the hub may add fields. */
+const view = (...required: string[]) => ({
+  type: "object",
+  properties: Object.fromEntries(required.map((key) => [key, { type: "string" }])),
+  required,
+})
+const listOf = (...required: string[]) => ({ type: "array", items: view(...required) })
+const RUN = view("runId", "status")
+const WORKFLOW = view("workflowId", "status")
+const PERMISSION = ["requestId", "status"]
 
 const TOOLS = [
   {
     name: "list_nodes",
+    annotations: READS,
+    outputSchema: listOf("nodeId"),
     description: "List hub machines (nodes), their status, harnesses and capacity.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "start_run",
+    annotations: WRITES,
+    outputSchema: RUN,
     description: "Start a run. Repeating the same idempotency key returns the same run.",
     inputSchema: {
       type: "object",
@@ -52,6 +73,8 @@ const TOOLS = [
   },
   {
     name: "get_run",
+    annotations: READS,
+    outputSchema: RUN,
     description: "Get a run's status, result or error.",
     inputSchema: {
       type: "object",
@@ -62,6 +85,12 @@ const TOOLS = [
   },
   {
     name: "list_events",
+    annotations: READS,
+    outputSchema: {
+      type: "object",
+      properties: { events: { type: "array" }, nextAfter: { type: "integer" } },
+      required: ["events", "nextAfter"],
+    },
     description: "Page a run's events from a sequence number, or follow them to the terminal event.",
     inputSchema: {
       type: "object",
@@ -76,6 +105,8 @@ const TOOLS = [
   },
   {
     name: "cancel_run",
+    annotations: WRITES,
+    outputSchema: RUN,
     description: "Cancel a run.",
     inputSchema: {
       type: "object",
@@ -86,6 +117,8 @@ const TOOLS = [
   },
   {
     name: "list_permissions",
+    annotations: READS,
+    outputSchema: listOf(...PERMISSION),
     description: "List a run's permission requests and their status.",
     inputSchema: {
       type: "object",
@@ -96,6 +129,8 @@ const TOOLS = [
   },
   {
     name: "answer_permission",
+    annotations: WRITES,
+    outputSchema: view(...PERMISSION),
     description: "Allow or deny a pending permission request. Owner only.",
     inputSchema: {
       type: "object",
@@ -110,6 +145,8 @@ const TOOLS = [
   },
   {
     name: "start_workflow",
+    annotations: WRITES,
+    outputSchema: WORKFLOW,
     description:
       "Start a durable Psychoscript workflow on the hub. Code runs in a confined JS VM with no ambient I/O and only af.run(req), af.startRun(req), af.getRun(id), af.cancelRun(id), af.listNodes(), af.listEvents(id, after?), and af.listPermissions(id).",
     inputSchema: {
@@ -136,6 +173,8 @@ const TOOLS = [
   },
   {
     name: "get_workflow",
+    annotations: READS,
+    outputSchema: WORKFLOW,
     description: "Get a workflow's status, child runs, logs, result, or error.",
     inputSchema: {
       type: "object",
@@ -146,11 +185,15 @@ const TOOLS = [
   },
   {
     name: "list_workflows",
+    annotations: READS,
+    outputSchema: listOf("workflowId", "status"),
     description: "List workflows stored on the hub.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "cancel_workflow",
+    annotations: WRITES,
+    outputSchema: WORKFLOW,
     description: "Cancel a running or suspended workflow and its active child runs.",
     inputSchema: {
       type: "object",
@@ -393,7 +436,16 @@ async function call(name: string, args: Record<string, unknown>, requestId: unkn
   }
 }
 
-/** MCP protocol versions this server implements; the last is the latest. */
+/** Revisions that carry version and capabilities on every request, with no handshake. */
+const MODERN_MCP_VERSIONS = ["2026-07-28"]
+const VERSION_KEY = "io.modelcontextprotocol/protocolVersion"
+const CAPABILITIES_KEY = "io.modelcontextprotocol/clientCapabilities"
+const SERVER_INFO = { name: "agenticform", version: "0.1.0" }
+const CAPABILITIES = { tools: {} }
+/** The tool list changes only when this process is replaced, and holds no user data. */
+const CACHE = { ttlMs: 3_600_000, cacheScope: "public" }
+
+/** `initialize` revisions this server implements; the last is the latest. */
 const SUPPORTED_MCP_VERSIONS = ["2024-11-05"] as const
 const LATEST_MCP_VERSION = SUPPORTED_MCP_VERSIONS[SUPPORTED_MCP_VERSIONS.length - 1] as string
 
@@ -405,39 +457,68 @@ async function handle(message: any): Promise<void> {
   const id = message?.id
   if (typeof message?.method !== "string") return
   if (message.method === "notifications/cancelled") {
+    owed.delete(message.params?.requestId)
     inFlight.get(message.params?.requestId)?.()
     return
   }
   if (message.id === undefined) return // other notifications
+
+  // A client picks its era per request: modern metadata, or the legacy handshake.
+  const meta = message.params?._meta
+  const version = meta?.[VERSION_KEY]
+  const modern = version !== undefined || message.method === "server/discover"
+  const fail = (code: number, text: string, data?: unknown): void =>
+    send({ jsonrpc: "2.0", id, error: { code, message: text, data } })
+  const reply = (result: object): void =>
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: modern
+        ? { resultType: "complete", ...result, _meta: { "io.modelcontextprotocol/serverInfo": SERVER_INFO } }
+        : result,
+    })
+  if (modern) {
+    if (typeof version !== "string" || typeof meta[CAPABILITIES_KEY] !== "object" || meta[CAPABILITIES_KEY] === null) {
+      return fail(-32602, `_meta must include ${VERSION_KEY} and ${CAPABILITIES_KEY}`)
+    }
+    if (!MODERN_MCP_VERSIONS.includes(version)) {
+      return fail(-32022, "Unsupported protocol version", { supported: MODERN_MCP_VERSIONS, requested: version })
+    }
+    if (message.method === "server/discover") {
+      return reply({ supportedVersions: MODERN_MCP_VERSIONS, capabilities: CAPABILITIES, ...CACHE })
+    }
+    // The handshake and ping do not exist in this era.
+    if (message.method === "initialize" || message.method === "ping") {
+      return fail(-32601, `method not found: ${message.method}`)
+    }
+  }
 
   if (message.method === "initialize") {
     const requested = message.params?.protocolVersion
     const protocolVersion = SUPPORTED_MCP_VERSIONS.includes(requested)
       ? requested
       : LATEST_MCP_VERSION
-    send({
-      jsonrpc: "2.0",
-      id,
-      result: {
-        protocolVersion,
-        capabilities: { tools: {} },
-        serverInfo: { name: "agenticform", version: "0.1.0" },
-      },
-    })
-    return
+    return reply({ protocolVersion, capabilities: CAPABILITIES, serverInfo: SERVER_INFO })
   }
-  if (message.method === "ping") return send({ jsonrpc: "2.0", id, result: {} })
-  if (message.method === "tools/list") return send({ jsonrpc: "2.0", id, result: { tools: TOOLS } })
+  if (message.method === "ping") return reply({})
+  if (message.method === "tools/list") {
+    // Legacy clients may validate outputSchema as object-only, so only modern ones get it.
+    return reply(modern ? { tools: TOOLS, ...CACHE } : { tools: TOOLS.map(({ outputSchema, ...tool }) => tool) })
+  }
   if (message.method === "tools/call") {
     const name = message.params?.name as string
     const args = (message.params?.arguments ?? {}) as Record<string, unknown>
+    if (modern) {
+      if (!TOOLS.some((tool) => tool.name === name)) return fail(-32602, `Unknown tool: ${name}`)
+      owed.add(id)
+    }
+    let result: object
     try {
       const value = await call(name, args, id)
-      send({
-        jsonrpc: "2.0",
-        id,
-        result: { content: [{ type: "text", text: JSON.stringify(value) }] },
-      })
+      result = {
+        content: [{ type: "text", text: JSON.stringify(value) }],
+        ...(modern ? { structuredContent: value } : {}),
+      }
     } catch (error) {
       const text =
         error instanceof HubApiError
@@ -445,11 +526,12 @@ async function handle(message: any): Promise<void> {
           : error instanceof Error
             ? error.message
             : String(error)
-      send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }], isError: true } })
+      result = { content: [{ type: "text", text }], isError: true }
     }
-    return
+    if (modern && !owed.delete(id)) return
+    return reply(result)
   }
-  send({ jsonrpc: "2.0", id, error: { code: -32601, message: `method not found: ${message.method}` } })
+  fail(-32601, `method not found: ${message.method}`)
 }
 
 const lines = createInterface({ input: process.stdin })

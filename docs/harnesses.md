@@ -2,15 +2,15 @@
 
 You install, update and log in to each harness yourself. Agenticform starts it and reports a named error when it is missing or not logged in.
 
-A harness counts as **tested** only after the conformance suite passes against a recorded version. No harness has reached that level yet.
+A harness counts as **tested** only after the conformance suite passes against a recorded version. Only `opencode` has reached that level, with 2.3.2. Against a real harness the suite runs two cases, the handshake and one prompt; the scripted cases (cancel, permissions, process death, capability refusal) run only against the fake agent.
 
 | Id | Harness | Profile | Entry point | Level | Notes |
 |---|---|---|---|---|---|
-| `claude` | Claude Code | coding | `claude-agent-acp` 0.109.0 | documented | One real prompt completed on 2026-11-05 with 0.100.0; not re-run on 0.109.0. Starts sessions in auto permission mode, see [Permission mode](#claude-permission-mode) |
-| `codex` | Codex | coding | `codex-acp` 2.8.0 | documented | Handshake and `auth_required` seen on 2026-11-05 with 2.5.0; not re-run on 2.8.0; no prompt run |
-| `opencode` | OpenCode | coding | `opencode acp` | documented | Not run |
+| `claude` | Claude Code | coding | `claude-agent-acp` 0.113.0 | documented | One real prompt completed on 2026-11-05 with 0.100.0; not re-run on 0.113.0. Starts sessions in auto permission mode, see [Permission mode](#claude-permission-mode) |
+| `codex` | Codex | coding | `codex-acp` 2.12.1 | documented | Handshake and `auth_required` seen on 2026-11-05 with 2.5.0; not re-run on 2.12.1; no prompt run |
+| `opencode` | OpenCode | coding | `opencode acp` | tested | On 2026-11-27 with 2.3.2 on WSL Ubuntu and ACP SDK 2.12.0: the conformance suite, the sandboxed probe and one sandboxed hub run passed. Other versions are not covered |
 | `omp` | Oh My Pi | coding | `omp acp` | documented | Not run; confirm the command on your version |
-| `pi` | Pi | coding | `pi-acp` 0.0.34 | documented | Not run; early third-party adapter. `pi --mode rpc` is a possible direct driver |
+| `pi` | Pi | coding | `pi-acp` 0.0.35 | documented | Not run; early third-party adapter. `pi --mode rpc` is a possible direct driver |
 | `dsh` | DeepSeek Harness | coding | `dsh --profile acp` | documented | Not run; developer preview. MCP session support unconfirmed |
 | `hermes` | Hermes Agent | agentic | `hermes acp` | documented | Not run; needs the ACP extra |
 | `openclaw` | OpenClaw | agentic | `openclaw acp` | documented | Not run; Gateway-backed with partial ACP features |
@@ -82,10 +82,10 @@ Tested with a temporary `HOME` holding empty state, never the real config dirs.
 
 | Harness | Gap | Auth check | Evidence |
 |---|---|---|---|
-| `claude` | yes | yes (`claude auth status`) | tested on WSL, claude-agent-acp 0.100.0 (CLI 2.1.328); not re-run on 0.109.0 / 2.8.0: `session/new` succeeds, the first prompt fails; `auth status` prints `loggedIn: false` |
-| `codex` | no | no | tested on WSL, codex-acp 2.5.0 (codex-cli 0.159.0); not re-run on 2.8.0: `session/new` fails with "Authentication required" (`-32000`) |
+| `claude` | yes | yes (`claude auth status`) | tested on WSL, claude-agent-acp 0.100.0 (CLI 2.1.328); not re-run on 0.113.0: `session/new` succeeds, the first prompt fails; `auth status` prints `loggedIn: false` |
+| `codex` | no | no | tested on WSL, codex-acp 2.5.0 (codex-cli 0.159.0); not re-run on 2.12.1: `session/new` fails with "Authentication required" (`-32000`) |
 | `opencode` | no (built-in free models) | no | tested on WSL, opencode 1.19.6: `session/new` succeeds logged out and lists free models; a paid provider that is not configured fails at the prompt. `opencode auth list` reports providers, not a login boolean, so no check is declared |
-| `pi` | no | no | documentation only: pi-acp 0.0.34 source returns `auth_required` from `session/new` when no model is available; `pi` itself not installed |
+| `pi` | no | no | documentation only: pi-acp 0.0.34 source (not re-read on 0.0.35) returns `auth_required` from `session/new` when no model is available; `pi` itself not installed |
 | `omp` | unknown | no | documentation only; not installed on WSL |
 | `dsh` | unknown | no | documentation only; not installed on WSL |
 | `hermes` | unknown | no | documentation only; not installed on WSL |
@@ -151,11 +151,25 @@ runtime.run({
 })
 ```
 
-## Upgrading a harness
+## Updating pinned versions
 
-1. Change the pinned version in `packages/runtime/src/harnesses.ts`.
-2. Run `AGENTICFORM_CONFORMANCE_HARNESS=<id> bun test packages`.
-3. Update this table.
+Use this for the ACP SDK (`packages/runtime/package.json`), the `bunx` adapters (`packages/runtime/src/harnesses.ts`) and any other pin. Bun is pinned twice, in `package.json` (`packageManager`) and `.github/workflows/ci.yml` (`bun-version`); keep them equal.
+
+1. Compare each pin with `npm view <package> dist-tags`. Take `latest`, never `preview` or `beta`, and keep exact versions. ACP protocol v2 is a separate decision.
+2. For `claude-agent-acp`, confirm the `authCheck.bin` packages still exist: read its `@anthropic-ai/claude-agent-sdk` version with `npm view <package>@<version> dependencies`, then that version's `optionalDependencies`.
+3. Change the pins, run `bun install`, and commit `bun.lock` with them.
+4. Verify on Ubuntu (WSL is fine) with `bwrap`, in a checkout on the Linux filesystem. Windows results do not count, because the tests assume POSIX.
+
+   ```bash
+   bun install --frozen-lockfile
+   bun run typecheck
+   bun test packages
+   bun scripts/package-node.ts
+   ```
+
+5. Only when the owner asks, run the real-harness checks: `AGENTICFORM_REAL_HARNESS=1`, and the paid suite with `AGENTICFORM_CONFORMANCE_HARNESS=<id>`.
+6. Update the tables in this file. Write "not re-run on `<version>`" unless you ran it, and keep old evidence tied to the version that produced it.
+7. Tell operators in the PR that each node must cache the new adapter version, or it reports `missing` / `version_not_cached`.
 
 ## Real-harness checks
 
