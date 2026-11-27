@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdtempSync, statSync } from "node:fs"
+import { mkdtempSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { saveConfigFile } from "@agenticform/protocol/config"
 import { createHub, openDatabase } from "../src/index.ts"
 import { loadConfig, validateConfig, type HubConfig } from "../src/config.ts"
 import { toNodeView } from "../src/nodes.ts"
@@ -211,6 +212,45 @@ describe("hub config", () => {
       expect(lower.status).toBe(200)
     } finally {
       hub.stop()
+    }
+  })
+
+  test("loadConfig reads AGENTICFORM_CONFIG and lets env vars override file values", () => {
+    const dir = mkdtempSync(join(tmpdir(), "af-hub-cfg-"))
+    try {
+      const file = join(dir, "config.json")
+      saveConfigFile(
+        {
+          adminToken: "f".repeat(32),
+          hub: {
+            port: 9123,
+            publicUrl: "https://file.example.com",
+            stateDir: join(dir, "state"),
+            maxDepth: 5,
+            workflowTimeoutMs: 45_000,
+            workflowMaxChildRuns: 10,
+          },
+        },
+        file,
+      )
+      const fromFile = loadConfig({ AGENTICFORM_CONFIG: file })
+      expect(fromFile.adminToken).toBe("f".repeat(32))
+      expect(fromFile.port).toBe(9123)
+      expect(fromFile.publicUrl).toBe("https://file.example.com")
+      expect(fromFile.maxDepth).toBe(5)
+      expect(fromFile.workflowTimeoutMs).toBe(45_000)
+      expect(fromFile.workflowMaxChildRuns).toBe(10)
+
+      const overridden = loadConfig({
+        AGENTICFORM_CONFIG: file,
+        AGENTICFORM_HUB_PORT: "9999",
+        AGENTICFORM_RUN_MAX_DEPTH: "2",
+      })
+      expect(overridden.port).toBe(9999)
+      expect(overridden.maxDepth).toBe(2)
+      expect(overridden.adminToken).toBe("f".repeat(32))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })

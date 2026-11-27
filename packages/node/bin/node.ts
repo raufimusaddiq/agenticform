@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { hostname } from "node:os"
 import type { EnrollRequest, EnrollResponse } from "@agenticform/protocol"
+import { loadConfigFile } from "@agenticform/protocol/config"
 import { loadConfig, validateAdvertisements, validateEnrollment, type NodeConfig } from "../src/config.ts"
 import { generateKeyPair, loadIdentity, saveIdentity } from "../src/identity.ts"
 import { createNode } from "../src/index.ts"
@@ -59,16 +60,21 @@ const list = (value: string | undefined): string[] =>
 
 if (import.meta.main) {
   const [command] = process.argv.slice(2)
+  const file = loadConfigFile()
   if (command === "enroll") {
     const token = process.env.AGENTICFORM_ENROLL_TOKEN
     if (!token) {
       console.error("AGENTICFORM_ENROLL_TOKEN is required")
       process.exit(1)
     }
+    const harnesses =
+      process.env.AGENTICFORM_NODE_HARNESSES !== undefined
+        ? list(process.env.AGENTICFORM_NODE_HARNESSES)
+        : (file.node?.harnesses ?? [])
     const enrolled = await enroll(loadConfig(), {
       token,
-      name: process.env.AGENTICFORM_NODE_NAME ?? hostname(),
-      harnesses: list(process.env.AGENTICFORM_NODE_HARNESSES),
+      name: process.env.AGENTICFORM_NODE_NAME ?? file.node?.name ?? hostname(),
+      harnesses,
     })
     console.log(`enrolled node ${enrolled.nodeId}`)
   } else if (command === undefined || command === "run" || command === "start") {
@@ -78,9 +84,15 @@ if (import.meta.main) {
       console.error("node is not enrolled; run `agenticform-node enroll` first")
       process.exit(1)
     }
-    const slots = Number(process.env.AGENTICFORM_NODE_SLOTS ?? 1)
-    const capabilities = list(process.env.AGENTICFORM_NODE_CAPABILITIES)
-    const harnesses = list(process.env.AGENTICFORM_NODE_HARNESSES)
+    const slots = Number(process.env.AGENTICFORM_NODE_SLOTS ?? file.node?.slots ?? 1)
+    const capabilities =
+      process.env.AGENTICFORM_NODE_CAPABILITIES !== undefined
+        ? list(process.env.AGENTICFORM_NODE_CAPABILITIES)
+        : (file.node?.capabilities ?? [])
+    const harnesses =
+      process.env.AGENTICFORM_NODE_HARNESSES !== undefined
+        ? list(process.env.AGENTICFORM_NODE_HARNESSES)
+        : (file.node?.harnesses ?? [])
     validateAdvertisements({ capabilities, harnesses })
     const node = createNode(config, identity, {
       capabilities,

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { saveConfigFile } from "@agenticform/protocol/config"
 import { loadConfig, validateAdvertisements, validateConfig, validateEnrollment, type NodeConfig } from "../src/config.ts"
+import { generateKeyPair, saveIdentity } from "../src/identity.ts"
 
 const base = (patch: Partial<NodeConfig>): NodeConfig => ({
   hubUrl: "https://hub.example.com",
@@ -119,5 +123,37 @@ describe("advertisement limits (T-34)", () => {
     expect(() => validateEnrollment("n", { ["k".repeat(65)]: "v" })).toThrow(/label key.*64/)
     expect(() => validateEnrollment("n", { k: "v".repeat(64) })).not.toThrow()
     expect(() => validateEnrollment("n", { k: "v".repeat(65) })).toThrow(/label.*64/)
+  })
+})
+
+describe("node config file and identity fallback", () => {
+  test("reads AGENTICFORM_CONFIG and falls back to identity.json hubUrl", () => {
+    const dir = mkdtempSync(join(tmpdir(), "af-node-cfg-"))
+    try {
+      const stateDir = join(dir, "node-state")
+      const cfgFile = join(dir, "config.json")
+      saveConfigFile(
+        {
+          hubUrl: "https://cfg.example.com",
+          node: { stateDir },
+        },
+        cfgFile,
+      )
+      const fromFile = loadConfig({ AGENTICFORM_CONFIG: cfgFile })
+      expect(fromFile.hubUrl).toBe("https://cfg.example.com")
+      expect(fromFile.stateDir).toBe(stateDir)
+
+      const keys = generateKeyPair()
+      saveIdentity(stateDir, {
+        nodeId: "node-1",
+        publicKeyB64: keys.publicKeyB64,
+        privateKeyPem: keys.privateKeyPem,
+        hubUrl: "https://identity.example.com",
+      })
+      const fromIdentity = loadConfig({ AGENTICFORM_STATE_DIR: stateDir })
+      expect(fromIdentity.hubUrl).toBe("https://identity.example.com")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
