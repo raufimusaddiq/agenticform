@@ -10,6 +10,8 @@
 
 Non-trivial work follows Spec Kit: specify, plan, tasks, implement. Read the constitution first. Agenticform owns running work, not planning it, so keep task and project logic out of core packages.
 
+Before changing any pinned version (ACP SDK, harness adapters, Bun), follow [Updating pinned versions](docs/harnesses.md#updating-pinned-versions). Verify on Ubuntu, not Windows.
+
 ## Build, Test, and Development Commands
 
 ```bash

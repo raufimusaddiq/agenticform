@@ -9,7 +9,7 @@ export const harnesses: Readonly<Record<string, HarnessDefinition>> = {
     id: "claude",
     profile: "coding",
     command: "bunx",
-    args: ["@agentclientprotocol/claude-agent-acp@0.109.0"],
+    args: ["@agentclientprotocol/claude-agent-acp@0.113.0"],
     verification: "documented",
     // claude-agent-acp completes the handshake logged out, so ask the CLI it bundles.
     authCheck: {
@@ -25,7 +25,7 @@ export const harnesses: Readonly<Record<string, HarnessDefinition>> = {
     id: "codex",
     profile: "coding",
     command: "bunx",
-    args: ["@agentclientprotocol/codex-acp@2.8.0"],
+    args: ["@agentclientprotocol/codex-acp@2.12.1"],
     verification: "documented",
   },
   opencode: { id: "opencode", profile: "coding", command: "opencode", args: ["acp"], verification: "documented" },
@@ -34,7 +34,7 @@ export const harnesses: Readonly<Record<string, HarnessDefinition>> = {
     id: "pi",
     profile: "coding",
     command: "bunx",
-    args: ["pi-acp@0.0.34"],
+    args: ["pi-acp@0.0.35"],
     verification: "documented",
     notes: "Early third-party adapter.",
   },
