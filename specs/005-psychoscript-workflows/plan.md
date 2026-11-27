@@ -13,7 +13,7 @@ callers / agents (MCP, CLI, SDK, apps)
                         └─► in-process ScriptRunsPort -> SQLite (hub.sqlite v8)
 ```
 
-- **`packages/protocol`**: Adds `WorkflowStatus`, `WorkflowLimits`, `WorkflowRequest`, `WorkflowError`, `WorkflowView`, and `ErrorCode` values `script_invalid`, `snapshot_incompatible`, `workflow_limit_exceeded`. Node wire protocol (`PROTOCOL_VERSION = 1`) is unchanged.
+- **`packages/protocol`**: Adds `WorkflowStatus`, `WorkflowLimits`, `WorkflowRequest`, `WorkflowError`, `WorkflowView`, and `ErrorCode` values `script_invalid`, `workflow_limit_exceeded`. Node wire protocol (`PROTOCOL_VERSION = 1`) is unchanged.
 - **`packages/script` (`@agenticform/script`)**: Wraps `psychoscript`'s `Runtime.make`, `Host.durableFn`, `Host.fn`, `parseProgram`, `toBytes`, and `fromBytes` behind `ScriptRunsPort`. Exposes only `af.{run, startRun, getRun, cancelRun, listNodes, listEvents, listPermissions}` with deterministic child idempotency keys (`${run.id}:${userKey ?? call.key}`), `parentRunId` propagation, and `maxChildRuns` / `timeoutMs` / `maxOutputBytes` / `maxSnapshotBytes` enforcement.
 - **`packages/hub`**:
   - Migration v8 creates `workflows` table (`snapshot_bytes BLOB`, `child_run_ids_json`, `waiting_run_ids_json`, etc.).

@@ -5,9 +5,19 @@ const config = loadConfig()
 const hub = createHub(config)
 console.log(`hub listening on ${hub.url}`)
 
-const shutdown = () => {
-  hub.stop()
-  process.exit(0)
+let stopping = false
+const shutdown = async (): Promise<void> => {
+  if (stopping) return
+  stopping = true
+  try {
+    await Promise.race([
+      hub.suspendWorkflows(),
+      new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+    ])
+  } finally {
+    hub.stop()
+    process.exit(0)
+  }
 }
-process.on("SIGINT", shutdown)
-process.on("SIGTERM", shutdown)
+process.on("SIGINT", () => void shutdown())
+process.on("SIGTERM", () => void shutdown())

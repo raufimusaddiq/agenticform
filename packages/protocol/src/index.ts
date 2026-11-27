@@ -26,7 +26,6 @@ export type ErrorCode =
   | "parent_not_found"
   | "depth_exceeded"
   | "script_invalid"
-  | "snapshot_incompatible"
   | "workflow_limit_exceeded"
   | "internal"
 

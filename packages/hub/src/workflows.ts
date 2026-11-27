@@ -550,9 +550,9 @@ export class WorkflowManager {
     }
 
     const id = randomUUID()
-    this.db
+    const inserted = this.db
       .query(
-        `INSERT INTO workflows
+        `INSERT OR IGNORE INTO workflows
            (id, idempotency_key, request_json, code, bindings_json, limits_json, parent_run_id, depth,
             status, snapshot_bytes, child_run_ids_json, waiting_run_ids_json, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', NULL, '[]', '[]', ?, ?)`,
@@ -569,6 +569,17 @@ export class WorkflowManager {
         now,
         now,
       )
+    if (inserted.changes === 0) {
+      const winner = this.db
+        .query<WorkflowRow, [string]>("SELECT * FROM workflows WHERE idempotency_key = ?")
+        .get(request.idempotencyKey)
+      if (winner) {
+        if (winner.request_json !== requestJson) {
+          fail("idempotency_conflict", "idempotency key reused with a different payload")
+        }
+        return { workflow: winner, created: false }
+      }
+    }
 
     const row = this.getWorkflow(id)
     queueMicrotask(() => {
@@ -613,6 +624,14 @@ export class WorkflowManager {
           if (!isHubErrorCode(error, "not_found")) throw error
         }
       }
+      // Unconditional fallback in case program.run() resolved with `suspended` while parkEntry was in flight.
+      this.db
+        .query(
+          `UPDATE workflows SET status = 'cancelled', snapshot_bytes = NULL, child_run_ids_json = ?,
+             waiting_run_ids_json = '[]', updated_at = ?, completed_at = ?
+           WHERE id = ? AND status IN ('running','suspended')`,
+        )
+        .run(JSON.stringify([...entry.childRunIds]), now, now, workflowId)
       return this.getWorkflow(workflowId)
     }
 

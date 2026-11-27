@@ -23,7 +23,6 @@ const STATUS: Record<ErrorCode, number> = {
   parent_not_found: 404,
   depth_exceeded: 422,
   script_invalid: 400,
-  snapshot_incompatible: 409,
   workflow_limit_exceeded: 422,
   internal: 500,
 }

@@ -305,4 +305,75 @@ describe("durable workflows", () => {
       hub2.stop()
     }
   })
+
+  test("cancelling an active workflow during an in-flight suspend marks it cancelled and stops its child run", async () => {
+    const hub = startHub({ workflowParkMs: 10_000 })
+    try {
+      const node = await enroll(hub, { harnesses: ["codex"] })
+      await heartbeat(hub, node, { harnesses: ["codex"], capacity: { slots: 2, inUse: 0 } })
+
+      const first = await api(hub, "POST", "/v1/workflows", {
+        idempotencyKey: "wf-cancel-active-1",
+        code: `return await af.run({ harness: "codex", prompt: "long wait 1" })`,
+      })
+      const wf1 = first.body.workflowId as string
+      const active1 = await waitForWorkflow(hub, wf1, (w) => w.childRunIds.length === 1)
+      expect(active1.status).toBe("running")
+
+      const cancelled1 = await api(hub, "POST", `/v1/workflows/${wf1}/cancel`)
+      expect(cancelled1.status).toBe(200)
+      expect(cancelled1.body.status).toBe("cancelled")
+      expect(cancelled1.body.completedAt).not.toBeNull()
+      expect((await api(hub, "GET", `/v1/runs/${active1.childRunIds[0]}`)).body.status).toBe("cancelled")
+
+      // Race suspendWorkflows() directly against cancel on an active workflow.
+      const second = await api(hub, "POST", "/v1/workflows", {
+        idempotencyKey: "wf-cancel-race-2",
+        code: `return await af.run({ harness: "codex", prompt: "long wait 2" })`,
+      })
+      const wf2 = second.body.workflowId as string
+      const active2 = await waitForWorkflow(hub, wf2, (w) => w.childRunIds.length === 1)
+
+      const [, cancelled2] = await Promise.all([
+        hub.suspendWorkflows(),
+        api(hub, "POST", `/v1/workflows/${wf2}/cancel`),
+      ])
+      expect(cancelled2.status).toBe(200)
+      expect(cancelled2.body.status).toBe("cancelled")
+      expect(cancelled2.body.completedAt).not.toBeNull()
+      expect((await api(hub, "GET", `/v1/runs/${active2.childRunIds[0]}`)).body.status).toBe("cancelled")
+      const snap = hub.db
+        .query<{ snapshot_bytes: Uint8Array | null }, [string]>(
+          "SELECT snapshot_bytes FROM workflows WHERE id = ?",
+        )
+        .get(wf2)
+      expect(snap?.snapshot_bytes).toBeNull()
+    } finally {
+      hub.stop()
+    }
+  })
+
+  test("concurrent POSTs with the same idempotencyKey replay cleanly without 500 errors", async () => {
+    const hub = startHub()
+    try {
+      const payload = { idempotencyKey: "wf-concurrent-idem", code: "return 7 * 6" }
+      const responses = await Promise.all(
+        Array.from({ length: 6 }, () => api(hub, "POST", "/v1/workflows", payload)),
+      )
+      for (const res of responses) {
+        expect([200, 201]).toContain(res.status)
+      }
+      const ids = new Set(responses.map((res) => res.body.workflowId as string))
+      expect(ids.size).toBe(1)
+
+      const conflict = await api(hub, "POST", "/v1/workflows", {
+        idempotencyKey: "wf-concurrent-idem",
+        code: "return 1",
+      })
+      expect(conflict.status).toBe(409)
+      expect(conflict.body.error.code).toBe("idempotency_conflict")
+    } finally {
+      hub.stop()
+    }
+  })
 })

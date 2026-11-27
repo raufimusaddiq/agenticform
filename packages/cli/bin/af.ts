@@ -228,18 +228,23 @@ async function main(argv: string[]): Promise<void> {
         ...(parentRunId === undefined ? {} : { parentRunId }),
       })
       const program = runtime.program(code)
+      const controller = new AbortController()
       let suspendedBySignal = false
       const onSignal = (): void => {
-        if (stateOut && !suspendedBySignal) {
-          suspendedBySignal = true
-          void program.suspend().then((outcome) => {
-            if (outcome.ok === "suspended") writeFileSync(stateOut, outcome.bytes)
-          })
+        if (stateOut) {
+          if (!suspendedBySignal) {
+            suspendedBySignal = true
+            void program.suspend().then((outcome) => {
+              if (outcome.ok === "suspended") writeFileSync(stateOut, outcome.bytes)
+            })
+          }
+          return
         }
+        controller.abort("SIGINT")
       }
       process.once("SIGINT", onSignal)
       try {
-        const outcome = await program.run()
+        const outcome = await program.run({ signal: controller.signal })
         if (outcome.ok === "suspended") {
           if (stateOut) writeFileSync(stateOut, outcome.bytes)
           return print({ ok: "suspended", stateFile: stateOut ?? null, bytes: outcome.bytes.length })
