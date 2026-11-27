@@ -436,6 +436,16 @@ describe("thin clients over the hub HTTP API", () => {
       expect(initHub.code).toBe(0)
       expect(parse(initHub.out)).toMatchObject({ role: "hub", port: 9012, adminTokenGenerated: true })
 
+      const regenHub = await cli(["init", "hub", "--force=true"], noAuthEnv)
+      expect(regenHub.code).toBe(0)
+      expect(parse(regenHub.out).adminTokenGenerated).toBe(true)
+
+      // Refuse extra trailing positional arguments.
+      const extraSet = await cli(["config", "set", "hub.port", "9000", "typo"], noAuthEnv)
+      expect(extraSet.code).toBe(1)
+      const extraUnset = await cli(["config", "unset", "hub.port", "typo"], noAuthEnv)
+      expect(extraUnset.code).toBe(1)
+
       // Refuse secret on argv.
       const argSecret = await cli(["config", "set", "token", "leaked-on-argv"], noAuthEnv)
       expect(argSecret.code).toBe(1)

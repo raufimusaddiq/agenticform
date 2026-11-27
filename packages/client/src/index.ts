@@ -98,12 +98,6 @@ export function envToken(env: Record<string, string | undefined> = process.env):
   return file.adminToken || file.token || undefined
 }
 
-/** Resolve the hub origin URL from env first, then the config file. */
-export function resolveHubUrl(env: Record<string, string | undefined> = process.env): string | undefined {
-  if (env.AGENTICFORM_HUB_URL) return env.AGENTICFORM_HUB_URL
-  return loadConfigFile(env).hubUrl || undefined
-}
-
 /** Resolve both hub URL and bearer token with env > config.json precedence. */
 export function resolveClientConfig(
   env: Record<string, string | undefined> = process.env,

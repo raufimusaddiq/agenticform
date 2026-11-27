@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
 import {
   loadConfigFile,
   redactedConfigView,
@@ -50,6 +50,10 @@ describe("shared config file", () => {
         hub: { port: 9000, maxDepth: 4 },
         node: { name: "box-1", slots: 2, harnesses: ["codex"] },
       })
+      if (process.platform !== "win32") {
+        expect(statSync(file).mode & 0o777).toBe(0o600)
+        expect(statSync(dirname(file)).mode & 0o777).toBe(0o700)
+      }
 
       const corrupt = join(dir, "corrupt.json")
       writeFileSync(corrupt, "{not json")

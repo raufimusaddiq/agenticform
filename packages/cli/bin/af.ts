@@ -185,11 +185,13 @@ async function main(argv: string[]): Promise<void> {
     const rest = argv.slice(2)
     if (action === "path") {
       rejectUnknownFlags(rest, [])
+      if (rest.length > 0) throw new Error(`unexpected argument: ${rest[0]}`)
       console.log(defaultConfigPath())
       return
     }
     if (action === "show") {
       rejectUnknownFlags(rest, [])
+      if (rest.length > 0) throw new Error(`unexpected argument: ${rest[0]}`)
       return print(redactedConfigView())
     }
     if (action === "set") {
@@ -201,9 +203,11 @@ async function main(argv: string[]): Promise<void> {
         if (value !== undefined) {
           throw new Error("secrets must be passed on stdin, never as an argument")
         }
+        if (rest.length !== 1) throw new Error(`unexpected argument: ${rest[1]}`)
         resolvedValue = await readStdinSecret(key)
-      } else if (resolvedValue === undefined) {
-        throw new Error("af config set <key> <value>")
+      } else {
+        if (resolvedValue === undefined) throw new Error("af config set <key> <value>")
+        if (rest.length > 2) throw new Error(`unexpected argument: ${rest[2]}`)
       }
       const path = defaultConfigPath()
       const updated = setConfigValue(loadConfigFile(), key, resolvedValue)
@@ -214,6 +218,7 @@ async function main(argv: string[]): Promise<void> {
       rejectUnknownFlags(rest, [])
       const [key] = rest
       if (!key) throw new Error("af config unset <key>")
+      if (rest.length > 1) throw new Error(`unexpected argument: ${rest[1]}`)
       const path = defaultConfigPath()
       const updated = unsetConfigValue(loadConfigFile(), key)
       saveConfigFile(updated, path)
@@ -231,7 +236,21 @@ async function main(argv: string[]): Promise<void> {
       const port = parseOptionalIntFlag(rest, "port", 0) ?? existing.hub?.port ?? 8787
       const publicUrl = flag(rest, "public-url")
       const stateDir = flag(rest, "state-dir")
-      const force = rest.includes("--force")
+      const forceFlag = rest.find((arg) => arg === "--force" || arg.startsWith("--force="))
+      let force = false
+      if (forceFlag !== undefined) {
+        if (forceFlag === "--force") {
+          const nextArg = rest[rest.indexOf("--force") + 1]
+          if (nextArg === "true" || nextArg === "false") {
+            throw new Error(`--force takes no space-separated value; use --force=${nextArg}`)
+          }
+          force = true
+        } else {
+          const value = forceFlag.slice("--force=".length)
+          if (value !== "true" && value !== "false") throw new Error("--force must be true or false")
+          force = value === "true"
+        }
+      }
       const generated = force || !existing.adminToken
       const adminToken = generated ? randomBytes(32).toString("hex") : existing.adminToken!
       const nextHub = {
