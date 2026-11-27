@@ -134,14 +134,39 @@ function cli(args: string[], overrides: Record<string, string> = {}): Promise<{ 
   })
 }
 
+function cliWithStdin(
+  args: string[],
+  stdinText: string,
+  overrides: Record<string, string> = {},
+): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ["run", join(root, "packages/cli/bin/af.ts"), ...args], {
+      env: { ...env(), ...overrides },
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    let out = ""
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL")
+      resolve({ code: -1, out: `${out}\n[timed out]` })
+    }, 15_000)
+    child.stdout?.on("data", (chunk) => (out += String(chunk)))
+    child.stderr?.on("data", (chunk) => (out += String(chunk)))
+    child.on("exit", (code) => {
+      clearTimeout(timer)
+      resolve({ code: code ?? -1, out })
+    })
+    child.stdin?.end(stdinText)
+  })
+}
+
 interface Mcp {
   request(method: string, params?: unknown): Promise<any>
   close(): void
 }
 
-function mcp(): Mcp {
+function mcp(overrides: Record<string, string> = {}): Mcp {
   const child = spawn(process.execPath, ["run", join(root, "packages/mcp/bin/mcp.ts")], {
-    env: env(),
+    env: { ...env(), ...overrides },
     stdio: ["pipe", "pipe", "inherit"],
   })
   let buffer = ""
@@ -393,6 +418,68 @@ describe("thin clients over the hub HTTP API", () => {
       expect(JSON.parse(mcpGet.result.content[0].text).workflowId).toBe(wf.workflowId)
     } finally {
       server.close()
+    }
+  })
+
+  test("af init and af config drive CLI and MCP without AGENTICFORM_HUB_URL or token env vars", async () => {
+    await enrollOnlineNode()
+    const cfgDir = mkdtempSync(join(tmpdir(), "af-cli-cfg-"))
+    const cfgFile = join(cfgDir, "config.json")
+    const noAuthEnv = {
+      AGENTICFORM_CONFIG: cfgFile,
+      AGENTICFORM_HUB_URL: "",
+      AGENTICFORM_ADMIN_TOKEN: "",
+      AGENTICFORM_TOKEN: "",
+    }
+    try {
+      const initHub = await cli(["init", "hub", "--port", "9012"], noAuthEnv)
+      expect(initHub.code).toBe(0)
+      expect(parse(initHub.out)).toMatchObject({ role: "hub", port: 9012, adminTokenGenerated: true })
+
+      const regenHub = await cli(["init", "hub", "--force=true"], noAuthEnv)
+      expect(regenHub.code).toBe(0)
+      expect(parse(regenHub.out).adminTokenGenerated).toBe(true)
+
+      // Refuse extra trailing positional arguments.
+      const extraSet = await cli(["config", "set", "hub.port", "9000", "typo"], noAuthEnv)
+      expect(extraSet.code).toBe(1)
+      const extraUnset = await cli(["config", "unset", "hub.port", "typo"], noAuthEnv)
+      expect(extraUnset.code).toBe(1)
+
+      // Refuse secret on argv.
+      const argSecret = await cli(["config", "set", "token", "leaked-on-argv"], noAuthEnv)
+      expect(argSecret.code).toBe(1)
+      expect(argSecret.out).toContain("stdin")
+
+      // Initialize client with real hub URL and token via stdin.
+      const initClient = await cliWithStdin(["init", "client", "--url", url], `${TOKEN}\n`, noAuthEnv)
+      expect(initClient.code).toBe(0)
+      expect(parse(initClient.out)).toMatchObject({ role: "client", hubUrl: url, tokenConfigured: true })
+      expect(initClient.out).not.toContain(TOKEN)
+
+      const clearedAdmin = await cli(["config", "unset", "adminToken"], noAuthEnv)
+      expect(clearedAdmin.code).toBe(0)
+
+      const shown = await cli(["config", "show"], noAuthEnv)
+      expect(shown.code).toBe(0)
+      expect(shown.out).not.toContain(TOKEN)
+      expect(parse(shown.out).values.token).toEqual({ value: "***", source: "file" })
+
+      // Both CLI and MCP now talk to the real hub with zero URL/token env vars.
+      const nodesRes = await cli(["nodes"], noAuthEnv)
+      expect(nodesRes.code).toBe(0)
+      expect(parse(nodesRes.out).length).toBeGreaterThan(0)
+
+      const server = mcp(noAuthEnv)
+      try {
+        await server.request("initialize", { protocolVersion: "2024-11-05" })
+        const listed = await server.request("tools/call", { name: "list_nodes", arguments: {} })
+        expect(JSON.parse(listed.result.content[0].text).length).toBeGreaterThan(0)
+      } finally {
+        server.close()
+      }
+    } finally {
+      rmSync(cfgDir, { recursive: true, force: true })
     }
   })
 })

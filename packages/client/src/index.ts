@@ -1,3 +1,4 @@
+import { loadConfigFile } from "@agenticform/protocol/config"
 import type {
   CallerTokenView,
   ErrorCode,
@@ -86,11 +87,25 @@ export class HubApiError extends Error {
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 /**
- * The bearer token from the environment: the admin token first, else a caller
- * token. Never from argv, a URL or a file (FR-005).
+ * The bearer token from the environment first, then the config file.
+ * Never from argv, a URL or a query parameter (FR-005).
  */
 export function envToken(env: Record<string, string | undefined> = process.env): string | undefined {
-  return env.AGENTICFORM_ADMIN_TOKEN || env.AGENTICFORM_TOKEN || undefined
+  if (env.AGENTICFORM_ADMIN_TOKEN || env.AGENTICFORM_TOKEN) {
+    return env.AGENTICFORM_ADMIN_TOKEN || env.AGENTICFORM_TOKEN || undefined
+  }
+  const file = loadConfigFile(env)
+  return file.adminToken || file.token || undefined
+}
+
+/** Resolve both hub URL and bearer token with env > config.json precedence. */
+export function resolveClientConfig(
+  env: Record<string, string | undefined> = process.env,
+): { url: string | undefined; token: string | undefined } {
+  const file = loadConfigFile(env)
+  const url = env.AGENTICFORM_HUB_URL || file.hubUrl || undefined
+  const token = env.AGENTICFORM_ADMIN_TOKEN || env.AGENTICFORM_TOKEN || file.adminToken || file.token || undefined
+  return { url, token }
 }
 
 export interface ClientOptions {

@@ -5,9 +5,9 @@ import {
   FOLLOW_STOP_STATUSES,
   HubApiError,
   HubClient,
-  envToken,
   normalizeAfter,
   reconnectDelay,
+  resolveClientConfig,
 } from "@agenticform/client"
 
 /** Cap buffered follow events per call; the caller pages with `nextAfter`. */
@@ -162,10 +162,13 @@ const TOOLS = [
 ] as const
 
 function client(): HubClient {
-  const url = process.env.AGENTICFORM_HUB_URL
-  const token = envToken()
-  if (!url) throw new Error("AGENTICFORM_HUB_URL is required")
-  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN is required")
+  const { url, token } = resolveClientConfig()
+  if (!url) throw new Error("hub URL is not configured (run `af init client` or set AGENTICFORM_HUB_URL)")
+  if (!token) {
+    throw new Error(
+      "token is not configured (run `af init client` or set AGENTICFORM_ADMIN_TOKEN / AGENTICFORM_TOKEN)",
+    )
+  }
   return new HubClient({ url, token })
 }
 

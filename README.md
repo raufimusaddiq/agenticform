@@ -128,46 +128,26 @@ Scripts run inside a Psychoscript bytecode VM with no ambient filesystem, networ
 
 ## Configuration
 
-Every environment variable below is read by at least one package. Empty defaults mean the feature is off until set. Secrets are marked; never put a real value in a file that is committed.
+For everyday use, configure once through `af` (`~/.config/agenticform/config.json`, mode `0600`) instead of managing dozens of environment variables:
 
-| Variable | Package | Default | Meaning |
-|---|---|---|---|
-| `AGENTICFORM_ADMIN_TOKEN` | hub, cli, mcp | none (required for hub) | Secret. Admin bearer token; the hub refuses to start below 32 characters. The CLI and MCP prefer it over `AGENTICFORM_TOKEN` |
-| `AGENTICFORM_TOKEN` | cli, mcp | none | Secret. Caller bearer token, typically a hub-issued `afc_<id>_<secret>` `runs` token. Used when `AGENTICFORM_ADMIN_TOKEN` is unset; never accepted as an argument |
-| `AGENTICFORM_RUN_MAX_DEPTH` | hub | `3` | Deepest `parentRunId` chain allowed; a child past it is `422 depth_exceeded` |
-| `AGENTICFORM_HUB_URL` | hub, node, cli, mcp | none (required except in hub) | Public origin. Nodes, CLI and MCP require it; a non-local value must be HTTPS |
-| `AGENTICFORM_STATE_DIR` | hub, node | `$HOME/.agenticform-hub`, `$HOME/.agenticform-node` | Directory for durable state |
-| `AGENTICFORM_HUB_DB` | hub | `$AGENTICFORM_STATE_DIR/hub.sqlite` | Explicit SQLite database path |
-| `AGENTICFORM_HUB_PORT` | hub | `8787` | Listen port |
-| `AGENTICFORM_HEARTBEAT_SECONDS` | hub, node | `15` | Heartbeat interval advertised to nodes, and the interval a node sends at |
-| `AGENTICFORM_POLL_MS` | hub, node | `1500` | Empty-poll backoff advertised to nodes, and a node's poll interval |
-| `AGENTICFORM_LEASE_SECONDS` | hub | `900` | Command lease length |
-| `AGENTICFORM_LEASE_RENEW_SECONDS` | node | `300` | How often a node renews its lease |
-| `AGENTICFORM_REQUEST_TIMEOUT_SECONDS` | node | `30` | Per-request timeout when calling the hub |
-| `AGENTICFORM_HARNESS_PROBE_TTL_SECONDS` | node | `300` | How long a non-ready harness probe result is cached before the next heartbeat re-probes |
-| `AGENTICFORM_HARNESS_PROBE_READY_TTL_SECONDS` | node | `3600` | How long a `ready` harness result is cached; a ready harness is stable, so it is probed less often |
-| `AGENTICFORM_HARNESS_PROBE_TIMEOUT_SECONDS` | node | `20` | Per-harness probe timeout; a hung harness becomes `unknown` and the heartbeat keeps beating |
-| `AGENTICFORM_CLOCK_SKEW_SECONDS` | hub | `120` | Allowed signed-request clock skew |
-| `AGENTICFORM_NODE_OFFLINE_SECONDS` | hub | `45` | Silence before a node is `OFFLINE`; must exceed the heartbeat interval |
-| `AGENTICFORM_ENROLLMENT_TTL_SECONDS` | hub | `600` | Enrollment token lifetime |
-| `AGENTICFORM_NONCE_TTL_SECONDS` | hub | `600` | Signed-request nonce lifetime |
-| `AGENTICFORM_NONCE_CLEANUP_SECONDS` | hub | `600` | Nonce cleanup interval |
-| `AGENTICFORM_RECOVERY_GRACE_SECONDS` | hub | `120` | Wait before a disconnected run may recover |
-| `AGENTICFORM_MAX_BODY_BYTES` | hub | `1048576` | Maximum request body before `413 payload_too_large` |
-| `AGENTICFORM_WORKFLOW_TIMEOUT_MS` | hub | `30000` | Maximum active JS execution budget per workflow (ms) |
-| `AGENTICFORM_WORKFLOW_MAX_OUTPUT_BYTES` | hub | `65536` | Maximum UTF-8 bytes retained for workflow result and logs |
-| `AGENTICFORM_WORKFLOW_MAX_SNAPSHOT_BYTES` | hub | `524288` | Maximum serialized Psychoscript snapshot size in bytes |
-| `AGENTICFORM_WORKFLOW_MAX_CHILD_RUNS` | hub | `20` | Maximum child runs a single workflow may create |
-| `AGENTICFORM_WORKFLOW_MAX_CODE_BYTES` | hub | `65536` | Maximum UTF-8 bytes accepted in workflow `code` |
-| `AGENTICFORM_WORKFLOW_PARK_MS` | hub | `50` | Delay before parking an awaiting workflow's VM snapshot to SQLite |
-| `AGENTICFORM_ENROLL_TOKEN` | node | none (required for `agenticform-node enroll`) | Secret. Single-use enrollment token issued by the hub |
-| `AGENTICFORM_NODE_NAME` | node | hostname | Name reported at enrollment |
-| `AGENTICFORM_NODE_SLOTS` | node | `1` | Concurrent commands the node accepts |
-| `AGENTICFORM_NODE_HARNESSES` | node | empty (none) | Comma-separated harness ids the node advertises |
-| `AGENTICFORM_NODE_CAPABILITIES` | node | empty (none) | Comma-separated capability overrides for the node |
-| `AGENTICFORM_CONFORMANCE_HARNESS` | runtime | unset (suite skipped) | Opt-in: run the conformance suite against this harness; may use paid inference |
-| `AGENTICFORM_REAL_HARNESS` | tests (node) | unset (skipped) | Opt-in: set to `1` to run tests that spawn or probe a real installed harness CLI; an absent harness still skips |
-| `AGENTICFORM_CONFORMANCE_CWD` | runtime | process cwd | Working directory given to the conformance harness |
+```bash
+af init hub --port 8787
+printf '%s\n' "$TOKEN" | af init client --url https://hub.example.com
+af init node --url https://hub.example.com --harnesses codex,claude --slots 2
+af config show   # prints effective values and source (env/file/default), with secrets redacted
+```
+
+Environment variables override the config file (`env > config.json > identity.json > default`). For containers, systemd, and CI, you normally only need:
+
+| Variable | Package | Meaning |
+|---|---|---|
+| `AGENTICFORM_CONFIG` | all | Override config file path (defaults to `~/.config/agenticform/config.json`) |
+| `AGENTICFORM_HUB_URL` | hub, node, cli, mcp | Hub origin (`https://` required for non-loopback hosts; enrolled nodes also remember this in `identity`) |
+| `AGENTICFORM_ADMIN_TOKEN` | hub, cli, mcp | Secret. Admin bearer token (≥32 chars in hub) |
+| `AGENTICFORM_TOKEN` | cli, mcp | Secret. Scoped `runs` caller token (`afc_<id>_<secret>`) |
+| `AGENTICFORM_ENROLL_TOKEN` | node (`enroll`) | Secret. Single-use enrollment token issued by the hub |
+
+All 15 `config.json` keys and the full advanced-tuning env reference live in [docs/configuration.md](docs/configuration.md).
 
 ## Memory
 
@@ -214,6 +194,7 @@ startup. A probe runs at most one at a time and never blocks a heartbeat.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Configuration](docs/configuration.md)
 - [Supported harnesses](docs/harnesses.md)
 - [Release evidence](docs/release-evidence.md)
 - [Constitution](.specify/memory/constitution.md)
@@ -222,6 +203,7 @@ startup. A probe runs at most one at a time and never blocks a heartbeat.
 - [Node and hub spec](specs/002-node-hub/spec.md)
 - [Harness isolation spec](specs/003-harness-isolation/spec.md)
 - [Psychoscript workflows spec](specs/005-psychoscript-workflows/spec.md)
+- [Unified CLI config spec](specs/006-cli-config/spec.md)
 - Soak test runner: [`scripts/soak.ts`](scripts/soak.ts)
 - Node packaging test: [`scripts/package-node.ts`](scripts/package-node.ts)
 

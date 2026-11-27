@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { loadConfigFile } from "@agenticform/protocol/config"
 
 export interface HubConfig {
   adminToken: string
@@ -30,13 +31,18 @@ const seconds = (value: string | undefined, fallback: number): number =>
 const millis = (value: string | undefined, fallback: number): number =>
   value === undefined ? fallback : Number(value)
 
+const nonEmpty = (value: string | undefined): string | undefined =>
+  value !== undefined && value !== "" ? value : undefined
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): HubConfig {
-  const stateDir = env.AGENTICFORM_STATE_DIR ?? join(env.HOME ?? ".", ".agenticform-hub")
+  const file = loadConfigFile(env)
+  const home = nonEmpty(env.HOME) ?? nonEmpty(env.USERPROFILE) ?? "."
+  const stateDir = nonEmpty(env.AGENTICFORM_STATE_DIR) ?? file.hub?.stateDir ?? join(home, ".agenticform-hub")
   const config: HubConfig = {
-    adminToken: env.AGENTICFORM_ADMIN_TOKEN ?? "",
-    publicUrl: env.AGENTICFORM_HUB_URL ?? null,
-    stateFile: env.AGENTICFORM_HUB_DB ?? join(stateDir, "hub.sqlite"),
-    port: Number(env.AGENTICFORM_HUB_PORT ?? 8787),
+    adminToken: nonEmpty(env.AGENTICFORM_ADMIN_TOKEN) ?? file.adminToken ?? "",
+    publicUrl: nonEmpty(env.AGENTICFORM_HUB_URL) ?? file.hub?.publicUrl ?? null,
+    stateFile: nonEmpty(env.AGENTICFORM_HUB_DB) ?? file.hub?.dbPath ?? join(stateDir, "hub.sqlite"),
+    port: Number(nonEmpty(env.AGENTICFORM_HUB_PORT) ?? file.hub?.port ?? 8787),
     clockSkewMs: seconds(env.AGENTICFORM_CLOCK_SKEW_SECONDS, 120_000),
     heartbeatIntervalMs: seconds(env.AGENTICFORM_HEARTBEAT_SECONDS, 15_000),
     nodeOfflineMs: seconds(env.AGENTICFORM_NODE_OFFLINE_SECONDS, 45_000),
@@ -47,11 +53,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     pollMs: millis(env.AGENTICFORM_POLL_MS, 1_500),
     recoveryGraceMs: seconds(env.AGENTICFORM_RECOVERY_GRACE_SECONDS, 120_000),
     maxBodyBytes: millis(env.AGENTICFORM_MAX_BODY_BYTES, 1_048_576),
-    maxDepth: millis(env.AGENTICFORM_RUN_MAX_DEPTH, 3),
-    workflowTimeoutMs: millis(env.AGENTICFORM_WORKFLOW_TIMEOUT_MS, 30_000),
+    maxDepth: millis(nonEmpty(env.AGENTICFORM_RUN_MAX_DEPTH), file.hub?.maxDepth ?? 3),
+    workflowTimeoutMs: millis(
+      nonEmpty(env.AGENTICFORM_WORKFLOW_TIMEOUT_MS),
+      file.hub?.workflowTimeoutMs ?? 30_000,
+    ),
     workflowMaxOutputBytes: millis(env.AGENTICFORM_WORKFLOW_MAX_OUTPUT_BYTES, 65_536),
     workflowMaxSnapshotBytes: millis(env.AGENTICFORM_WORKFLOW_MAX_SNAPSHOT_BYTES, 524_288),
-    workflowMaxChildRuns: millis(env.AGENTICFORM_WORKFLOW_MAX_CHILD_RUNS, 20),
+    workflowMaxChildRuns: millis(
+      nonEmpty(env.AGENTICFORM_WORKFLOW_MAX_CHILD_RUNS),
+      file.hub?.workflowMaxChildRuns ?? 20,
+    ),
     workflowMaxCodeBytes: millis(env.AGENTICFORM_WORKFLOW_MAX_CODE_BYTES, 65_536),
     workflowParkMs: millis(env.AGENTICFORM_WORKFLOW_PARK_MS, 50),
   }

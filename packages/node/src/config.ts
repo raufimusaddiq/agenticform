@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { loadConfigFile } from "@agenticform/protocol/config"
 import {
   NODE_CAPABILITIES_MAX_COUNT,
   NODE_HARNESSES_MAX_COUNT,
@@ -7,6 +8,7 @@ import {
   NODE_NAME_MAX_LENGTH,
   NODE_STRING_MAX_LENGTH,
 } from "@agenticform/protocol"
+import { loadIdentity } from "./identity.ts"
 
 export interface NodeConfig {
   hubUrl: string
@@ -27,10 +29,17 @@ const seconds = (value: string | undefined, fallback: number): number =>
 const millis = (value: string | undefined, fallback: number): number =>
   value === undefined ? fallback : Number(value)
 
+const nonEmpty = (value: string | undefined): string | undefined =>
+  value !== undefined && value !== "" ? value : undefined
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): NodeConfig {
-  const stateDir = env.AGENTICFORM_STATE_DIR ?? join(env.HOME ?? ".", ".agenticform-node")
+  const file = loadConfigFile(env)
+  const home = nonEmpty(env.HOME) ?? nonEmpty(env.USERPROFILE) ?? "."
+  const stateDir =
+    nonEmpty(env.AGENTICFORM_STATE_DIR) ?? file.node?.stateDir ?? join(home, ".agenticform-node")
+  const hubUrl = nonEmpty(env.AGENTICFORM_HUB_URL) ?? file.hubUrl ?? loadIdentity(stateDir)?.hubUrl ?? ""
   const config: NodeConfig = {
-    hubUrl: env.AGENTICFORM_HUB_URL ?? "",
+    hubUrl,
     stateDir,
     heartbeatIntervalMs: seconds(env.AGENTICFORM_HEARTBEAT_SECONDS, 15_000),
     pollMs: millis(env.AGENTICFORM_POLL_MS, 1_500),

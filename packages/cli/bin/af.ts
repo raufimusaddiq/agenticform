@@ -1,17 +1,37 @@
 #!/usr/bin/env bun
+import { randomBytes } from "node:crypto"
 import { readFileSync, writeFileSync } from "node:fs"
 import type { RunRequest, WorkflowLimits, WorkflowRequest } from "@agenticform/protocol"
+import {
+  SECRET_CONFIG_KEYS,
+  defaultConfigPath,
+  loadConfigFile,
+  redactedConfigView,
+  saveConfigFile,
+  setConfigValue,
+  unsetConfigValue,
+  validateConfigFile,
+  type AgenticformConfigFile,
+} from "@agenticform/protocol/config"
 import {
   FOLLOW_STOP_STATUSES,
   HubApiError,
   HubClient,
-  envToken,
   normalizeAfter,
   reconnectDelay,
+  resolveClientConfig,
 } from "@agenticform/client"
-import { createScriptRuntime, type Json } from "@agenticform/script"
+import { createScriptRuntime } from "@agenticform/script"
 
 const USAGE = `usage: af <command>
+  af init hub [--port <n>] [--public-url <url>] [--state-dir <dir>] [--force]
+  af init client --url <hubUrl>     (reads token from stdin)
+  af init node --url <hubUrl> [--name <name>] [--slots <n>] [--harnesses a,b]
+               [--capabilities a,b] [--state-dir <dir>]
+  af config path
+  af config show
+  af config set <key> <value>       (for token/adminToken, omit value and pass via stdin)
+  af config unset <key>
   af nodes
   af run start --harness <h> --prompt <text> --key <idempotency-key>
                [--cwd <dir>] [--node <id>] [--requires a,b] [--label k=v]...
@@ -39,14 +59,31 @@ const USAGE = `usage: af <command>
 
 Flags also accept --flag=value. Use that form when a value starts with "--".
 
+Config file: AGENTICFORM_CONFIG or ~/.config/agenticform/config.json (env overrides file).
 Environment: AGENTICFORM_HUB_URL, AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN`
 
 function client(): HubClient {
-  const url = process.env.AGENTICFORM_HUB_URL
-  const token = envToken()
-  if (!url) throw new Error("AGENTICFORM_HUB_URL is required")
-  if (!token) throw new Error("AGENTICFORM_ADMIN_TOKEN or AGENTICFORM_TOKEN is required")
+  const { url, token } = resolveClientConfig()
+  if (!url) throw new Error("hub URL is not configured (run `af init client` or set AGENTICFORM_HUB_URL)")
+  if (!token) {
+    throw new Error(
+      "token is not configured (run `af init client` or set AGENTICFORM_ADMIN_TOKEN / AGENTICFORM_TOKEN)",
+    )
+  }
   return new HubClient({ url, token })
+}
+
+async function readStdinSecret(label: string): Promise<string> {
+  if (process.stdin.isTTY) {
+    throw new Error(`${label} must be piped on stdin (e.g. printf '%s\\n' "$TOKEN" | af ...)`)
+  }
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk))
+  }
+  const value = Buffer.concat(chunks).toString("utf8").trim()
+  if (!value) throw new Error(`${label} on stdin is required`)
+  return value
 }
 
 function flag(args: string[], name: string): string | undefined {
@@ -143,6 +180,165 @@ function rejectUnknownFlags(args: string[], allowed: readonly string[]): void {
 
 async function main(argv: string[]): Promise<void> {
   const [group, action, id] = argv
+
+  if (group === "config") {
+    const rest = argv.slice(2)
+    if (action === "path") {
+      rejectUnknownFlags(rest, [])
+      if (rest.length > 0) throw new Error(`unexpected argument: ${rest[0]}`)
+      console.log(defaultConfigPath())
+      return
+    }
+    if (action === "show") {
+      rejectUnknownFlags(rest, [])
+      if (rest.length > 0) throw new Error(`unexpected argument: ${rest[0]}`)
+      return print(redactedConfigView())
+    }
+    if (action === "set") {
+      rejectUnknownFlags(rest, [])
+      const [key, value] = rest
+      if (!key) throw new Error("af config set <key> <value>")
+      let resolvedValue = value
+      if (SECRET_CONFIG_KEYS.has(key)) {
+        if (value !== undefined) {
+          throw new Error("secrets must be passed on stdin, never as an argument")
+        }
+        if (rest.length !== 1) throw new Error(`unexpected argument: ${rest[1]}`)
+        resolvedValue = await readStdinSecret(key)
+      } else {
+        if (resolvedValue === undefined) throw new Error("af config set <key> <value>")
+        if (rest.length > 2) throw new Error(`unexpected argument: ${rest[2]}`)
+      }
+      const path = defaultConfigPath()
+      const updated = setConfigValue(loadConfigFile(), key, resolvedValue)
+      saveConfigFile(updated, path)
+      return print({ configPath: path, key, updated: true })
+    }
+    if (action === "unset") {
+      rejectUnknownFlags(rest, [])
+      const [key] = rest
+      if (!key) throw new Error("af config unset <key>")
+      if (rest.length > 1) throw new Error(`unexpected argument: ${rest[1]}`)
+      const path = defaultConfigPath()
+      const updated = unsetConfigValue(loadConfigFile(), key)
+      saveConfigFile(updated, path)
+      return print({ configPath: path, key, unset: true })
+    }
+    throw new Error(USAGE)
+  }
+
+  if (group === "init") {
+    const rest = argv.slice(2)
+    const path = defaultConfigPath()
+    const existing = loadConfigFile()
+    if (action === "hub") {
+      rejectUnknownFlags(rest, ["port", "public-url", "state-dir", "force"])
+      const port = parseOptionalIntFlag(rest, "port", 0) ?? existing.hub?.port ?? 8787
+      const publicUrl = flag(rest, "public-url")
+      const stateDir = flag(rest, "state-dir")
+      const forceFlag = rest.find((arg) => arg === "--force" || arg.startsWith("--force="))
+      let force = false
+      if (forceFlag !== undefined) {
+        if (forceFlag === "--force") {
+          const nextArg = rest[rest.indexOf("--force") + 1]
+          if (nextArg === "true" || nextArg === "false") {
+            throw new Error(`--force takes no space-separated value; use --force=${nextArg}`)
+          }
+          force = true
+        } else {
+          const value = forceFlag.slice("--force=".length)
+          if (value !== "true" && value !== "false") throw new Error("--force must be true or false")
+          force = value === "true"
+        }
+      }
+      const generated = force || !existing.adminToken
+      const adminToken = generated ? randomBytes(32).toString("hex") : existing.adminToken!
+      const nextHub = {
+        ...existing.hub,
+        port,
+        ...(publicUrl === undefined ? {} : { publicUrl }),
+        ...(stateDir === undefined ? {} : { stateDir }),
+      }
+      const next: AgenticformConfigFile = validateConfigFile(
+        {
+          ...existing,
+          adminToken,
+          hubUrl: publicUrl ?? existing.hub?.publicUrl ?? `http://127.0.0.1:${port}`,
+          hub: nextHub,
+        },
+        path,
+      )
+      saveConfigFile(next, path)
+      return print({
+        configPath: path,
+        role: "hub",
+        hubUrl: next.hubUrl,
+        port,
+        adminTokenGenerated: generated,
+      })
+    }
+    if (action === "client") {
+      rejectUnknownFlags(rest, ["url"])
+      const hubUrl = flag(rest, "url")
+      if (!hubUrl) throw new Error("af init client --url <hubUrl>")
+      const token = await readStdinSecret("token")
+      const next: AgenticformConfigFile = validateConfigFile(
+        {
+          ...existing,
+          hubUrl,
+          token,
+        },
+        path,
+      )
+      saveConfigFile(next, path)
+      return print({
+        configPath: path,
+        role: "client",
+        hubUrl: next.hubUrl,
+        tokenConfigured: true,
+      })
+    }
+    if (action === "node") {
+      rejectUnknownFlags(rest, ["url", "name", "slots", "harnesses", "capabilities", "state-dir"])
+      const hubUrl = flag(rest, "url")
+      if (!hubUrl) throw new Error("af init node --url <hubUrl>")
+      const name = flag(rest, "name")
+      const slots = parseOptionalIntFlag(rest, "slots", 1)
+      const harnessesRaw = flag(rest, "harnesses")
+      const capabilitiesRaw = flag(rest, "capabilities")
+      const stateDir = flag(rest, "state-dir")
+      const splitList = (raw: string): string[] =>
+        raw
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      const nextNode = {
+        ...existing.node,
+        ...(name === undefined ? {} : { name }),
+        ...(slots === undefined ? {} : { slots }),
+        ...(harnessesRaw === undefined ? {} : { harnesses: splitList(harnessesRaw) }),
+        ...(capabilitiesRaw === undefined ? {} : { capabilities: splitList(capabilitiesRaw) }),
+        ...(stateDir === undefined ? {} : { stateDir }),
+      }
+      const next: AgenticformConfigFile = validateConfigFile(
+        {
+          ...existing,
+          hubUrl,
+          ...(Object.keys(nextNode).length > 0 ? { node: nextNode } : {}),
+        },
+        path,
+      )
+      saveConfigFile(next, path)
+      return print({
+        configPath: path,
+        role: "node",
+        hubUrl: next.hubUrl,
+        node: next.node ?? {},
+        next: "agenticform-node enroll",
+      })
+    }
+    throw new Error(USAGE)
+  }
 
   if (group === "nodes") {
     rejectUnknownFlags(argv.slice(1), [])
